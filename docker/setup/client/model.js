@@ -104,6 +104,19 @@ const T3Model = (() => {
   /** Whether `latest` is a newer release than `installed`. Unknown is no. */
   const isNewer = (latest, installed) => Boolean(latest && installed && compareVersions(latest, installed) > 0);
 
+  const runtimeView = (s) => {
+    const runtime = s?.t3?.runtime;
+    if (!runtime) return null;
+    const op = runtime.operation;
+    const phases = { checking: 'Checking release', downloading: 'Downloading', verifying: 'Verifying download', stopping: 'Restarting T3 Code', snapshot: 'Saving a recovery snapshot', starting: 'Starting new version', restoring: 'Restoring previous version' };
+    const busy = Boolean(op && phases[op.phase]);
+    const release = runtime.releases?.[runtime.channel]?.version;
+    return { ...runtime, busy, phaseText: busy ? phases[op.phase] : null,
+      available: Boolean(release && isNewer(release, runtime.version)),
+      latest: release || null,
+      error: op && ['failed', 'rolled-back', 'interrupted'].includes(op.phase) ? op.error : null };
+  };
+
   // ------------------------------------------------------------- formats --
   const toMs = (value) => {
     if (value === null || value === undefined || value === '') return null;
@@ -1358,7 +1371,7 @@ const T3Model = (() => {
         return scm.length ? signed + ' of ' + plural(scm.length, 'CLI') + ' signed in' : 'Not readable yet';
       })() },
       ports: { text: ports ? (ports.available === false ? 'Publishing unavailable' : [portList.filter((p) => p.listening).length + ' listening', portList.filter((p) => p.state === 'open').length ? portList.filter((p) => p.state === 'open').length + ' published' : null].filter(Boolean).join(' · ')) : '' },
-      environment: { text: 'Read from the container at boot' },
+      environment: { text: 'Versions, updates and container settings' },
       more: { text: '' },
     };
   };
@@ -1580,7 +1593,7 @@ const T3Model = (() => {
     deviceRows, linkRows, deviceKind, deviceName,
     readiness, readySummary, needsYou, activity, setupBanner,
     publicUrlSource, hereOffer, connectView,
-    navBadges, attentionCount, summaries,
+    navBadges, attentionCount, summaries, runtimeView,
     paletteItems, searchPalette,
     redactedDiagnostics,
   };

@@ -40,6 +40,9 @@ keeping everything up to date, without a shell in the container.
 - **Reachable from T3 Code's settings.** Once a browser is paired, Settings has
   a **Setup** entry that opens the setup page in a dialog, signed in with your
   T3 Code session.
+- **Upgrade T3 Code without recreating the container.** Choose Stable or
+  Nightly in Setup → Environment, then install when you are ready. Only T3
+  Code restarts; the chosen version and channel stay on the volume.
 - **Sign agents in from the browser.** The setup page runs each agent's own
   sign-in flow and shows you the link, QR code or code to enter. Credentials are
   stored on the state volume and survive a recreate.
@@ -70,6 +73,7 @@ keeping everything up to date, without a shell in the container.
 - [Publishing a port](#publishing-a-port)
 - [Giving agents a browser](#giving-agents-a-browser)
 - [Agents](#agents)
+- [Upgrading T3 Code](#upgrading-t3-code)
 - [Toolchains](#toolchains)
 - [Source control](#source-control)
 - [How long things last](#how-long-things-last)
@@ -651,6 +655,57 @@ under Devices.
 [`examples/opencode/`](examples/opencode/)), or point a provider instance's
 environment variables at a compatible endpoint.
 
+## Upgrading T3 Code
+
+Open **Setup → Environment → T3 Code updates**. **Check for updates** reads the
+official platform package's published channel, and **Update and restart**
+installs its exact release immediately. It does not use mise's waiting period.
+
+**Stable** is the default. Choose **Nightly** to try new features earlier, or
+choose **Stable** again to return to its latest published release. The
+confirmation shows the exact target and explains the interruption before
+anything is installed. Changing channels can intentionally select an older
+release; Update within a channel never downgrades a newer installed version.
+
+Checks run on startup and hourly. Downloads and restarts happen only when you
+confirm an update. T3 Code keeps running while the release downloads, verifies
+its SHA-512 integrity and checks compatibility with the container supervisor.
+Once ready, only T3 Code restarts. Active agent turns and its terminals stop;
+clients reconnect. The Setup service and container keep running. A failed or
+timed-out startup restores the previous version and SQLite snapshot, and an
+interrupted update recovers before the server starts again.
+
+The channel, selected native binary, adjacent client assets and cached releases
+live in `$T3CODE_HOME/container-runtime` on the state volume. They survive a
+container restart or image recreate. The image still supplies the initial
+release and the supervisor; an explicitly selected release stays selected
+after an image upgrade. Existing images need one image upgrade to gain this
+feature, and future releases which require a newer supervisor may still need
+a new image.
+
+After a successful update, obsolete cached releases are removed. The active
+release, its predecessor and the latest known target for each channel are kept.
+
+Current Nightly releases use a newer thread database than Stable 0.0.45.
+Nightly seeds it from the older database once; later channel switches keep the
+two histories separately. Returning to Stable can therefore show earlier
+history, and returning to Nightly shows its retained history. Both databases
+are preserved on the volume. Device pairings, revocations and consumed pairing
+links follow channel switches when the native authentication schemas match;
+an incompatible format stops the switch safely. This limitation appears in
+the channel confirmation as well.
+
+New permission scopes are limited to what the target release understands.
+Switching stops if a restricted credential would gain older broad permissions;
+revoke that credential before retrying.
+When an unchanged credential returns to a newer release, its previously
+granted permissions are restored; revocations still follow the active store.
+Existing older credentials may need pairing again to grant newly introduced
+permissions, as required by T3 Code itself.
+Conversely, credentials first issued on Nightly can contain signed permission
+claims Stable 0.0.45 cannot decode. Those devices need pairing again on Stable;
+their original credentials work again on Nightly unless revoked or expired.
+
 ## Toolchains
 
 Go, Rust (with clippy and rustfmt), Bun, Deno and uv install on first start,
@@ -813,7 +868,7 @@ the setup page. T3 Connect avoids it by renewing client credentials instead of
 letting them expire.
 
 None of this affects your data. Threads, projects, provider sign-ins and history
-are stored in `state.sqlite` on the `/home/t3` volume, and re-pairing brings
+are stored in T3 Code's SQLite databases on the `/home/t3` volume, and re-pairing brings
 everything back.
 
 ## Configuration

@@ -115,12 +115,40 @@ const T3_TIMEOUT_MS = 15_000;
 // immutable launcher rather than resolving `t3` through PATH. Anything on PATH
 // - a project shim, a mise shim - would otherwise be able to answer.
 const T3_LAUNCHER = process.env.T3_INFRA_LAUNCHER || "/usr/local/bin/t3-admin";
-const t3 = (args) =>
-  run(T3_LAUNCHER, args, {
+const t3InFlight = new Set();
+const runtimeModule = await import(process.env.T3_RUNTIME_MODULE || (existsSync("/opt/t3-runtime/manager.mjs")
+  ? "/opt/t3-runtime/manager.mjs" : new URL("../runtime/manager.mjs", import.meta.url).href));
+const runtimeManager = runtimeModule.createRuntimeManager({
+  supervised: () => {
+    try {
+      const supervisor = JSON.parse(readFileSync(`${process.env.T3_RUN_DIR || "/tmp/t3code"}/supervisor.json`, "utf8"));
+      if (supervisor.protocol !== 3 || !Number.isInteger(supervisor.pid) || supervisor.pid < 2 || !t3Pid()) return false;
+      process.kill(supervisor.pid, 0);
+      return true;
+    } catch { return false; }
+  },
+  restart: async () => {
+    // The durable stopping phase blocks new CLI work. Let calls which already
+    // opened SQLite finish before the supervisor snapshots either store.
+    await Promise.allSettled([...t3InFlight]);
+    const result = restartT3("to apply a T3 Code update");
+    if (!result.body.ok) throw new Error(result.body.error);
+  },
+  onEvent: (...args) => recordEvent(...args),
+});
+const runtimeOperation = () => {
+  try { return JSON.parse(readFileSync(runtimeManager.paths.operation, "utf8")); } catch { return null; }
+};
+const t3 = async (args) => {
+  if (runtimeModule.databaseBusy(runtimeOperation())) throw new Error("T3 Code is applying an update. Its data will be readable again after startup.");
+  const call = run(T3_LAUNCHER, args, {
     env: process.env,
     maxBuffer: 4 * 1024 * 1024,
     timeout: T3_TIMEOUT_MS,
   });
+  t3InFlight.add(call);
+  return call.finally(() => t3InFlight.delete(call));
+};
 
 // T3 Code's own API, for what only T3 can do: install Google's Antigravity
 // runtime (T3 pins and checks it) and sign it in. The console holds a bearer
@@ -707,6 +735,10 @@ const status = async () => {
     degraded.push({ what, error: String(raced.error ?? "unavailable").slice(0, 200) });
     return fallback;
   };
+  // Keep the upgrade phase from the same side of the restart as these reads.
+  // Otherwise a request begun during the snapshot can show "updated" beside
+  // device lists which were deliberately unavailable while SQLite was parked.
+  const runtimeSeen = await attempt("T3 Code updates", () => runtimeManager.status(), null);
   // Antigravity, as T3 reports it, read beside the rest. Its own short cache:
   // a poll waits on T3 only for the very first read.
   const antigravityRead = attempt("Antigravity", () => antigravity.status(), null);
@@ -772,6 +804,7 @@ const status = async () => {
     // the page can offer to go back to it.
     publicUrlPlatform: platformUrl(process.env),
     t3: {
+      runtime: runtimeSeen,
       port: Number(T3_PORT),
       bind: `${process.env.T3CODE_HOST || "0.0.0.0"}:${T3_PORT}`,
       // Under the image's supervisor (docker/run-t3.sh), this page can
@@ -947,6 +980,9 @@ const restartT3 = (why = null) => {
     return { http: 500, body: { ok: false, error: `Could not restart T3 Code (${error.code ?? error.message}).` } };
   }
   forgetConnect();
+  // The new release can require different native permission scopes. Do not
+  // reconnect Setup's API with a credential issued by the previous release.
+  t3Api.reset();
   recordEvent("t3.restarted", "Restarted T3 Code", why);
   return { http: 202, body: { ok: true, pid } };
 };
@@ -2059,7 +2095,7 @@ const cancelLifecycle = (target, rawId) => {
 
 const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/devices/rename", "/ports",
   "/public-url/clear", "/public-url", "/setup-key/reveal", "/setup-key/replace", "/connect/unlink", "/t3/restart",
-  "/ports/expose", "/ports/unexpose",
+  "/t3/updates/check", "/t3/update", "/ports/expose", "/ports/unexpose",
   "/harnesses/install", "/harnesses/update", "/harnesses/uninstall", "/harnesses/cancel", "/harnesses/versions", "/harnesses/enable", "/harnesses",
   "/toolchains/install", "/toolchains/update", "/toolchains/uninstall", "/toolchains/cancel",
   "/auth/apikey/remove", "/auth/apikey", "/auth/signin", "/auth/session", "/auth/code", "/auth/cancel",
@@ -2241,6 +2277,10 @@ const server = createServer(async (req, res) => {
     if (!authed) {
       await throttle(ip);
       return sendJson(res, 401, { error: "unauthorized" });
+    }
+
+    if (req.method === "POST" && runtimeModule.databaseBusy(runtimeOperation()) && !["/logout", "/t3/updates/check"].includes(route)) {
+      return sendJson(res, 409, { ok: false, error: "T3 Code is applying an update. Try again when it is back." });
     }
 
     // `viewer` says how this browser got in, so the page offers Lock only
@@ -2501,9 +2541,23 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && route === "/t3/restart") {
+      if (runtimeModule.operationBusy(runtimeOperation())) return sendJson(res, 409, { ok: false, error: "Wait for the T3 Code update to finish before restarting it." });
       const input = JSON.parse((await readBody(req)) || "{}");
       const answer = restartT3(input.why === "connect" ? "to turn T3 Connect on" : null);
       return sendJson(res, answer.http, answer.body);
+    }
+
+    if (req.method === "POST" && route === "/t3/updates/check") {
+      const result = await runtimeManager.check();
+      return sendJson(res, result.error ? 502 : 200, { ok: !result.error, ...result });
+    }
+
+    if (req.method === "POST" && route === "/t3/update") {
+      let input;
+      try { input = JSON.parse((await readBody(req)) || "{}"); }
+      catch { return sendJson(res, 400, { ok: false, error: "Expected a release channel and version." }); }
+      const result = await runtimeManager.update(input);
+      return sendJson(res, result.http, result.body);
     }
 
     if (req.method === "POST" && route === "/connect/unlink") {
@@ -2575,6 +2629,8 @@ server.listen(PORT, "0.0.0.0", () => {
   // then) and every half hour after that, each pass skipped while fresh.
   void storage.refresh();
   void latestCache.load();
+  void runtimeManager.check().catch(() => {});
+  setInterval(() => { void runtimeManager.check().catch(() => {}); }, 60 * 60 * 1000).unref();
   setTimeout(() => { void latestCache.refresh().catch(() => {}); }, 30_000).unref();
   // A pass runs once the last is an hour old; looking every ten minutes keeps
   // an answer from going much past that.

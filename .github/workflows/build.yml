@@ -20,6 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - name: Shell scripts parse and pass shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
@@ -34,7 +37,7 @@ jobs:
           bash tests/user-env.test.sh
           bash tests/run-t3.test.sh
           bash tests/persist-credentials.test.sh
-          for f in docker/setup/app.js docker/setup/client/*.js docker/setup/design/ui.js docker/router/*.mjs; do
+          for f in docker/setup/app.js docker/setup/client/*.js docker/setup/design/ui.js docker/router/*.mjs docker/runtime/*.mjs; do
             node --check "$f"
           done
           node --test tests/*.test.mjs

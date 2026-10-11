@@ -402,12 +402,26 @@ assert isinstance(s.get('events'), list), 'events'
 assert s.get('platform', '').startswith('linux/'), 'platform'
 assert s.get('setupKeySource') in ('env', 'volume', 'boot'), 'setupKeySource'
 assert 'uptimeSeconds' in s['server'], 'uptimeSeconds'
+runtime = s['t3']['runtime']
+assert runtime['supported'] is True, 'T3 upgrade supervisor'
+assert runtime['channel'] == 'stable', 'initial release channel'
+assert runtime['version'] == s['server']['version'], 'selected T3 release matches running server'
+assert set(runtime['releases']) <= {'stable', 'nightly'}, 'only public release channels'
 assert all('latestVersion' in h for h in s['harnesses']), 'harness latestVersion'
 assert all('latestVersion' in t for t in s['toolchains']), 'toolchain latestVersion'
 assert 'volumeKind' in s['paths'] and 'volumeBytes' in s['paths'], 'storage facts'
 "
 }
 check "status carries what the console reads" status_has_console_fields
+
+t3_update_access_is_gated() {
+  local payload
+  payload='{"channel":"stable","version":"0.0.45"}'
+  [ "$(docker exec "$NAME" curl -sS -o /dev/null -w '%{http_code}' -H 'content-type: application/json' -d "$payload" http://127.0.0.1:3774/t3/update)" = 401 ] || return 1
+  [ "$(docker exec "$NAME" curl -sS -o /dev/null -w '%{http_code}' -b /tmp/jar -H 'sec-fetch-site: cross-site' -H 'content-type: application/json' -d "$payload" http://127.0.0.1:3774/t3/update)" = 403 ] || return 1
+  [ "$(docker exec "$NAME" curl -sS -o /dev/null -w '%{http_code}' -b /tmp/jar -H 'content-type: application/json' -d '{"channel":"preview","version":"0.0.45"}' http://127.0.0.1:3774/t3/update)" = 400 ]
+}
+check "T3 Code upgrades require sign-in, same-site access and a public channel" t3_update_access_is_gated
 
 # This container carries an older image's settings (see LEGACY_ENV). They are
 # reported, the image still names itself correctly, and nothing it started runs

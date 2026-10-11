@@ -20,6 +20,14 @@
 #     then shuts down as before, and nothing is restarted.
 set -uo pipefail
 
+# The managed T3 process adds durable runtime selection and upgrade trials.
+# Keep the generic supervisor below for custom commands and its shell tests.
+runtime_supervisor="${T3_RUNTIME_SUPERVISOR:-/opt/t3-runtime/supervisor.mjs}"
+if [ "${1:-}" = "${T3_INFRA_LAUNCHER:-/usr/local/bin/t3-admin}" ] && [ -f "$runtime_supervisor" ]; then
+  shift
+  exec "${T3_INFRA_NODE:-/usr/local/bin/node}" "$runtime_supervisor" "$@"
+fi
+
 log() { printf '[t3code] %s\n' "$*" >&2; }
 
 : "${T3_RUN_DIR:=/tmp/t3code}"
