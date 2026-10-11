@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { runtimePaths, writeJson, readJson, readSelection, selectedRuntime, exactVersion } from "../docker/runtime/state.mjs";
 import { createRuntimeManager, packageRelease, installRelease, validateArchive, executableVersion } from "../docker/runtime/manager.mjs";
-import { recoverUpdate, snapshotDatabase, syncAuthentication, pruneRuntimes } from "../docker/runtime/supervisor.mjs";
+import { recoverUpdate, snapshotDatabase, syncAuthentication, pruneRuntimes, projectScopes } from "../docker/runtime/supervisor.mjs";
 
 const NIGHTLY = "0.0.46-nightly.20261011.2980";
 async function world(t) {
@@ -311,4 +311,45 @@ test("retired nightly caches are removed while active, previous and channel targ
   await writeJson(paths.releases, { channels: { stable: { version: "0.0.45" }, nightly: { version: NIGHTLY } } });
   await pruneRuntimes(paths, { version: NIGHTLY, previous: { version: previous } });
   assert.deepEqual((await fs.readdir(paths.versions)).sort(), ["0.0.45", previous, NIGHTLY, "unrecognized"].sort());
+});
+
+const LEGACY = ["orchestration:read", "orchestration:operate", "terminal:operate", "access:read", "access:write"];
+const GRANULAR = [...LEGACY, "filesystem:read", "diagnostics:read", "settings:write", "providers:manage", "environment:maintain", "preview:operate", "source-control:write", "filesystem:write", "terminal:read"];
+test("restricted granular grants cannot gain broad older-release permissions", () => {
+  assert.deepEqual(projectScopes(["orchestration:operate"], GRANULAR, LEGACY), []);
+  assert.deepEqual(projectScopes(["orchestration:read", "filesystem:read"], GRANULAR, LEGACY), []);
+  assert.deepEqual(projectScopes(GRANULAR, GRANULAR, LEGACY), LEGACY);
+});
+
+test("new nightly devices remain readable on Stable and regain only their prior grants on return", async (t) => {
+  const { paths } = await world(t);
+  const { DatabaseSync } = await import("node:sqlite");
+  for (const file of ["state.sqlite", "statev2.sqlite"]) {
+    const db = new DatabaseSync(path.join(paths.home, "userdata", file));
+    db.exec("CREATE TABLE auth_sessions (session_id TEXT PRIMARY KEY, subject TEXT, issued_at TEXT, method TEXT, scopes TEXT, revoked_at TEXT); CREATE TABLE auth_pairing_links (id TEXT PRIMARY KEY, credential TEXT, subject TEXT, created_at TEXT, method TEXT, scopes TEXT, consumed_at TEXT, revoked_at TEXT)");
+    db.close();
+  }
+  const nightly = new DatabaseSync(path.join(paths.home, "userdata/statev2.sqlite"));
+  const insert = nightly.prepare("INSERT INTO auth_sessions VALUES (?, 'device', 'issued', 'bearer-access-token', ?, NULL)");
+  insert.run("admin", JSON.stringify(GRANULAR));
+  insert.run("restricted", JSON.stringify(["orchestration:operate"]));
+  insert.run("changed", JSON.stringify(GRANULAR));
+  nightly.prepare("INSERT INTO auth_pairing_links VALUES ('link', 'credential', 'device', 'created', 'one-time-token', ?, 'consumed', NULL)").run(JSON.stringify(GRANULAR));
+  nightly.close();
+  await syncAuthentication(paths, { fromDatabase: "statev2.sqlite", targetDatabase: "state.sqlite", fromScopes: GRANULAR, targetScopes: LEGACY });
+  const stable = new DatabaseSync(path.join(paths.home, "userdata/state.sqlite"));
+  assert.deepEqual(JSON.parse(stable.prepare("SELECT scopes FROM auth_sessions WHERE session_id='admin'").get().scopes), LEGACY);
+  assert.deepEqual(JSON.parse(stable.prepare("SELECT scopes FROM auth_sessions WHERE session_id='restricted'").get().scopes), []);
+  stable.exec("UPDATE auth_sessions SET revoked_at='revoked' WHERE session_id='admin'");
+  stable.prepare("UPDATE auth_sessions SET scopes=? WHERE session_id='changed'").run(JSON.stringify(["orchestration:read"]));
+  stable.close();
+  await syncAuthentication(paths, { fromDatabase: "state.sqlite", targetDatabase: "statev2.sqlite", fromScopes: LEGACY, targetScopes: GRANULAR });
+  const reread = new DatabaseSync(path.join(paths.home, "userdata/statev2.sqlite"));
+  const admin = reread.prepare("SELECT scopes,revoked_at FROM auth_sessions WHERE session_id='admin'").get();
+  assert.deepEqual(JSON.parse(admin.scopes), GRANULAR);
+  assert.equal(admin.revoked_at, "revoked");
+  assert.deepEqual(JSON.parse(reread.prepare("SELECT scopes FROM auth_sessions WHERE session_id='restricted'").get().scopes), ["orchestration:operate"]);
+  assert.deepEqual(JSON.parse(reread.prepare("SELECT scopes FROM auth_sessions WHERE session_id='changed'").get().scopes), ["orchestration:read"]);
+  assert.equal(reread.prepare("SELECT consumed_at FROM auth_pairing_links").get().consumed_at, "consumed");
+  reread.close();
 });

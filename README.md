@@ -695,6 +695,13 @@ links follow channel switches when the native authentication schemas match;
 an incompatible format stops the switch safely. This limitation appears in
 the channel confirmation as well.
 
+New permission scopes are limited to what the target release understands.
+Restricted devices never gain older broad permissions by switching channels.
+When an unchanged credential returns to a newer release, its previously
+granted permissions are restored; revocations still follow the active store.
+Existing older credentials may need pairing again to grant newly introduced
+permissions, as required by T3 Code itself.
+
 ## Toolchains
 
 Go, Rust (with clippy and rustfmt), Bun, Deno and uv install on first start,

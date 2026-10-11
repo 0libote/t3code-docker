@@ -2233,6 +2233,7 @@
         ...(channel === 'nightly' && switching ? [{ icon: 'moon', text: 'Nightly gives you new features earlier and can be less reliable.' }] : []),
         { icon: 'circle-stop', text: 'Active agent turns and T3 Code terminals stop. Open apps reconnect.' },
         ...(switching ? [{ icon: 'history', text: 'Newer releases can use a different thread store. Switching back may show earlier history; both stores are kept.' }] : []),
+        ...(switching ? [{ icon: 'globe', text: 'Newly introduced device permissions may require pairing again.' }] : []),
         { icon: 'shield-check', text: 'A failed startup restores the previous version and database.' },
       ],
       confirm: switching ? 'Switch and restart' : 'Update and restart', tone: 'primary',

@@ -8,6 +8,7 @@ export const CHANNELS = ["stable", "nightly"];
 export const exactVersion = (value) => typeof value === "string" && /^\d+\.\d+\.\d+(?:-nightly\.\d{8}\.\d+)?$/.test(value);
 export const channelOf = (version) => version?.includes("-nightly.") ? "nightly" : "stable";
 export const databaseName = (value) => typeof value === "string" && /^state(?:v[1-9]\d*)?\.sqlite$/.test(value);
+export const validScopes = (value) => Array.isArray(value) && value.length <= 64 && value.every((scope) => typeof scope === "string" && /^[a-z][a-z-]*:[a-z][a-z-]*$/.test(scope));
 export const runtimePaths = (env = process.env) => {
   const home = env.T3CODE_HOME || `${env.HOME || "/home/t3"}/.t3`;
   const root = path.join(home, "container-runtime");
@@ -54,7 +55,8 @@ export async function selectedRuntime(paths, selection = null) {
   if (installed?.version !== selection.version) throw new Error(`T3 Code ${selection.version} is missing or incomplete.`);
   await fs.access(path.join(dir, "t3"), 1);
   if (installed.database !== undefined && !databaseName(installed.database)) throw new Error("The selected runtime has an invalid data path.");
-  return { binary: path.join(dir, "t3"), version: selection.version, database: installed.database ?? null, bundled: false };
+  if (installed.scopes !== undefined && !validScopes(installed.scopes)) throw new Error("The selected runtime has invalid authentication capabilities.");
+  return { binary: path.join(dir, "t3"), version: selection.version, database: installed.database ?? null, scopes: installed.scopes ?? null, bundled: false };
 }
 
 export const operationBusy = (op) => Boolean(op && !["succeeded", "failed", "rolled-back", "interrupted"].includes(op.phase));

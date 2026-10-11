@@ -3,7 +3,7 @@ import path from "node:path";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { CHANNELS, channelOf, exactVersion, databaseName, runtimePaths, readJson, writeJson, readSelection, selectedRuntime, operationBusy } from "./state.mjs";
+import { CHANNELS, channelOf, exactVersion, databaseName, validScopes, runtimePaths, readJson, writeJson, readSelection, selectedRuntime, operationBusy } from "./state.mjs";
 // The checkout and image deliberately have different infrastructure prefixes.
 const localHarness = new URL("../harness/", import.meta.url);
 const harnessBase = existsSync(new URL("version.mjs", localHarness)) ? localHarness : new URL("file:///opt/t3-harness/");
@@ -23,14 +23,17 @@ const errorText = (error) => String(error?.message ?? error).slice(0, 400);
 export const executableVersion = (output) => /^(?:t3\s+)?v?(\d+\.\d+\.\d+(?:-nightly\.\d{8}\.\d+)?)$/i.exec(String(output).trim())?.[1] ?? null;
 
 /** Ask the release's own CLI which data store it opens, in a disposable home. */
-export async function discoverDatabase(binary, paths, { run = execute, env = process.env } = {}) {
+export async function discoverRuntime(binary, paths, { run = execute, env = process.env } = {}) {
   await fs.mkdir(paths.root, { recursive: true, mode: 0o700 });
   const probe = await fs.mkdtemp(path.join(paths.root, ".database-probe-"));
   try {
-    await run(binary, ["auth", "session", "list", "--json"], { env: { ...env, T3CODE_HOME: probe }, timeout: 30_000 });
+    const issued = await run(binary, ["auth", "session", "issue", "--ttl", "1m", "--subject", "t3-container-probe", "--json"], { env: { ...env, T3CODE_HOME: probe }, timeout: 30_000 });
+    const session = JSON.parse(issued.stdout.slice(issued.stdout.indexOf("{")));
+    const scopes = session.permissions ?? session.scopes;
+    if (!validScopes(scopes) || !scopes.length) throw new Error("Could not identify this release's supported device permissions safely.");
     const names = (await fs.readdir(path.join(probe, "userdata"))).filter(databaseName);
     if (names.length !== 1) throw new Error("Could not identify this release's authentication database safely.");
-    return names[0];
+    return { database: names[0], scopes };
   } finally { await fs.rm(probe, { recursive: true, force: true }); }
 }
 
@@ -66,7 +69,7 @@ export async function installRelease(paths, release, { fetcher = fetch, run = ex
   const cached = await readJson(path.join(destination, ".installed.json"));
   if (cached?.version === release.version) {
     await preflight(path.join(destination, "t3"));
-    if (!cached.database) await writeJson(path.join(destination, ".installed.json"), { ...cached, database: await discoverDatabase(path.join(destination, "t3"), paths, { run, env }) });
+    if (!cached.database || !validScopes(cached.scopes)) await writeJson(path.join(destination, ".installed.json"), { ...cached, ...await discoverRuntime(path.join(destination, "t3"), paths, { run, env }) });
     return destination;
   }
   await fs.mkdir(paths.versions, { recursive: true, mode: 0o700 });
@@ -111,8 +114,8 @@ export async function installRelease(paths, release, { fetcher = fetch, run = ex
     const script = await fs.readFile(bridge, "utf8");
     if (!shell.includes("</body>") || !script.includes("data-t3-setup-entry") || /<\/script/i.test(script)) throw new Error("This release cannot preserve the Setup entry. The running version was kept.");
     await fs.writeFile(shellPath, shell.replace("</body>", `<script data-t3-setup-bridge>\n${script}\n</script>\n</body>`));
-    const database = await discoverDatabase(binary, paths, { run, env });
-    await writeJson(path.join(unpacked, ".installed.json"), { version: release.version, integrity: release.integrity, package: release.name, database });
+    const capabilities = await discoverRuntime(binary, paths, { run, env });
+    await writeJson(path.join(unpacked, ".installed.json"), { version: release.version, integrity: release.integrity, package: release.name, ...capabilities });
     await fs.rename(unpacked, destination);
     return destination;
   } finally { await fs.rm(stage, { recursive: true, force: true }); }
@@ -184,9 +187,9 @@ export function createRuntimeManager({ env = process.env, fetcher = fetch, insta
           if (release.version !== version) throw new Error("A newer release was published. Check for updates again before installing.");
           const directory = await install(paths, release, { fetcher, env, bridge: env.T3_SETUP_BRIDGE, onPhase: phase });
           const installed = await readJson(path.join(directory, ".installed.json"));
-          const fromDatabase = current.database || await discoverDatabase(current.binary, paths, { env });
-          if (!databaseName(installed.database)) throw new Error("The staged release has no valid authentication data path.");
-          operation = { ...operation, fromDatabase, targetDatabase: installed.database };
+          const previous = current.database && current.scopes ? current : await discoverRuntime(current.binary, paths, { env });
+          if (!databaseName(installed.database) || !validScopes(installed.scopes)) throw new Error("The staged release has no valid authentication capabilities.");
+          operation = { ...operation, fromDatabase: previous.database, targetDatabase: installed.database, fromScopes: previous.scopes, targetScopes: installed.scopes };
           if (!supervised()) throw new Error("T3 Code stopped while the update was downloading. The saved selection was kept.");
           await phase("stopping");
           await writeJson(paths.request, { ...operation, previous: selection });

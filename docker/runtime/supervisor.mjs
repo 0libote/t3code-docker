@@ -1,10 +1,11 @@
 // Only this supervisor commits a downloaded runtime. The target reports
 // prepared over T3's launcher protocol before it may accept commands.
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CHANNELS, exactVersion, databaseName, runtimePaths, readJson, writeJson, readSelection, selectedRuntime } from "./state.mjs";
+import { CHANNELS, exactVersion, databaseName, validScopes, runtimePaths, readJson, writeJson, readSelection, selectedRuntime } from "./state.mjs";
 
 const sqlite = /\.(?:sqlite3?|db)(?:-wal|-shm|-journal)?$/;
 const exists = async (file) => { try { await fs.access(file); return true; } catch (error) { if (error.code === "ENOENT") return false; throw error; } };
@@ -82,7 +83,20 @@ export function validateRequest(request) {
     throw new Error("Invalid T3 Code upgrade request. Refusing to change the selected runtime.");
   }
   if ((request.fromDatabase !== undefined && !databaseName(request.fromDatabase)) || (request.targetDatabase !== undefined && !databaseName(request.targetDatabase))) throw new Error("Invalid upgrade database path.");
+  if ((request.fromScopes !== undefined && !validScopes(request.fromScopes)) || (request.targetScopes !== undefined && !validScopes(request.targetScopes))) throw new Error("Invalid upgrade authentication capabilities.");
   return request;
+}
+
+// Upstream split these former broad permissions into explicit child grants.
+// A new restricted credential must not gain its absent child permissions by
+// being projected onto an older server's broad parent scope.
+const legacyChildren = {
+  "orchestration:read": ["filesystem:read", "diagnostics:read"],
+  "orchestration:operate": ["settings:write", "providers:manage", "environment:maintain", "preview:operate", "source-control:write", "filesystem:write"],
+  "terminal:operate": ["terminal:read"],
+};
+export function projectScopes(scopes, sourceScopes, targetScopes) {
+  return scopes.filter((scope) => targetScopes.includes(scope) && !(legacyChildren[scope] || []).some((child) => sourceScopes.includes(child) && !targetScopes.includes(child) && !scopes.includes(child)));
 }
 
 /** Keep devices paired, and revocations effective, when upstream changes stores.
@@ -106,9 +120,33 @@ export async function syncAuthentication(paths, request) {
       const columns = source.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
       const quoted = columns.map((name) => '"' + name.replaceAll('"', '""') + '"').join(",");
       const rows = source.prepare(`SELECT ${quoted} FROM ${table}`).all();
+      const identity = table === "auth_sessions" ? ["session_id", "subject", "issued_at", "method"] : ["id", "credential", "subject", "created_at", "method"];
+      const key = identity[0];
+      const existing = columns.includes("scopes") && columns.includes(key)
+        ? new Map(target.prepare(`SELECT ${quoted} FROM ${table}`).all().map((row) => [row[key], row])) : new Map();
       target.exec(`DELETE FROM ${table}`);
       const insert = target.prepare(`INSERT INTO ${table} (${quoted}) VALUES (${columns.map(() => "?").join(",")})`);
-      for (const row of rows) insert.run(...columns.map((name) => row[name]));
+      for (const row of rows) {
+        if (columns.includes("scopes") && request.targetScopes && request.fromScopes) {
+          let scopes = JSON.parse(row.scopes);
+          let restoredGrant = false;
+          if (!validScopes(scopes)) throw new Error("A device has invalid permissions. The channel switch was stopped.");
+          const prior = existing.get(row[key]);
+          if (prior && identity.every((field) => prior[field] === row[field])) {
+            const original = JSON.parse(prior.scopes);
+            if (!validScopes(original)) throw new Error("A retained device has invalid permissions.");
+            const projected = projectScopes(original, request.targetScopes, request.fromScopes);
+            // Restore only this identical credential's previously granted
+            // target permissions after a round trip through an older release.
+            // Source revocations/expiry still win; changed grants never expand.
+            if (projected.length === scopes.length && projected.every((scope) => scopes.includes(scope))) { scopes = original; restoredGrant = true; }
+          }
+          let compatible = scopes.filter((scope) => request.targetScopes.includes(scope));
+          if (!restoredGrant) compatible = projectScopes(scopes, request.fromScopes, request.targetScopes);
+          row.scopes = JSON.stringify(compatible);
+        }
+        insert.run(...columns.map((name) => row[name]));
+      }
     }
     target.exec("COMMIT");
   } catch (error) { target.exec("ROLLBACK"); throw error; }
@@ -220,6 +258,15 @@ export async function runSupervisor(args, { env = process.env, preparedTimeoutMs
       await phase("starting");
       await syncAuthentication(paths, request);
       const runtime = await selectedRuntime(paths, { version: request.version });
+      if (request.targetDatabase) {
+        // DDL equality does not guarantee that the release can decode its
+        // scopes or client metadata. Its own CLI validates both copied tables
+        // before a trial is allowed to activate.
+        for (const kind of ["session", "pairing"]) {
+          try { await promisify(execFile)(runtime.binary, ["auth", kind, "list", "--json"], { env, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }); }
+          catch { throw new Error("This release cannot read the paired devices or pairing links safely. The channel switch was stopped."); }
+        }
+      }
       child = await launch(runtime, { id: request.id, fromVersion: request.fromVersion, targetVersion: request.version, dbPath: path.join(paths.home, "userdata", request.targetDatabase || "statev2.sqlite"), status: "pending" });
       await child.prepared;
       if (stopping) return;
