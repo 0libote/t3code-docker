@@ -3,7 +3,9 @@
 Review source: `12f77da20355abb431169cc138cd9693632c6ef2`. Native round-trip recording and desktop screenshots
 were captured from `897c927ccc0c3bf6337330d982cc6784670ade70`; the subsequent
 change serializes committed-update cleanup and is covered by the final unit
-suite. Responsive captures use the final working tree.
+suite. Responsive captures use the final working tree. A clean final-head
+scratch-service restart retains the installed Stable selection, and Setup
+restart changes only the T3 child, with the same supervisor.
 
 The native Linux arm64 run installs official Stable `0.0.45`, switches to
 Nightly `0.0.46-nightly.20261011.2980`, and returns to Stable without replacing
