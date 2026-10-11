@@ -268,6 +268,7 @@ COPY docker/bin/ /usr/local/bin/
 # helpers: the harness manager owns install/resolve, and the provider
 # integration turns its selection into T3's per-provider `binaryPath`.
 COPY docker/harness/ /opt/t3-harness/
+COPY docker/runtime/ /opt/t3-runtime/
 COPY docker/provider-integration/ /opt/t3-provider/
 COPY docker/setup/ /opt/t3-setup/
 # The one-port router (T3_SINGLE_PORT): T3 Code and the setup page behind a

@@ -68,8 +68,11 @@ const start = (name, command, args, env) => {
   return child;
 };
 
-const T3_ENV = { T3CODE_HOME: join(HOME, "t3"), T3CODE_PORT: String(T3_PORT), T3CODE_HOST: "127.0.0.1" };
-start("t3", T3_BINARY, ["serve", "--host", "127.0.0.1", "--port", String(T3_PORT), "--no-browser", join(HOME, "workspace")], T3_ENV);
+const T3_ENV = { T3CODE_HOME: join(HOME, "t3"), T3CODE_PORT: String(T3_PORT), T3CODE_HOST: "127.0.0.1",
+  T3_RUN_DIR: join(HOME, "run"), T3_INFRA_BINARY: T3_BINARY,
+  T3_RUNTIME_MODULE: join(ROOT, "docker/runtime/manager.mjs"), T3_RUNTIME_RESOLVER: join(ROOT, "docker/runtime/resolve.mjs"),
+  T3_INFRA_LAUNCHER: join(ROOT, "docker/bin/t3-admin"), T3_SETUP_BRIDGE: BRIDGE };
+start("t3", process.execPath, [join(ROOT, "docker/runtime/supervisor.mjs"), "serve", "--host", "127.0.0.1", "--port", String(T3_PORT), "--no-browser", join(HOME, "workspace")], T3_ENV);
 
 let console_ = null;
 const startConsole = () => {
@@ -88,7 +91,6 @@ const startConsole = () => {
     T3_PUBLIC_URL: "",
     T3_IMAGE_VERSION: "dev",
     T3_IMAGE_VARIANT: process.env.T3_IMAGE_VARIANT || "browser",
-    T3_INFRA_LAUNCHER: T3_BINARY,
     // This working tree's, not the copies an image installed under /opt,
     // which the console would otherwise load first.
     T3_HARNESS_MODULE: join(ROOT, "docker/harness/index.mjs"),
@@ -100,7 +102,7 @@ startConsole();
 // provider integration once: start it again when one of them changes. Polled
 // rather than watched: an editor or `sed -i` that replaces a file can leave a
 // watcher on the old one, and a few dozen stats a second cost nothing.
-const WATCHED = ["docker/setup", "docker/harness", "docker/provider-integration"].map((dir) => join(ROOT, dir));
+const WATCHED = ["docker/setup", "docker/harness", "docker/provider-integration", "docker/runtime"].map((dir) => join(ROOT, dir));
 const newest = (dir) => readdirSync(dir, { withFileTypes: true }).reduce((latest, entry) => {
   const path = join(dir, entry.name);
   return Math.max(latest, entry.isDirectory() ? newest(path) : statSync(path).mtimeMs);

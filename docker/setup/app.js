@@ -148,7 +148,9 @@
   let portsLoading = null;
 
   const busyNow = (s) => Boolean(s && (
-    (s.setup && s.setup.state === 'running')
+    M.runtimeView(s)?.busy
+    || ui.runtimeChecking
+    || (s.setup && s.setup.state === 'running')
     || pendingOps.size > 0
     || Object.values(s.operations || {}).some((op) => op.state === 'running' || op.state === 'queued')
     || (s.harnesses || []).some((h) => h.inProgress)
@@ -187,6 +189,7 @@
         state.status = res.data;
         state.statusError = null;
         settleOperations(res.data);
+        settleRuntime(res.data);
         trackPairing(res.data);
         loadProvidersOnce();
         tellAttention();
@@ -1069,6 +1072,32 @@
     </div>`;
   };
 
+  const runtimeCard = (s) => {
+    const view = M.runtimeView(s);
+    if (!view) return '';
+    const checking = ui.runtimeChecking || view.checking;
+    const busy = view.busy || checking;
+    const channelName = view.channel === 'nightly' ? 'Nightly' : 'Stable';
+    return section('ev-updates', 'T3 Code updates', html`<div class="tc-group tc-runtime-card">
+      <div class="tc-runtime-channel"><div><div class="tc-row-title"><span class="tc-row-name">Release channel</span></div>
+        <p class="tc-status tc-status--prose">${view.channel === 'nightly' ? 'Early access to new features. Nightly builds can be less reliable.' : 'Published stable releases, recommended for everyday work.'}</p></div>
+        <div class="tc-seg" role="group" aria-label="T3 Code release channel">${['stable', 'nightly'].map((channel) => html`<button type="button" data-cmd="t3.channel" data-channel="${channel}" aria-pressed="${view.channel === channel}" ${busy || !view.supported ? 'disabled' : ''}>${channel === 'stable' ? icon('shield-check') : icon('moon')}${channel === 'stable' ? 'Stable' : 'Nightly'}</button>`)}</div>
+      </div>
+      <div class="tc-runtime-release" role="status" aria-live="polite">
+        <span class="tc-runtime-release-icon" aria-hidden="true">${busy ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon(view.available ? 'circle-arrow-up' : 'circle-check')}</span>
+        <div><span class="tc-row-name">${view.busy ? view.phaseText : checking ? 'Checking for updates' : view.available ? channelName + ' update available' : view.latest ? 'You’re up to date' : 'Updates haven’t been checked yet'}</span>
+          <div class="tc-runtime-version tc-mono tc-mono--body">${view.version || 'Unknown version'}${view.busy && view.operation.version ? html` ${icon('arrow-right')} ${view.operation.version}` : view.available ? html` ${icon('arrow-right')} ${view.latest}` : ''}</div></div>
+      </div>
+      ${view.error ? notice('danger', 'circle-alert', 'T3 Code update did not finish', view.error) : ''}
+      ${view.separateHistory ? notice(null, 'history', null, 'Switching to an older release can show its earlier thread history. Your newer history is kept on the volume.') : ''}
+      ${view.checkError ? notice('warn', 'globe', 'Could not check for updates', 'The last known releases are shown. Check again when the registry is reachable.') : ''}
+      ${!view.supported ? notice(null, 'info', null, 'In-place updates need the container’s T3 Code supervisor. Upgrade the container image once to enable them.') : ''}
+      <div class="tc-runtime-foot"><p class="tc-hint">${view.checkedAt ? html`Checked ${M.relTime(view.checkedAt, now())}. ` : ''}You choose when to install. Only T3 Code restarts.</p>
+        <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="t3.check" ${busy ? 'disabled' : ''}>${icon('refresh-cw')}Check for updates</button>${view.available || view.error ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="t3.update" data-channel="${view.error ? view.operation.channel : view.channel}" ${busy || !view.supported || !view.latest ? 'disabled' : ''}>${icon('circle-arrow-up')}${view.error ? 'Retry update' : 'Update and restart'}</button>` : ''}</div>
+      </div>
+    </div>`);
+  };
+
   const environmentPage = (s, n) => {
     const server = s.server || {};
     const image = s.image || {};
@@ -1088,7 +1117,8 @@
         ${readout('Image', html`<span class="tc-truncate" title="${M.imageLabel(image).full || ''}">${M.imageLabel(image).text || 'unversioned'}</span>`, true)}
         ${s.platform ? readout('Platform', s.platform, true) : ''}
         ${Number.isFinite(server.uptimeSeconds) ? readout('Uptime', M.duration(server.uptimeSeconds)) : ''}
-      </div></div>`, { actions: s.t3 && s.t3.pid ? html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="t3.restart">${icon('refresh-cw')}Restart T3 Code</button>` : null })}
+      </div></div>`, { actions: s.t3 && s.t3.pid ? html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="t3.restart" ${M.runtimeView(s)?.busy ? 'disabled' : ''}>${icon('refresh-cw')}Restart T3 Code</button>` : null })}
+      ${runtimeCard(s)}
       ${section('ev-access', 'Access', html`<div class="tc-group"><dl class="tc-kv">
         <dt>Public URL</dt><dd>${s.publicUrl ? html`<span class="tc-mono tc-mono--body tc-truncate">${s.publicUrl}</span><span class="tc-kv-aside">${M.publicUrlSource(s)}</span><span class="tc-spacer"></span>${s.publicUrlSource === 'env' ? '' : html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="url.edit">Change</button>`}${copyButton(s.publicUrl, 'Copy public URL', { iconOnly: true })}`
           : html`<span class="tc-kv-fill">${dot('warn')}<span>Not set. Pairing links need it.</span></span>${urlButtons(s, 'tc-btn--xs', 'tc-choice')}`}</dd>
@@ -2160,6 +2190,61 @@
   };
 
   /** Restart T3 Code from Environment or the palette, and say when it is back. */
+  let runtimePending = null;
+  const settleRuntime = (s) => {
+    if (!runtimePending) return;
+    const op = s.t3?.runtime?.operation;
+    if (op?.id !== runtimePending) return;
+    if (op.phase === 'succeeded' && s.server?.ok && s.server.version === op.version) {
+      Kit.toast('T3 Code updated', { detail: op.version + ' · ' + (op.channel === 'nightly' ? 'Nightly' : 'Stable') });
+      runtimePending = null;
+    } else if (['failed', 'rolled-back', 'interrupted'].includes(op.phase)) {
+      Kit.toast('T3 Code update did not finish', { tone: 'danger', detail: op.error });
+      runtimePending = null;
+    }
+  };
+  const checkRuntime = async ({ quiet = false } = {}) => {
+    if (ui.runtimeChecking) return null;
+    ui.runtimeChecking = true;
+    render();
+    try {
+      const response = await api('/t3/updates/check', { body: {} });
+      await loadStatus();
+      if (!response.ok && !quiet) Kit.toast('Could not check T3 Code updates', { tone: 'danger', detail: response.error });
+      return response.ok ? response.data : null;
+    } finally { ui.runtimeChecking = false; render(); }
+  };
+  const updateRuntime = async (channel = state.status?.t3?.runtime?.channel) => {
+    if (M.runtimeView(state.status)?.busy || ui.runtimeChecking) return;
+    const checked = await checkRuntime();
+    if (checked?.errors?.[channel]) {
+      Kit.toast('Could not check ' + (channel === 'nightly' ? 'Nightly' : 'Stable') + ' releases', { tone: 'danger', detail: checked.errors[channel] });
+      return;
+    }
+    const target = checked?.channels?.[channel]?.version;
+    if (!target) return;
+    const current = state.status?.t3?.runtime;
+    const switching = current?.channel !== channel;
+    const name = channel === 'nightly' ? 'Nightly' : 'Stable';
+    const ok = await Kit.confirm({
+      title: switching ? 'Switch to ' + name + '?' : 'Update T3 Code?',
+      body: html`Install <span class="tc-runtime-target tc-mono tc-mono--body">${target}</span> and restart T3 Code. The container keeps running.`,
+      consequences: [
+        ...(channel === 'nightly' && switching ? [{ icon: 'moon', text: 'Nightly gives you new features earlier and can be less reliable.' }] : []),
+        { icon: 'circle-stop', text: 'Active agent turns and T3 Code terminals stop. Open apps reconnect.' },
+        ...(switching ? [{ icon: 'history', text: 'Newer releases can use a different thread store. Switching back may show earlier history; both stores are kept.' }] : []),
+        { icon: 'shield-check', text: 'A failed startup restores the previous version and database.' },
+      ],
+      confirm: switching ? 'Switch and restart' : 'Update and restart', tone: 'primary',
+    });
+    if (!ok) return;
+    const response = await api('/t3/update', { body: { channel, version: target } });
+    if (!response.ok) { Kit.toast('Could not update T3 Code', { tone: 'danger', detail: response.error }); return; }
+    if (response.data.current) Kit.toast('T3 Code is already up to date');
+    else { runtimePending = response.data.operation.id; Kit.toast('T3 Code update started', { tone: 'info', detail: 'The current version keeps running while the download is verified.' }); }
+    await loadStatus();
+  };
+
   const restartT3 = async () => {
     const ok = await Kit.confirm({
       title: 'Restart T3 Code?',
@@ -2830,6 +2915,9 @@
       loadStatus();
     },
     't3.restart': () => restartT3(),
+    't3.check': () => checkRuntime(),
+    't3.update': (a) => updateRuntime(a.channel || undefined),
+    't3.channel': (a) => { if (a.channel !== state.status?.t3?.runtime?.channel) updateRuntime(a.channel); },
 
     'key.show': async () => {
       if (state.route !== 'environment') go('environment');
