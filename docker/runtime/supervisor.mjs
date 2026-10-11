@@ -193,8 +193,9 @@ export async function runSupervisor(args, { env = process.env, preparedTimeoutMs
   await recoverUpdate(paths);
   await writeJson(path.join(paths.run, "supervisor.json"), { pid: process.pid, protocol: 3 });
   let child = null;
+  let launching = null;
   let stopping = false;
-  const stop = () => { stopping = true; child?.process.kill("SIGTERM"); };
+  const stop = () => { stopping = true; (child || launching)?.process.kill("SIGTERM"); };
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, stop);
 
   const launch = async (runtime, update = null) => {
@@ -225,16 +226,19 @@ export async function runSupervisor(args, { env = process.env, preparedTimeoutMs
     process_.on("message", (message) => {
       if (message?.type === "request-update" && process_.connected) process_.send({ type: "update-rejected", reason: "Update this container's T3 Code from Setup → Environment." }, () => {});
     });
+    const target = { process: process_, done, prepared };
+    launching = target;
     try {
       await new Promise((resolve, reject) => { process_.once("spawn", resolve); process_.once("error", reject); });
       await fs.writeFile(pidFile, `${process_.pid}\n`, { mode: 0o600 });
+      if (stopping) await terminate(target);
     } catch (error) {
       // A PID-file failure is still a live trial: stop it before callers may
       // restore SQLite. Never lose the child just because launch cannot finish.
-      await terminate({ process: process_, done });
+      await terminate(target);
       throw error;
-    }
-    return { process: process_, done, prepared };
+    } finally { launching = null; }
+    return target;
   };
   const terminate = async (target) => {
     if (!target) return;

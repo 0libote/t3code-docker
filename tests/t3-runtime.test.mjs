@@ -10,9 +10,15 @@ import { createRuntimeManager, packageRelease, installRelease, validateArchive, 
 import { recoverUpdate, snapshotDatabase, syncAuthentication, pruneRuntimes, projectScopes } from "../docker/runtime/supervisor.mjs";
 
 const NIGHTLY = "0.0.46-nightly.20261011.2980";
+const cleanups = new WeakMap();
 async function world(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "t3-runtime-test-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const stops = [];
+  cleanups.set(t, stops);
+  t.after(async () => {
+    for (const stop of stops.reverse()) await stop();
+    await fs.rm(root, { recursive: true, force: true });
+  });
   const env = { ...process.env, T3CODE_HOME: path.join(root, "home"), T3_RUN_DIR: path.join(root, "run"), T3_INFRA_BINARY: path.join(root, "bundled/t3") };
   const paths = runtimePaths(env);
   await fs.mkdir(path.dirname(paths.binary), { recursive: true });
@@ -170,7 +176,7 @@ async function supervisor(t, env, timeout = 2000) {
   let log = "";
   child.stderr.on("data", (chunk) => { log += chunk; });
   const done = new Promise((resolve) => child.once("exit", (code) => resolve(code)));
-  t.after(async () => { child.kill("SIGTERM"); await done; });
+  cleanups.get(t).push(async () => { child.kill("SIGTERM"); await done; });
   await waitFor(async () => Boolean(await fs.readFile(path.join(env.T3_RUN_DIR, "t3.pid")).catch(() => null)));
   return { child, done, log: () => log };
 }
@@ -198,7 +204,7 @@ test("a ready upgrade commits without replacing the supervisor; stable can be se
   assert.doesNotThrow(() => process.kill(sup.child.pid, 0));
   await waitFor(async () => (await fs.readFile(path.join(paths.home, "activated"), "utf8").catch(() => null)) === NIGHTLY);
   await requestTrial(paths, "0.0.45", "stable");
-  await waitFor(async () => (await readSelection(paths)).channel === "stable");
+  await waitFor(async () => (await readSelection(paths)).channel === "stable" && (await readJson(paths.operation))?.phase === "succeeded");
   assert.equal((await selectedRuntime(paths)).version, "0.0.45");
   assert.doesNotThrow(() => process.kill(sup.child.pid, 0));
 });
