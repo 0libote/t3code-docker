@@ -1,0 +1,82 @@
+[
+  {
+    "label": "desktop",
+    "dialog": {
+      "x": 496,
+      "y": 282,
+      "width": 448,
+      "height": 436
+    },
+    "focusRestored": true
+  },
+  {
+    "label": "phone",
+    "dialog": {
+      "x": 0,
+      "y": 328,
+      "width": 390,
+      "height": 516
+    },
+    "focusRestored": true
+  },
+  {
+    "label": "narrow-phone",
+    "dialog": {
+      "x": 0,
+      "y": 152,
+      "width": 320,
+      "height": 568
+    },
+    "focusRestored": true
+  },
+  {
+    "label": "landscape-phone",
+    "dialog": {
+      "x": 0,
+      "y": 46.8125,
+      "width": 844,
+      "height": 343.1875
+    },
+    "focusRestored": true
+  },
+  {
+    "label": "tablet",
+    "dialog": {
+      "x": 0,
+      "y": 780,
+      "width": 820,
+      "height": 400
+    },
+    "focusRestored": true
+  },
+  {
+    "label": "embedded-desktop",
+    "dialog": {
+      "x": 375,
+      "y": 221,
+      "width": 448,
+      "height": 436
+    },
+    "focusRestored": true
+  },
+  {
+    "label": "embedded-phone",
+    "dialog": {
+      "x": 0,
+      "y": 328,
+      "width": 390,
+      "height": 516
+    },
+    "focusRestored": true
+  },
+  {
+    "label": "dark-desktop",
+    "dialog": {
+      "x": 496,
+      "y": 282,
+      "width": 448,
+      "height": 436
+    },
+    "focusRestored": true
+  }
+]

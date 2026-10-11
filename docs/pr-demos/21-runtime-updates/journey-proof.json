@@ -1,0 +1,11 @@
+{
+  "stable_before": "0.0.45",
+  "nightly": "0.0.46-nightly.20261011.2980",
+  "stable_after": "0.0.45",
+  "session_preserved": true,
+  "nightly_record_preserved": true,
+  "nightly_new_credentials_need_repair_on_stable": true,
+  "revocation_preserved": true,
+  "supervisor_unchanged": true,
+  "errors": []
+}
