@@ -155,7 +155,7 @@ export function createT3Api({
             ws.addEventListener("open", () => {
               clearTimeout(timer);
               socket = ws;
-              ws.addEventListener("message", onMessage);
+              ws.addEventListener("message", (event) => { if (socket === ws) onMessage(event); });
               ws.addEventListener("close", () => {
                 if (socket !== ws) return;
                 socket = null;

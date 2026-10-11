@@ -285,10 +285,12 @@ export async function runSupervisor(args, { env = process.env, preparedTimeoutMs
       await writeJson(paths.selection, { schema: 1, channel: request.channel, version: request.version, updateId: request.id });
       committed = true;
       await new Promise((resolve, reject) => child.process.send({ type: "committed", updateId: request.id }, (error) => error ? reject(error) : resolve()));
-      await fs.rm(paths.request, { force: true });
       await fs.rm(paths.backup, { recursive: true, force: true });
       await pruneRuntimes(paths, request).catch((error) => console.error(`[t3code] could not trim cached releases: ${error.message}`));
       await writeJson(paths.operation, { ...request, previous: undefined, phase: "succeeded", finishedAt: Date.now() });
+      // Keep the request as the cross-process mutex until every cleanup and
+      // terminal write finishes. A second operator cannot overwrite it early.
+      await fs.rm(paths.request, { force: true });
       console.error(`[t3code] upgraded to ${request.version} (${request.channel})`);
     } catch (error) {
       if (stopping) return;

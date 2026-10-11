@@ -195,6 +195,7 @@ async function supervisor(t, env, timeout = 2000) {
 }
 
 async function requestTrial(paths, version, channel = "nightly") {
+  await waitFor(async () => !await readJson(paths.request));
   const request = { id: randomUUID(), version, channel, fromVersion: (await selectedRuntime(paths)).version, phase: "stopping", previous: await readSelection(paths) };
   await writeJson(paths.request, request);
   await fs.writeFile(path.join(paths.run, "restart"), "requested");

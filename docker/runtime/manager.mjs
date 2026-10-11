@@ -176,6 +176,7 @@ export function createRuntimeManager({ env = process.env, fetcher = fetch, insta
       if (await readJson(paths.request)) throw new Error("A T3 Code update is already in progress.");
       const selection = await readSelection(paths);
       const current = await selectedRuntime(paths, selection);
+      if (!exactVersion(current.version)) throw new Error("This bundled T3 Code build cannot be upgraded in place. Use a Stable or Nightly container build first.");
       if (channel === selection.channel && compareVersions(version, current.version) < 0) throw new Error("Update will not downgrade the current T3 Code version.");
       if (version === current.version && channel === selection.channel) { preparing = false; await lock.release(); return { http: 200, body: { ok: true, current: true } }; }
       operation = { id: randomUUID(), phase: "checking", channel, version, fromVersion: current.version, startedAt: Date.now() };
