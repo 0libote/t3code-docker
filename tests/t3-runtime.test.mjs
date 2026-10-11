@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { runtimePaths, writeJson, readJson, readSelection, selectedRuntime, exactVersion } from "../docker/runtime/state.mjs";
@@ -64,6 +65,18 @@ test("invalid or incomplete persisted selections fail closed", async (t) => {
   await assert.rejects(readSelection(paths), /invalid/);
   await writeJson(paths.selection, { schema: 1, channel: "nightly", version: NIGHTLY });
   await assert.rejects(selectedRuntime(paths), /missing or incomplete/);
+});
+
+test("managed CLI resolution parks database commands during activation", async (t) => {
+  const { env, paths } = await world(t);
+  const execute = promisify(execFile);
+  const resolve = () => execute(process.execPath, [new URL("../docker/runtime/resolve.mjs", import.meta.url).pathname], { env });
+  await writeJson(paths.operation, { phase: "downloading" });
+  assert.equal((await resolve()).stdout.trim(), paths.binary);
+  await writeJson(paths.operation, { phase: "starting" });
+  await assert.rejects(resolve(), /applying an update/);
+  await writeJson(paths.operation, { phase: "succeeded" });
+  assert.equal((await resolve()).stdout.trim(), paths.binary);
 });
 
 test("channel metadata rejects previews, wrong packages and untrusted download hosts", async () => {
@@ -338,7 +351,7 @@ test("new nightly devices remain readable on Stable and regain only their prior 
   const nightly = new DatabaseSync(path.join(paths.home, "userdata/statev2.sqlite"));
   const insert = nightly.prepare("INSERT INTO auth_sessions VALUES (?, 'device', 'issued', 'bearer-access-token', ?, NULL)");
   insert.run("admin", JSON.stringify(GRANULAR));
-  insert.run("restricted", JSON.stringify(["orchestration:operate"]));
+  insert.run("restricted", JSON.stringify(["orchestration:operate", "settings:write"]));
   insert.run("changed", JSON.stringify(GRANULAR));
   nightly.prepare("INSERT INTO auth_pairing_links VALUES ('link', 'credential', 'device', 'created', 'one-time-token', ?, 'consumed', NULL)").run(JSON.stringify(GRANULAR));
   nightly.close();
@@ -354,8 +367,12 @@ test("new nightly devices remain readable on Stable and regain only their prior 
   const admin = reread.prepare("SELECT scopes,revoked_at FROM auth_sessions WHERE session_id='admin'").get();
   assert.deepEqual(JSON.parse(admin.scopes), GRANULAR);
   assert.equal(admin.revoked_at, "revoked");
-  assert.deepEqual(JSON.parse(reread.prepare("SELECT scopes FROM auth_sessions WHERE session_id='restricted'").get().scopes), ["orchestration:operate"]);
+  assert.deepEqual(JSON.parse(reread.prepare("SELECT scopes FROM auth_sessions WHERE session_id='restricted'").get().scopes), ["orchestration:operate", "settings:write"]);
   assert.deepEqual(JSON.parse(reread.prepare("SELECT scopes FROM auth_sessions WHERE session_id='changed'").get().scopes), ["orchestration:read"]);
   assert.equal(reread.prepare("SELECT consumed_at FROM auth_pairing_links").get().consumed_at, "consumed");
   reread.close();
+  const restricted = new DatabaseSync(path.join(paths.home, "userdata/statev2.sqlite"));
+  restricted.prepare("INSERT INTO auth_sessions VALUES ('unsafe-old-parent', 'device', 'issued', 'bearer-access-token', ?, NULL)").run(JSON.stringify(["orchestration:operate"]));
+  restricted.close();
+  await assert.rejects(syncAuthentication(paths, { fromDatabase: "statev2.sqlite", targetDatabase: "state.sqlite", fromScopes: GRANULAR, targetScopes: LEGACY }), /Revoke it before switching/);
 });

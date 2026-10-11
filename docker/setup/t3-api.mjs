@@ -66,6 +66,7 @@ export function createT3Api({
   let socket = null;           // the open socket, or null
   let opening = null;          // a connection on its way, shared
   let nextId = 0;
+  let sessionGeneration = 0;
   let idleTimer = null;
   const pending = new Map();   // requestId -> { resolve, reject, timer } | { onValue, onEnd }
 
@@ -75,7 +76,9 @@ export function createT3Api({
   const ensureSession = async (force = false) => {
     if (!force && session && session.expiresAt - now() > renewWithinMs) return session;
     const previous = session;
+    const generation = sessionGeneration;
     const issued = await issueSession();
+    if (generation !== sessionGeneration) throw new T3ApiError("T3 Code restarted while the console was signing in. Retry when it is ready.");
     if (!issued?.token) throw new T3ApiError("T3 Code did not issue a session for the console");
     session = { token: issued.token, sessionId: issued.sessionId ?? null, expiresAt: expiresAtMs(issued.expiresAt) };
     if (previous?.sessionId && previous.sessionId !== session.sessionId) {
@@ -154,7 +157,8 @@ export function createT3Api({
               socket = ws;
               ws.addEventListener("message", onMessage);
               ws.addEventListener("close", () => {
-                if (socket === ws) socket = null;
+                if (socket !== ws) return;
+                socket = null;
                 clearTimeout(idleTimer);
                 settleAll(new T3ApiError("The connection to T3 Code closed"));
               });
@@ -243,5 +247,6 @@ export function createT3Api({
     settleAll(new T3ApiError("The console closed its connection to T3 Code"));
   };
 
-  return { call, subscribe, first, close, sessionId: () => session?.sessionId ?? null };
+  const reset = () => { sessionGeneration += 1; close(); session = null; };
+  return { call, subscribe, first, close, reset, sessionId: () => session?.sessionId ?? null };
 }

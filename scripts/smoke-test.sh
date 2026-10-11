@@ -417,9 +417,9 @@ check "status carries what the console reads" status_has_console_fields
 t3_update_access_is_gated() {
   local payload
   payload='{"channel":"stable","version":"0.0.45"}'
-  [ "$(console_code -H 'content-type: application/json' -d "$payload" http://127.0.0.1:3774/t3/update)" = 401 ] || return 1
-  [ "$(console_code -b /tmp/jar -H 'sec-fetch-site: cross-site' -H 'content-type: application/json' -d "$payload" http://127.0.0.1:3774/t3/update)" = 403 ] || return 1
-  [ "$(console_code -b /tmp/jar -H 'content-type: application/json' -d '{"channel":"preview","version":"0.0.45"}' http://127.0.0.1:3774/t3/update)" = 400 ]
+  [ "$(docker exec "$NAME" curl -sS -o /dev/null -w '%{http_code}' -H 'content-type: application/json' -d "$payload" http://127.0.0.1:3774/t3/update)" = 401 ] || return 1
+  [ "$(docker exec "$NAME" curl -sS -o /dev/null -w '%{http_code}' -b /tmp/jar -H 'sec-fetch-site: cross-site' -H 'content-type: application/json' -d "$payload" http://127.0.0.1:3774/t3/update)" = 403 ] || return 1
+  [ "$(docker exec "$NAME" curl -sS -o /dev/null -w '%{http_code}' -b /tmp/jar -H 'content-type: application/json' -d '{"channel":"preview","version":"0.0.45"}' http://127.0.0.1:3774/t3/update)" = 400 ]
 }
 check "T3 Code upgrades require sign-in, same-site access and a public channel" t3_update_access_is_gated
 

@@ -696,11 +696,15 @@ an incompatible format stops the switch safely. This limitation appears in
 the channel confirmation as well.
 
 New permission scopes are limited to what the target release understands.
-Restricted devices never gain older broad permissions by switching channels.
+Switching stops if a restricted credential would gain older broad permissions;
+revoke that credential before retrying.
 When an unchanged credential returns to a newer release, its previously
 granted permissions are restored; revocations still follow the active store.
 Existing older credentials may need pairing again to grant newly introduced
 permissions, as required by T3 Code itself.
+Conversely, credentials first issued on Nightly can contain signed permission
+claims Stable 0.0.45 cannot decode. Those devices need pairing again on Stable;
+their original credentials work again on Nightly unless revoked or expired.
 
 ## Toolchains
 

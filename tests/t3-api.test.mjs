@@ -163,6 +163,30 @@ test("a failure reads as its detail, a defect as its text", () => {
   assert.equal(failureOf({}).message, "T3 Code refused the request");
 });
 
+test("a server restart replaces the console credential before reconnecting", async () => {
+  const t3 = fakeT3({ tokens: new Set(["old-grant", "new-grant"]) });
+  const { api, issued } = apiFor(t3, { tokens: ["old-grant", "new-grant"] });
+  await api.call("server.getConfig", {});
+  api.reset();
+  await api.call("server.getConfig", {});
+  assert.deepEqual(issued, ["old-grant", "new-grant"]);
+  assert.equal(api.sessionId(), "s2");
+  api.close();
+});
+
+test("an in-flight credential from the previous release is discarded on restart", async () => {
+  const t3 = fakeT3();
+  let issue;
+  const { api } = apiFor(t3, { options: { issueSession: () => new Promise((resolve) => { issue = resolve; }) } });
+  const pending = api.call("server.getConfig", {});
+  api.reset();
+  issue({ token: "good", sessionId: "old", expiresAt: "2099-01-01T00:00:00Z" });
+  await assert.rejects(pending, /restarted while/);
+  assert.equal(api.sessionId(), null);
+  assert.equal(t3.sockets.length, 0);
+  api.close();
+});
+
 test("a stream's chunks are acknowledged, and closing it interrupts it", async () => {
   const t3 = fakeT3();
   const { api } = apiFor(t3);

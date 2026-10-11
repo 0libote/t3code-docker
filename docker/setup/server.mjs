@@ -139,7 +139,7 @@ const runtimeManager = runtimeModule.createRuntimeManager({
 const runtimeOperation = () => {
   try { return JSON.parse(readFileSync(runtimeManager.paths.operation, "utf8")); } catch { return null; }
 };
-const t3 = (args) => {
+const t3 = async (args) => {
   if (runtimeModule.databaseBusy(runtimeOperation())) throw new Error("T3 Code is applying an update. Its data will be readable again after startup.");
   const call = run(T3_LAUNCHER, args, {
     env: process.env,
@@ -980,6 +980,9 @@ const restartT3 = (why = null) => {
     return { http: 500, body: { ok: false, error: `Could not restart T3 Code (${error.code ?? error.message}).` } };
   }
   forgetConnect();
+  // The new release can require different native permission scopes. Do not
+  // reconnect Setup's API with a credential issued by the previous release.
+  t3Api.reset();
   recordEvent("t3.restarted", "Restarted T3 Code", why);
   return { http: 202, body: { ok: true, pid } };
 };

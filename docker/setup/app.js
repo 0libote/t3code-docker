@@ -1093,7 +1093,7 @@
       ${view.checkError ? notice('warn', 'globe', 'Could not check for updates', 'The last known releases are shown. Check again when the registry is reachable.') : ''}
       ${!view.supported ? notice(null, 'info', null, 'In-place updates need the container’s T3 Code supervisor. Upgrade the container image once to enable them.') : ''}
       <div class="tc-runtime-foot"><p class="tc-hint">${view.checkedAt ? html`Checked ${M.relTime(view.checkedAt, now())}. ` : ''}You choose when to install. Only T3 Code restarts.</p>
-        <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="t3.check" ${busy ? 'disabled' : ''}>${icon('refresh-cw')}Check for updates</button>${view.available || view.error ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="t3.update" data-channel="${view.error ? view.operation.channel : view.channel}" ${busy || !view.supported || !view.latest ? 'disabled' : ''}>${icon('circle-arrow-up')}${view.error ? 'Retry update' : 'Update and restart'}</button>` : ''}</div>
+        <div class="tc-row-actions tc-row-actions--wrap"><button class="tc-btn tc-btn--sm" type="button" data-cmd="t3.check" ${busy ? 'disabled' : ''}>${icon('refresh-cw')}Check for updates</button>${view.available || view.error ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="t3.update" data-channel="${view.error ? view.operation.channel : view.channel}" ${busy || !view.supported || !view.latest ? 'disabled' : ''}>${icon('circle-arrow-up')}${view.error ? 'Retry update' : 'Update and restart'}</button>` : ''}</div>
       </div>
     </div>`);
   };
@@ -2205,6 +2205,7 @@
   };
   const checkRuntime = async ({ quiet = false } = {}) => {
     if (ui.runtimeChecking) return null;
+    const trigger = document.activeElement;
     ui.runtimeChecking = true;
     render();
     try {
@@ -2212,7 +2213,11 @@
       await loadStatus();
       if (!response.ok && !quiet) Kit.toast('Could not check T3 Code updates', { tone: 'danger', detail: response.error });
       return response.ok ? response.data : null;
-    } finally { ui.runtimeChecking = false; render(); }
+    } finally {
+      ui.runtimeChecking = false;
+      render();
+      if (trigger instanceof HTMLElement && trigger.isConnected && !trigger.disabled) trigger.focus({ preventScroll: true });
+    }
   };
   const updateRuntime = async (channel = state.status?.t3?.runtime?.channel) => {
     if (M.runtimeView(state.status)?.busy || ui.runtimeChecking) return;
@@ -2233,7 +2238,7 @@
         ...(channel === 'nightly' && switching ? [{ icon: 'moon', text: 'Nightly gives you new features earlier and can be less reliable.' }] : []),
         { icon: 'circle-stop', text: 'Active agent turns and T3 Code terminals stop. Open apps reconnect.' },
         ...(switching ? [{ icon: 'history', text: 'Newer releases can use a different thread store. Switching back may show earlier history; both stores are kept.' }] : []),
-        ...(switching ? [{ icon: 'globe', text: 'Newly introduced device permissions may require pairing again.' }] : []),
+        ...(switching ? [{ icon: 'globe', text: 'Devices may need pairing again when releases use different credential permissions.' }] : []),
         { icon: 'shield-check', text: 'A failed startup restores the previous version and database.' },
       ],
       confirm: switching ? 'Switch and restart' : 'Update and restart', tone: 'primary',

@@ -142,7 +142,15 @@ export async function syncAuthentication(paths, request) {
             if (projected.length === scopes.length && projected.every((scope) => scopes.includes(scope))) { scopes = original; restoredGrant = true; }
           }
           let compatible = scopes.filter((scope) => request.targetScopes.includes(scope));
-          if (!restoredGrant) compatible = projectScopes(scopes, request.fromScopes, request.targetScopes);
+          if (!restoredGrant) {
+            compatible = projectScopes(scopes, request.fromScopes, request.targetScopes);
+            // Native signed credentials authorize their immutable claims, not
+            // edited SQLite grants. If an older release can decode every claim
+            // but would broaden a parent permission, refuse the switch.
+            if (!row.revoked_at && scopes.every((scope) => request.targetScopes.includes(scope)) && compatible.length !== scopes.length) {
+              throw new Error("A restricted device credential would gain broader permissions in this release. Revoke it before switching channels.");
+            }
+          }
           row.scopes = JSON.stringify(compatible);
         }
         insert.run(...columns.map((name) => row[name]));
