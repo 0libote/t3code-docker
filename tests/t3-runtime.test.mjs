@@ -153,7 +153,7 @@ test("an unavailable nightly tag does not block a fresh stable release check", a
   assert.equal((await manager.status()).checkError, null);
 });
 
-async function fakeRuntime(paths, version, mode = "ready", bundled = false) {
+async function fakeRuntime(paths, version, mode = "ready", bundled = false, auth = {}) {
   const dir = bundled ? path.dirname(paths.binary) : path.join(paths.versions, version);
   await fs.mkdir(dir, { recursive: true });
   await writeJson(path.join(dir, "package.json"), { version });
@@ -164,6 +164,15 @@ const path = require('node:path');
 const version = ${JSON.stringify(version)}, mode = ${JSON.stringify(mode)};
 const home = process.env.T3CODE_HOME;
 const context = JSON.parse(process.env.T3_SERVICE_LAUNCHER_CONTEXT || '{}');
+if (process.argv[2] === 'auth') {
+  const {DatabaseSync} = require('node:sqlite');
+  const db = new DatabaseSync(path.join(home, 'userdata/statev2.sqlite'));
+  db.exec("UPDATE content SET body='authentication preparation'");
+  db.close();
+  const auth = ${JSON.stringify(auth)};
+  setTimeout(() => process.exit(auth.exitCode || 0), process.argv[3] === 'session' ? (auth.delayMs || 0) : 0);
+  return;
+}
 fs.appendFileSync(path.join(home, 'starts'), version + ' ' + process.pid + '\\n');
 if (context.update) {
   const {DatabaseSync} = require('node:sqlite');
@@ -183,8 +192,9 @@ setInterval(() => {}, 1000);
   await fs.writeFile(path.join(dir, "t3"), code, { mode: 0o755 });
 }
 
-async function supervisor(t, env, timeout = 2000) {
-  const driver = `import {runSupervisor} from ${JSON.stringify(new URL('../docker/runtime/supervisor.mjs', import.meta.url).href)}; process.exitCode = await runSupervisor(['serve'], {preparedTimeoutMs:${timeout}});`;
+async function supervisor(t, env, timeout = 2000, authenticationTimeoutMs) {
+  const options = { preparedTimeoutMs: timeout, ...(authenticationTimeoutMs === undefined ? {} : { authenticationTimeoutMs }) };
+  const driver = `import {runSupervisor} from ${JSON.stringify(new URL('../docker/runtime/supervisor.mjs', import.meta.url).href)}; process.exitCode = await runSupervisor(['serve'], ${JSON.stringify(options)});`;
   const child = spawn(process.execPath, ["--input-type=module", "-e", driver], { env, stdio: "pipe" });
   let log = "";
   child.stderr.on("data", (chunk) => { log += chunk; });
@@ -194,9 +204,9 @@ async function supervisor(t, env, timeout = 2000) {
   return { child, done, log: () => log };
 }
 
-async function requestTrial(paths, version, channel = "nightly") {
+async function requestTrial(paths, version, channel = "nightly", database = {}) {
   await waitFor(async () => !await readJson(paths.request));
-  const request = { id: randomUUID(), version, channel, fromVersion: (await selectedRuntime(paths)).version, phase: "stopping", previous: await readSelection(paths) };
+  const request = { id: randomUUID(), version, channel, fromVersion: (await selectedRuntime(paths)).version, phase: "stopping", previous: await readSelection(paths), ...database };
   await writeJson(paths.request, request);
   await fs.writeFile(path.join(paths.run, "restart"), "requested");
   process.kill(Number(await fs.readFile(path.join(paths.run, "t3.pid"), "utf8")), "SIGTERM");
@@ -220,6 +230,37 @@ test("a ready upgrade commits without replacing the supervisor; stable can be se
   await requestTrial(paths, "0.0.45", "stable");
   await waitFor(async () => (await readSelection(paths)).channel === "stable" && (await readJson(paths.operation))?.phase === "succeeded");
   assert.equal((await selectedRuntime(paths)).version, "0.0.45");
+  assert.doesNotThrow(() => process.kill(sup.child.pid, 0));
+});
+
+test("first database preparation can exceed thirty seconds before activation", async (t) => {
+  const { paths, env } = await world(t);
+  await seedDatabase(path.join(paths.home, "userdata/statev2.sqlite"), "original data");
+  await fakeRuntime(paths, "0.0.45", "ready", true);
+  await fakeRuntime(paths, NIGHTLY, "ready", false, { delayMs: 31_000 });
+  const sup = await supervisor(t, env);
+  await requestTrial(paths, NIGHTLY, "nightly", { fromDatabase: "statev2.sqlite", targetDatabase: "statev2.sqlite" });
+  await waitFor(async () => ["succeeded", "rolled-back"].includes((await readJson(paths.operation))?.phase), 40_000);
+  assert.equal((await readJson(paths.operation)).phase, "succeeded");
+  assert.equal((await selectedRuntime(paths)).version, NIGHTLY);
+  assert.doesNotThrow(() => process.kill(sup.child.pid, 0));
+});
+
+for (const [kind, auth, error] of [
+  ["timeout", { delayMs: 5000 }, /database.*timed out/],
+  ["invalid records", { exitCode: 1 }, /cannot read the paired devices/],
+]) test(`authentication preparation ${kind} restores data and keeps Stable`, async (t) => {
+  const { paths, env } = await world(t);
+  await seedDatabase(path.join(paths.home, "userdata/statev2.sqlite"), "original data");
+  await fakeRuntime(paths, "0.0.45", "ready", true);
+  await fakeRuntime(paths, NIGHTLY, "ready", false, auth);
+  const sup = await supervisor(t, env, 2000, 1000);
+  await requestTrial(paths, NIGHTLY, "nightly", { fromDatabase: "statev2.sqlite", targetDatabase: "statev2.sqlite" });
+  await waitFor(async () => (await readJson(paths.operation))?.phase === "rolled-back");
+  assert.match((await readJson(paths.operation)).error, error);
+  assert.equal((await selectedRuntime(paths)).version, "0.0.45");
+  assert.equal(await databaseContent(path.join(paths.home, "userdata/statev2.sqlite")), "original data");
+  assert.equal(await readJson(paths.request), null);
   assert.doesNotThrow(() => process.kill(sup.child.pid, 0));
 });
 

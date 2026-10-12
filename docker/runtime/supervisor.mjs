@@ -192,7 +192,7 @@ export async function recoverUpdate(paths) {
   await fs.rm(paths.backup, { recursive: true, force: true });
 }
 
-export async function runSupervisor(args, { env = process.env, preparedTimeoutMs = 120_000 } = {}) {
+export async function runSupervisor(args, { env = process.env, preparedTimeoutMs = 120_000, authenticationTimeoutMs = 120_000 } = {}) {
   const paths = runtimePaths(env);
   await fs.mkdir(paths.run, { recursive: true, mode: 0o700 });
   const pidFile = path.join(paths.run, "t3.pid");
@@ -273,10 +273,16 @@ export async function runSupervisor(args, { env = process.env, preparedTimeoutMs
       if (request.targetDatabase) {
         // DDL equality does not guarantee that the release can decode its
         // scopes or client metadata. Its own CLI validates both copied tables
-        // before a trial is allowed to activate.
+        // before a trial is allowed to activate. The first command may also
+        // import the complete legacy history into the release's new database.
         for (const kind of ["session", "pairing"]) {
-          try { await promisify(execFile)(runtime.binary, ["auth", kind, "list", "--json"], { env, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }); }
-          catch { throw new Error("This release cannot read the paired devices or pairing links safely. The channel switch was stopped."); }
+          try { await promisify(execFile)(runtime.binary, ["auth", kind, "list", "--json"], { env, timeout: authenticationTimeoutMs, maxBuffer: 8 * 1024 * 1024 }); }
+          catch (error) {
+            if (error.killed && error.code === null && error.signal === "SIGTERM") {
+              throw new Error(`Preparing this release's database and validating device access timed out after ${Math.ceil(authenticationTimeoutMs / 1000)} seconds. The channel switch was stopped.`);
+            }
+            throw new Error("This release cannot read the paired devices or pairing links safely. The channel switch was stopped.");
+          }
         }
       }
       child = await launch(runtime, { id: request.id, fromVersion: request.fromVersion, targetVersion: request.version, dbPath: path.join(paths.home, "userdata", request.targetDatabase || "statev2.sqlite"), status: "pending" });
