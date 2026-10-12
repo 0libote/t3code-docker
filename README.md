@@ -688,8 +688,9 @@ release, its predecessor and the latest known target for each channel are kept.
 
 Current Nightly releases use a newer thread database than Stable 0.0.45.
 Nightly seeds it from the older database once; later channel switches keep the
-two histories separately. Returning to Stable can therefore show earlier
-history, and returning to Nightly shows its retained history. Both databases
+two histories separately. The first switch can take longer while Nightly
+imports the existing thread history. Returning to Stable can therefore show
+earlier history, and returning to Nightly shows its retained history. Both databases
 are preserved on the volume. Device pairings, revocations and consumed pairing
 links follow channel switches when the native authentication schemas match;
 an incompatible format stops the switch safely. This limitation appears in
