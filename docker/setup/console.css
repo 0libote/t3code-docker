@@ -435,10 +435,12 @@ html.tc-locked { overflow: hidden; }
 .tc-runtime-card { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
 .tc-runtime-channel { display: flex; align-items: center; justify-content: space-between; gap: var(--space-6); }
 .tc-runtime-channel .tc-seg { flex: none; }
-.tc-runtime-release { display: flex; gap: var(--space-3); align-items: center; }
-.tc-runtime-release-icon { display: flex; color: var(--fg-muted); flex: none; }
+.tc-runtime-release { display: flex; gap: var(--space-3); align-items: flex-start; }
+.tc-runtime-release-icon { display: flex; align-items: center; min-height: 20px; color: var(--fg-muted); flex: none; }
 .tc-runtime-release > div { min-width: 0; flex: 1; display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
 .tc-runtime-version { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; color: var(--fg-muted); }
+.tc-runtime-version span { min-width: 0; }
+.tc-runtime-version-target { display: flex; align-items: center; gap: var(--space-2); }
 .tc-runtime-version .tc-icon { flex: none; }
 .tc-runtime-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); border-top: 1px solid var(--hairline); padding-top: var(--space-4); }
 .tc-runtime-foot p { margin: 0; }

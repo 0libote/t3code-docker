@@ -1078,6 +1078,7 @@
     const checking = ui.runtimeChecking || view.checking;
     const busy = view.busy || checking;
     const channelName = view.channel === 'nightly' ? 'Nightly' : 'Stable';
+    const targetVersion = view.busy && view.operation.version ? view.operation.version : view.available ? view.latest : null;
     return section('ev-updates', 'T3 Code updates', html`<div class="tc-card tc-runtime-card">
       <div class="tc-runtime-channel"><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Release channel</span></div>
         <p class="tc-status tc-status--prose">${view.channel === 'nightly' ? 'Early access to new features. Nightly builds can be less reliable.' : 'Published stable releases, recommended for everyday work.'}</p></div>
@@ -1086,7 +1087,7 @@
       <div class="tc-runtime-release" role="status" aria-live="polite">
         <span class="tc-runtime-release-icon" aria-hidden="true">${busy ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon(view.available ? 'circle-arrow-up' : 'circle-check')}</span>
         <div><span class="tc-row-name">${view.busy ? view.phaseText : checking ? 'Checking for updates' : view.available ? channelName + ' update available' : view.latest ? 'You’re up to date' : 'Updates haven’t been checked yet'}</span>
-          <div class="tc-runtime-version tc-mono tc-mono--body">${view.version || 'Unknown version'}${view.busy && view.operation.version ? html` ${icon('arrow-right')} ${view.operation.version}` : view.available ? html` ${icon('arrow-right')} ${view.latest}` : ''}</div></div>
+          <div class="tc-runtime-version tc-mono tc-mono--body"><span>${view.version || 'Unknown version'}</span>${targetVersion ? html` <span class="tc-runtime-version-target">${icon('arrow-right')} <span>${targetVersion}</span></span>` : ''}</div></div>
       </div>
       ${view.error ? notice('danger', 'circle-alert', 'T3 Code update did not finish', view.error) : ''}
       ${view.separateHistory ? notice(null, 'history', null, 'Switching to an older release can show its earlier thread history. Your newer history is kept on the volume.') : ''}
