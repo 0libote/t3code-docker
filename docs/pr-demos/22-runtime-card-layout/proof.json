@@ -1,0 +1,455 @@
+{
+  "viewports": 8,
+  "states": 8,
+  "cases": [
+    {
+      "label": "desktop",
+      "state": "current",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "desktop",
+      "state": "available",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "desktop",
+      "state": "nightly",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "desktop",
+      "state": "nightly-update",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "desktop",
+      "state": "starting",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "desktop",
+      "state": "rollback",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "desktop",
+      "state": "offline",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "desktop",
+      "state": "unsupported",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "compact-desktop",
+      "state": "current",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "compact-desktop",
+      "state": "available",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "compact-desktop",
+      "state": "nightly",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "compact-desktop",
+      "state": "nightly-update",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "compact-desktop",
+      "state": "starting",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "compact-desktop",
+      "state": "rollback",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "compact-desktop",
+      "state": "offline",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "compact-desktop",
+      "state": "unsupported",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "phone",
+      "state": "current",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "phone",
+      "state": "available",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "phone",
+      "state": "nightly",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "phone",
+      "state": "nightly-update",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "phone",
+      "state": "starting",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "phone",
+      "state": "rollback",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "phone",
+      "state": "offline",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "phone",
+      "state": "unsupported",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "narrow-phone",
+      "state": "current",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "narrow-phone",
+      "state": "available",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "narrow-phone",
+      "state": "nightly",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "narrow-phone",
+      "state": "nightly-update",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "narrow-phone",
+      "state": "starting",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "narrow-phone",
+      "state": "rollback",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "narrow-phone",
+      "state": "offline",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "narrow-phone",
+      "state": "unsupported",
+      "segHeight": 50,
+      "buttonHeight": 44,
+      "footerButtonGap": 65
+    },
+    {
+      "label": "tablet",
+      "state": "current",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "tablet",
+      "state": "available",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "tablet",
+      "state": "nightly",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "tablet",
+      "state": "nightly-update",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "tablet",
+      "state": "starting",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "tablet",
+      "state": "rollback",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "tablet",
+      "state": "offline",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "tablet",
+      "state": "unsupported",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "landscape-phone",
+      "state": "current",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "landscape-phone",
+      "state": "available",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "landscape-phone",
+      "state": "nightly",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "landscape-phone",
+      "state": "nightly-update",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "landscape-phone",
+      "state": "starting",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "landscape-phone",
+      "state": "rollback",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "landscape-phone",
+      "state": "offline",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "landscape-phone",
+      "state": "unsupported",
+      "segHeight": 30,
+      "buttonHeight": 32,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "embedded-desktop",
+      "state": "current",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "embedded-desktop",
+      "state": "available",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "embedded-desktop",
+      "state": "nightly",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "embedded-desktop",
+      "state": "nightly-update",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "embedded-desktop",
+      "state": "starting",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "embedded-desktop",
+      "state": "rollback",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "embedded-desktop",
+      "state": "offline",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "embedded-desktop",
+      "state": "unsupported",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "dark-desktop",
+      "state": "current",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "dark-desktop",
+      "state": "available",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "dark-desktop",
+      "state": "nightly",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "dark-desktop",
+      "state": "nightly-update",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "dark-desktop",
+      "state": "starting",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "dark-desktop",
+      "state": "rollback",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "dark-desktop",
+      "state": "offline",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    },
+    {
+      "label": "dark-desktop",
+      "state": "unsupported",
+      "segHeight": 30,
+      "buttonHeight": 28,
+      "footerButtonGap": 17
+    }
+  ],
+  "keyboard": true
+}
