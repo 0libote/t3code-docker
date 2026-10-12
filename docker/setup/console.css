@@ -431,25 +431,23 @@ html.tc-locked { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .tc-layer > *, .tc-layer--sheet > .tc-sheet, .tc-toaster > .tc-toast { animation: none !important; transition: none !important; }
 }
-/* In-place T3 upgrades follow the console's card and segmented-control scale. */
-.tc-runtime-card { padding: 20px; display: flex; flex-direction: column; gap: 20px; }
-.tc-runtime-channel { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-.tc-runtime-channel p { margin: 6px 0 0; }
+/* The composed update card has a divider only above its footer. */
+.tc-runtime-card { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+.tc-runtime-channel { display: flex; align-items: center; justify-content: space-between; gap: var(--space-6); }
 .tc-runtime-channel .tc-seg { flex: none; }
-.tc-runtime-channel .tc-seg button { min-height: 36px; height: auto; padding: 0 12px; gap: 6px; }
-.tc-runtime-release { display: flex; gap: 12px; align-items: center; padding: 16px; border-radius: var(--radius-md); background: var(--surface-sunken); }
+.tc-runtime-release { display: flex; gap: var(--space-3); align-items: center; }
 .tc-runtime-release-icon { display: flex; color: var(--fg-muted); flex: none; }
-.tc-runtime-release > div { min-width: 0; }
-.tc-runtime-version { margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
+.tc-runtime-release > div { min-width: 0; flex: 1; display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+.tc-runtime-version { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; color: var(--fg-muted); }
 .tc-runtime-version .tc-icon { flex: none; }
-.tc-runtime-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.tc-runtime-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); border-top: 1px solid var(--hairline); padding-top: var(--space-4); }
 .tc-runtime-foot p { margin: 0; }
 .tc-runtime-target { overflow-wrap: anywhere; }
-@media (max-width: 639px) {
-  .tc-runtime-card { padding: 16px; gap: 16px; }
-  .tc-runtime-channel, .tc-runtime-foot { align-items: stretch; flex-direction: column; gap: 12px; }
+@media (max-width: 639.98px) {
+  .tc-runtime-channel, .tc-runtime-foot { align-items: stretch; flex-direction: column; gap: var(--space-3); }
   .tc-runtime-channel .tc-seg { display: flex; }
-  .tc-runtime-channel .tc-seg button { flex: 1; min-height: 44px; justify-content: center; }
+  .tc-runtime-channel .tc-seg button { flex: 1; min-height: var(--touch); justify-content: center; }
+  .tc-runtime-release > div { flex-direction: column; align-items: flex-start; }
   .tc-runtime-foot .tc-row-actions { flex-wrap: wrap; }
-  .tc-runtime-foot .tc-btn { min-height: 44px; flex: 1; justify-content: center; }
+  .tc-runtime-foot .tc-btn { min-height: var(--touch); flex: 1; justify-content: center; }
 }

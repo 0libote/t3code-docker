@@ -1078,8 +1078,8 @@
     const checking = ui.runtimeChecking || view.checking;
     const busy = view.busy || checking;
     const channelName = view.channel === 'nightly' ? 'Nightly' : 'Stable';
-    return section('ev-updates', 'T3 Code updates', html`<div class="tc-group tc-runtime-card">
-      <div class="tc-runtime-channel"><div><div class="tc-row-title"><span class="tc-row-name">Release channel</span></div>
+    return section('ev-updates', 'T3 Code updates', html`<div class="tc-card tc-runtime-card">
+      <div class="tc-runtime-channel"><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Release channel</span></div>
         <p class="tc-status tc-status--prose">${view.channel === 'nightly' ? 'Early access to new features. Nightly builds can be less reliable.' : 'Published stable releases, recommended for everyday work.'}</p></div>
         <div class="tc-seg" role="group" aria-label="T3 Code release channel">${['stable', 'nightly'].map((channel) => html`<button type="button" data-cmd="t3.channel" data-channel="${channel}" aria-pressed="${view.channel === channel}" ${busy || !view.supported ? 'disabled' : ''}>${channel === 'stable' ? icon('shield-check') : icon('moon')}${channel === 'stable' ? 'Stable' : 'Nightly'}</button>`)}</div>
       </div>
