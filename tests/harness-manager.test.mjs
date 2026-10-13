@@ -16,11 +16,13 @@ import {
   TOOLCHAINS,
   createHarnessManager,
   getHarness,
+  harnessInstallations,
   getManagedTool,
   normalizeArch,
   releaseSpec,
 } from "../docker/harness/index.mjs";
 import { firstError } from "../docker/harness/mise.mjs";
+import { detectAuth } from "../docker/harness/probe.mjs";
 import * as lock from "../docker/harness/lock.mjs";
 
 const HOME = "/home/t3";
@@ -123,7 +125,8 @@ function createWorld(fs, { arch = "x64" } = {}) {
     fs,
     arch,
     latest: {
-      claude: "2.1.273", codex: "0.154.1", opencode: "1.18.31", grok: "1.0.34", "cursor-agent": "2026.09.15-d2fe57e",
+      claude: "2.1.273", codex: "0.154.1", opencode: "1.18.31", grok: "1.0.34", "cursor-agent": "2026.09.15-d2fe57e", muse: "1.4.7-R6101.1",
+      "npm:@opencode/cli": "2.0.27",
       go: "1.27.1", rust: "1.98.1", bun: "1.4.2", deno: "2.9.7", uv: "0.12.21",
       glab: "1.120.0", "forgejo:forgejo-contrib/forgejo-cli": "0.6.0", "pipx:azure-cli": "2.90.0",
       // tea is only found on gitea.com: asked without its api_url, mise finds nothing.
@@ -159,6 +162,7 @@ function createWorld(fs, { arch = "x64" } = {}) {
       "npm:prettier": ["3.3.3", "3.4.2"],
       claude: ["2.1.270", "2.1.271", "2.1.273"],
       opencode: ["1.14.0", "1.18.31"],
+      "npm:@opencode/cli": ["2.0.17", "2.0.18", "2.0.27"],
     },
     // Published, but younger than mise's minimum release age: listed and
     // resolved only when a call asks past it (`--minimum-release-age 0s`).
@@ -215,6 +219,7 @@ function createWorld(fs, { arch = "x64" } = {}) {
         return ok("");
       }
       const version = world.binVersions.get(bin) ?? "0.0.0";
+      if (bin.endsWith("/muse") && argv[1] === "--version") return ok(`Muse Code ${version.split("-")[0]} (${version})\n`);
       if (argv[1] === "--version" || argv[1] === "version") return ok(`${version}\n`);
       if (bin.endsWith("claude") && argv[1] === "auth") return ok('{"loggedIn":true}\n');
       if (bin.endsWith("codex") && argv[1] === "login") return ok("Logged in\n");
@@ -235,7 +240,7 @@ function createWorld(fs, { arch = "x64" } = {}) {
       return ok(`${JSON.stringify(ordered)}\n`);
     }
     const anyAge = argv.includes("--minimum-release-age");
-    const published = (name) => [...(world.versions[name] ?? []), ...(anyAge ? world.waiting[name] ?? [] : [])];
+    const published = (name) => [...new Set([...(world.versions[name] ?? []), ...(world.latest[name] ? [world.latest[name]] : []), ...(anyAge ? world.waiting[name] ?? [] : [])])];
     if (command === "latest") {
       // `tool@prefix` resolves to the newest release under the prefix (or the
       // exact one); a bare tool to its newest.
@@ -272,6 +277,13 @@ function createWorld(fs, { arch = "x64" } = {}) {
         installed_versions: world.versionsOf(name), security: [{ type: "checksum", algorithm: "sha256" }] })}\n`);
     }
     if (command === "which") {
+      if (argv.includes("--tool")) {
+        const spec = argv[argv.indexOf("--tool") + 1];
+        const at = spec.lastIndexOf("@");
+        const name = spec.slice(0, at).replace(/\[.*\]$/, "");
+        const executable = path.join(DATA_DIR, "installs", name, spec.slice(at + 1), entryForTool(name).executable);
+        return fs.files.has(executable) ? ok(`${executable}\n`) : fail("not a mise bin");
+      }
       // A command is not always named for its tool: Rust's is cargo, and the
       // source control CLIs install under their backend spec or package.
       const owner = { cargo: "rust", fj: "forgejo:forgejo-contrib/forgejo-cli", tea: "forgejo:gitea/tea", az: "pipx:azure-cli" }[tool] ?? tool;
@@ -329,7 +341,7 @@ function createWorld(fs, { arch = "x64" } = {}) {
 }
 
 function entryForTool(miseTool) {
-  return CATALOGUE.find((entry) => entry.miseTool === miseTool) ?? null;
+  return CATALOGUE.flatMap(harnessInstallations).find((entry) => entry.miseTool === miseTool) ?? null;
 }
 
 function managerFor(world, overrides = {}) {
@@ -358,10 +370,10 @@ function byId(harnesses, id) {
 
 // ---------------------------------------------------------------------------
 
-test("catalogue exposes exactly the five audited harnesses", () => {
+test("catalogue exposes the managed harnesses", () => {
   assert.deepEqual(
     CATALOGUE.map((entry) => entry.id),
-    ["claude", "codex", "opencode", "grok", "cursor"],
+    ["claude", "codex", "opencode", "grok", "cursor", "muse"],
   );
   for (const entry of CATALOGUE) {
     assert.ok(entry.miseTool, `${entry.id} has a mise tool`);
@@ -397,6 +409,41 @@ test("the source control catalogue names one CLI per provider T3 drives through 
   assert.deepEqual(getManagedTool("az").extensions, ["azure-devops"]);
 });
 
+test("Muse records its exact release revision and never updates to an older revision", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  world.latest.muse = "1.4.7-R99.1";
+  const installed = await manager.install("muse");
+  assert.equal(installed.ok, true);
+  assert.equal(installed.harness.verifiedVersion, "1.4.7-R99.1");
+  world.latest.muse = "1.4.7-R100.1";
+  const updated = await manager.update("muse");
+  assert.equal(updated.ok, true);
+  assert.equal(updated.harness.installedVersion, "1.4.7-R100.1");
+  const before = world.useSpecs.length;
+  world.latest.muse = "1.4.7-R99.9";
+  const kept = await manager.update("muse");
+  assert.equal(kept.code, "up-to-date");
+  assert.equal(kept.harness.installedVersion, "1.4.7-R100.1");
+  assert.equal(world.useSpecs.length, before, "an older revision is not selected");
+});
+
+test("Muse treats saved credentials as unverified and ignores inherited API keys", async () => {
+  const fs = new MemoryFs();
+  const entry = getHarness("muse");
+  const ctx = { home: HOME, fs, env: { META_API_KEY: "inherited-test-key" }, run: async () => { throw new Error("no auth probe exists"); } };
+  const file = path.join(HOME, entry.credentials.paths[0]);
+  const facts = { executable: "/mise/muse", runnable: true };
+  assert.equal(await detectAuth(ctx, entry, facts), false);
+  fs.seedFile(file, JSON.stringify({ providers: { meta: { api_key: "saved-test-key" } } }));
+  assert.equal(await detectAuth(ctx, entry, facts), null, "a stored key is not a verified login");
+  fs.seedFile(file, JSON.stringify({ providers: {} }));
+  assert.equal(await detectAuth(ctx, entry, facts), false, "logout leaves no Meta credential");
+  fs.seedFile(file, "{");
+  assert.equal(await detectAuth(ctx, entry, facts), null, "an unreadable file is unknown");
+});
+
 test("architecture normalization maps dpkg and node spellings", () => {
   assert.equal(normalizeArch("amd64"), "x64");
   assert.equal(normalizeArch("x86_64"), "x64");
@@ -413,7 +460,7 @@ test("status on a fresh home reports nothing managed and no side effects", async
   const before = fs.snapshot();
   const { harnesses, degraded } = await manager.status();
   assert.deepEqual(degraded, []);
-  assert.equal(harnesses.length, 5);
+  assert.equal(harnesses.length, 6);
   for (const harness of harnesses) {
     assert.equal(harness.configured, false, `${harness.id} not configured`);
     assert.equal(harness.installed, false, `${harness.id} not installed`);
@@ -468,6 +515,164 @@ test("install rejects a version below the OpenCode minimum without touching mise
   assert.equal(result.code, "version-below-minimum");
   assert.equal(world.calls.some((call) => call.includes(" use ")), false);
   assert.equal((await manager.resolve("opencode")).installed, false);
+});
+
+test("OpenCode v2 is an explicit distribution switch with scoped postinstall and one active selection", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  await manager.install("opencode");
+  assert.equal(world.useSpecs[0], "opencode@1.18.31");
+  const credential = path.join(HOME, ".local/share/opencode/auth.json");
+  fs.seedFile(credential, '{"anthropic":{"type":"api","key":"test-key"}}');
+  const switched = await manager.install("opencode", { version: "2.0.27" });
+  assert.equal(switched.ok, true);
+  assert.equal(switched.harness.miseTool, "npm:@opencode/cli");
+  assert.equal(switched.harness.installedVersion, "2.0.27");
+  assert.equal(switched.harness.verifiedVersion, "2.0.27");
+  assert.equal(switched.harness.minimumVersion, "2.0.18");
+  assert.equal(switched.harness.executable, world.execPath("npm:@opencode/cli", "2.0.27"));
+  assert.equal(world.useSpecs[1], "npm:@opencode/cli[allow_builds=@opencode/cli]@2.0.27");
+  assert.ok(world.calls.some(call => call.includes("which --tool npm:@opencode/cli[allow_builds=@opencode/cli]@2.0.27 opencode")));
+  assert.equal(world.tools.opencode.some(item => item.source), false, "v1 no longer owns the command");
+  assert.equal(await fs.readFile(credential), '{"anthropic":{"type":"api","key":"test-key"}}');
+  assert.deepEqual(switched.harness.managedVersions, ["1.18.31", "2.0.27"]);
+});
+
+test("OpenCode floating installs, updates and latest checks stay within the selected major", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  world.versions.opencode.push("2.1.0");
+  assert.equal((await manager.install("opencode")).harness.installedVersion, "1.18.31");
+  assert.equal(await manager.latest("opencode"), "1.18.31");
+  assert.equal((await manager.update("opencode")).harness.installedVersion, "1.18.31");
+  await manager.install("opencode", { version: "2.0.27" });
+  world.latest["npm:@opencode/cli"] = "2.0.28";
+  world.versions["npm:@opencode/cli"].push("2.0.28", "3.0.0");
+  assert.equal(await manager.latest("opencode"), "2.0.28");
+  assert.equal((await manager.update("opencode")).harness.installedVersion, "2.0.28");
+  assert.equal((await manager.install("opencode")).harness.installedVersion, "2.0.28");
+  assert.ok(world.useSpecs.at(-1).includes("[allow_builds=@opencode/cli]@2.0.28"), "updates retain the vendor's required postinstall");
+});
+
+test("an explicit switch back to OpenCode v1 verifies that distribution even when v2 shadows its command", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const original = world.run;
+  world.run = async argv => argv[3] === "which" && !argv.includes("--tool") && argv.at(-1) === "opencode" && world.selected["npm:@opencode/cli"]
+    ? world.ok(`${world.selected["npm:@opencode/cli"]}\n`) : original(argv);
+  const manager = managerFor(world);
+  await manager.install("opencode", { version: "2.0.27" });
+  const switched = await manager.update("opencode", { version: "1.18.31" });
+  assert.equal(switched.ok, true);
+  assert.equal(switched.harness.miseTool, "opencode");
+  assert.equal(switched.harness.verifiedVersion, "1.18.31");
+  assert.equal(world.tools["npm:@opencode/cli"].some(item => item.source), false);
+  assert.ok(world.calls.some(call => call.includes("which --tool opencode@1.18.31 opencode")));
+  assert.equal(await manager.latest("opencode"), "1.18.31");
+});
+
+test("a failed switch back to OpenCode v1 leaves the v2 selection and record usable", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  await manager.install("opencode", { version: "2.0.27" });
+  world.runVersionOverride["opencode@1.18.31"] = "1.14.0";
+  const failed = await manager.update("opencode", { version: "1.18.31" });
+  assert.equal(failed.code, "version-mismatch");
+  const retained = await manager.resolve("opencode");
+  assert.equal(retained.runnable, true);
+  assert.equal(retained.verifiedVersion, "2.0.27");
+  assert.equal(world.tools["npm:@opencode/cli"].some(item => item.source), true);
+  assert.deepEqual(world.versionsOf("opencode"), []);
+});
+
+test("OpenCode v2 below T3's own v2 minimum is refused before downloading", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const result = await managerFor(world).install("opencode", { version: "2.0.17" });
+  assert.equal(result.code, "version-below-minimum");
+  assert.deepEqual(world.useSpecs, []);
+});
+
+test("a floating OpenCode install preserves a version still inside mise's release-age wait", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  world.waiting["npm:@opencode/cli"] = ["2.0.28"];
+  await manager.install("opencode", { version: "2.0.28" });
+  const count = world.useSpecs.length;
+  const kept = await manager.install("opencode");
+  assert.equal(kept.code, "up-to-date");
+  assert.equal(kept.harness.installedVersion, "2.0.28");
+  assert.equal(world.useSpecs.length, count);
+});
+
+test("a failed v2 verification leaves the v1 selection and record usable", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  await manager.install("opencode");
+  world.runVersionOverride["npm:@opencode/cli[allow_builds=@opencode/cli]@2.0.27"] = "1.18.31";
+  const failed = await manager.install("opencode", { version: "2.0.27" });
+  assert.equal(failed.code, "version-mismatch");
+  const retained = await manager.resolve("opencode");
+  assert.equal(retained.runnable, true);
+  assert.equal(retained.installedVersion, "1.18.31");
+  assert.equal(world.tools.opencode.some(item => item.source), true);
+  assert.deepEqual(world.versionsOf("npm:@opencode/cli"), []);
+});
+
+test("OpenCode uninstall removes managed versions of both distributions and preserves credentials", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  await manager.install("opencode");
+  await manager.install("opencode", { version: "2.0.27" });
+  const file = path.join(HOME, ".local/share/opencode/auth.json");
+  fs.seedFile(file, '{"anthropic":{"type":"api","key":"test-key"}}');
+  const removed = await manager.uninstall("opencode");
+  assert.equal(removed.ok, true);
+  assert.equal(removed.harness.installed, false);
+  assert.deepEqual(world.versionsOf("opencode"), []);
+  assert.deepEqual(world.versionsOf("npm:@opencode/cli"), []);
+  assert.equal(await fs.readFile(file), '{"anthropic":{"type":"api","key":"test-key"}}');
+});
+
+test("OpenCode adopts an existing v2 mise selection without defaulting back to v1", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  await world.run(["mise", "-C", HOME, "use", "-g", "npm:@opencode/cli[allow_builds=@opencode/cli]@2.0.27"]);
+  const manager = managerFor(world);
+  assert.equal((await manager.resolve("opencode")).installedVersion, "2.0.27");
+  assert.equal(await manager.latest("opencode"), "2.0.27");
+  assert.equal((await manager.update("opencode")).code, "up-to-date");
+});
+
+test("OpenCode's picker combines both feeds with independent age and compatibility checks", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  world.waiting["npm:@opencode/cli"] = ["2.0.28"];
+  const versions = await manager.versions("opencode");
+  assert.equal(versions.latest, "1.18.31");
+  assert.equal(versions.releases.find(r => r.version === "2.0.28").waiting, true);
+  assert.equal(versions.releases.find(r => r.version === "2.0.27").waiting, false, "an old v2 release is not held just because v1 is the default");
+  assert.equal(versions.releases.find(r => r.version === "2.0.17").supported, false);
+  await manager.install("opencode", { version: "2.0.27" });
+  assert.equal((await manager.versions("opencode")).latest, "2.0.27");
+});
+
+test("one unavailable OpenCode release feed does not hide releases from the other", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const original = world.run;
+  world.run = async argv => argv[3] === "ls-remote" && argv.at(-1) === "npm:@opencode/cli" ? world.fail("npm registry unavailable") : original(argv);
+  const versions = await managerFor(world).versions("opencode");
+  assert.equal(versions.latest, "1.18.31");
+  assert.deepEqual(versions.releases.map(r => r.version), ["1.18.31", "1.14.0"]);
+  assert.match(versions.degraded[0].error, /npm registry unavailable/);
 });
 
 test("install rejects malformed versions", async () => {
@@ -1019,7 +1224,7 @@ test("status degrades instead of throwing when mise is unavailable", async () =>
     host: "test-host",
   });
   const { harnesses, degraded } = await manager.status();
-  assert.equal(harnesses.length, 5);
+  assert.equal(harnesses.length, 6);
   assert.equal(degraded.length, 1);
   assert.equal(degraded[0].what, "mise");
   for (const harness of harnesses) assert.equal(harness.runnable, false);
@@ -1598,7 +1803,9 @@ test("an agent's releases list newest first, marking the ones mise still holds b
   assert.ok(world.calls.some((call) => call.includes("ls-remote --json --minimum-release-age 0s claude")), "asks past the release age");
   // OpenCode's releases below T3's minimum are listed, and say so.
   const opencode = await manager.versions("opencode");
-  assert.deepEqual(opencode.releases.map((r) => [r.version, r.supported]), [["1.18.31", true], ["1.14.0", false]]);
+  assert.deepEqual(opencode.releases.map((r) => [r.version, r.supported]), [["2.0.27", true], ["2.0.18", true], ["2.0.17", false], ["1.18.31", true], ["1.14.0", false]]);
+  assert.equal(opencode.latest, "1.18.31", "the default stays on v1");
+  assert.equal(opencode.releases[0].requiresNightly, true);
   await assert.rejects(manager.versions("nope"), /unknown harness/);
 });
 

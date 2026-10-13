@@ -37,6 +37,9 @@ export const LAUNCHERS = Object.freeze({
   opencode: { path: ["opencode", ".opencode", "bin", "opencode"], update: ["upgrade"] },
   grok: { path: ["grok", "grok"], update: ["update"] },
   cursor: { path: ["cursor", "cursor-agent"], update: ["update"] },
+  // T3 only offers Muse updates for its official auto-updating launcher.
+  // This standalone binary is updated from Setup → Agents instead.
+  muse: { path: ["muse", "muse"], update: null },
 });
 
 /** The launcher directory: beside the harness manager's own links. */
@@ -62,6 +65,12 @@ export function launcherScript({ id, name, executable, harnessCli }) {
   const launcher = LAUNCHERS[id];
   if (!launcher) throw new Error(`no launcher for ${id}`);
   const update = launcher.update;
+  if (!update) return [
+    "#!/bin/sh",
+    `# ${name} for T3 Code, written by the setup service. Update from Setup > Agents.`,
+    `exec ${quote(executable)} "$@"`,
+    "",
+  ].join("\n");
   const isUpdate = [`[ "$#" -eq ${update.length} ]`, ...update.map((arg, index) => `[ "$${index + 1}" = ${quote(arg)} ]`)].join(" && ");
   return [
     "#!/bin/sh",

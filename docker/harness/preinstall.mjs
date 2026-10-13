@@ -19,7 +19,7 @@
 //
 //   T3_PREINSTALL=default        Claude Code, Codex, OpenCode and every toolchain
 //   T3_PREINSTALL=all            every agent and every toolchain
-//   T3_PREINSTALL=agents         just the five agent CLIs
+//   T3_PREINSTALL=agents         every managed agent CLI
 //   T3_PREINSTALL=source-control glab, fj, tea and az (also: scm)
 //   T3_PREINSTALL=claude,go,glab any mix of ids and the groups above
 //   T3_PREINSTALL=none           nothing (also: off, 0, false)

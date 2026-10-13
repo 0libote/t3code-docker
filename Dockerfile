@@ -295,7 +295,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/lib/t3code/run-t3.sh /usr/l
 # from the server's environment, and login shells (which T3 also reads its
 # PATH from) never get it, so an uninstalled agent reads as uninstalled.
 RUN mkdir -p /usr/local/lib/t3-agents \
-    && for agent in claude codex opencode grok cursor-agent; do \
+    && for agent in claude codex opencode grok cursor-agent muse; do \
          ln -sfn /usr/local/bin/t3-agent "/usr/local/lib/t3-agents/${agent}"; \
        done
 ENV PATH=${PATH}:/usr/local/lib/t3-agents

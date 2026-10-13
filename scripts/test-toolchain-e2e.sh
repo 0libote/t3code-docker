@@ -311,13 +311,14 @@ recreate
 is "the image declares its variant" "$VARIANT" "$(droot printenv T3_IMAGE_VARIANT 2>/dev/null || true)"
 
 baseline="$(droot t3-harness status --json)"
-is "the installer lists five harnesses" "5" "$(field '.harnesses | length' "$baseline")"
+is "the installer lists six harnesses" "6" "$(field '.harnesses | length' "$baseline")"
 for id in $IDS; do
   facts="$(field ".harnesses[] | select(.id == \"$id\")" "$baseline")"
   is "$id starts uninstalled" "false" "$(field '.installed' "$facts")"
 done
 is "read-only status wrote no manager state" "absent" \
   "$(dex sh -c 'test -f /home/t3/.local/state/mise/harness-state.json && echo present || echo absent')"
+is "Muse starts uninstalled" "false" "$(field '.harnesses[] | select(.id == "muse") | .installed' "$baseline")"
 
 section "Install all five harnesses through the noninteractive CLI"
 declare -A VERSION=() EXE=()
@@ -538,6 +539,74 @@ has "the launcher still runs the recorded version" "${VERSION[claude]}" "$(dex "
 is "T3 still runs it through the launcher" "$claude_launcher" \
   "$(field '.providers.claudeAgent.binaryPath // empty' "$(settings_body)")"
 
+section "OpenCode v2 in an isolated home (Stable keeps its v1 provider)"
+opencode_v2_out="$(docker exec -i -u t3 \
+  -e HOME=/tmp/t3-opencode-v2-e2e \
+  -e T3CODE_HOME=/tmp/t3-opencode-v2-e2e/.t3 \
+  -e XDG_CONFIG_HOME=/tmp/t3-opencode-v2-e2e/.config \
+  -e XDG_DATA_HOME=/tmp/t3-opencode-v2-e2e/.local/share \
+  -e MISE_CONFIG_DIR=/tmp/t3-opencode-v2-e2e/.config/mise \
+  -e MISE_DATA_DIR=/tmp/t3-opencode-v2-e2e/.local/share/mise \
+  -e MISE_STATE_DIR=/tmp/t3-opencode-v2-e2e/.local/state/mise \
+  -e MISE_CACHE_DIR=/tmp/t3-opencode-v2-e2e/.cache/mise \
+  -e "OPENCODE2_TEST_VERSION=${T3C_E2E_OPENCODE2_VERSION:-2.0.18}" \
+  "$NAME" /usr/local/bin/node --input-type=module - 2>&1 <<'NODE'
+import assert from "node:assert/strict";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHarnessManager } from "/opt/t3-harness/index.mjs";
+const manager = createHarnessManager();
+await mkdir(process.env.HOME, { recursive: true });
+const versions = await manager.versions("opencode");
+assert.ok(versions.latest.startsWith("1."));
+assert.ok(versions.releases.some(r => r.version.startsWith("2.") && r.supported && r.requiresNightly));
+const first = await manager.install("opencode");
+assert.equal(first.ok, true, first.error);
+assert.ok(first.harness.installedVersion.startsWith("1."));
+await mkdir(process.env.HOME + "/.local/share/opencode", { recursive: true });
+const credential = process.env.HOME + "/.local/share/opencode/auth.json";
+const saved = '{"anthropic":{"type":"api","key":"opencode-v2-e2e-key"}}';
+await writeFile(credential, saved, { mode: 0o600 });
+const next = await manager.install("opencode", { version: process.env.OPENCODE2_TEST_VERSION });
+assert.equal(next.ok, true, next.error);
+assert.equal(next.harness.miseTool, "npm:@opencode/cli");
+assert.equal(next.harness.verifiedVersion, process.env.OPENCODE2_TEST_VERSION);
+assert.equal(await readFile(credential, "utf8"), saved);
+assert.ok((await manager.latest("opencode")).startsWith("2."));
+const updated = await manager.update("opencode");
+assert.equal(updated.ok, true, updated.error);
+assert.ok(updated.harness.verifiedVersion.startsWith("2."));
+const removed = await manager.uninstall("opencode");
+assert.equal(removed.ok, true, removed.error);
+assert.equal(removed.harness.installed, false);
+assert.equal(await readFile(credential, "utf8"), saved);
+console.log("OpenCode v2 lifecycle passed in isolated state.");
+NODE
+)" && code=0 || code=$?
+is "v2 versions, opt-in install, major-specific update and uninstall work" "0" "$code"
+has "the isolated v2 lifecycle completed" "OpenCode v2 lifecycle passed" "$opencode_v2_out"
+if [ "$code" != 0 ]; then info "$opencode_v2_out"; fi
+
+section "Optional Muse installation, saved credentials and uninstall"
+muse_out="$(droot t3-harness install muse --json 2>&1)" && code=0 || code=$?
+is "Muse CLI install exits successfully" "0" "$code"
+if [ "$code" != 0 ]; then
+  info "$muse_out"
+  exit 1
+fi
+is "Muse installs only when requested" "true" "$(field '.ok' "$muse_out")"
+muse_version="$(field '.harness.installedVersion' "$muse_out")"
+is "Muse records the exact revision it runs" "$muse_version" "$(field '.harness.verifiedVersion' "$muse_out")"
+has "Muse runs by name from docker exec" "$muse_version" "$(droot muse --version)"
+has "Muse supports headless login" "approve a code in your browser" "$(droot muse login --help)"
+printf '%s\n' 'muse-e2e-test-key' | docker exec -i -u t3 -e HOME=/home/t3 "$NAME" \
+  /usr/local/lib/t3-agents/muse auth set --api-key-stdin >/dev/null
+muse_auth_before="$(dex sha256sum /home/t3/.config/muse/auth.json)"
+muse_status="$(droot t3-harness status muse --json)"
+is "Muse does not claim a saved credential is verified" "null" "$(field '.harness.authenticated' "$muse_status")"
+muse_removed="$(droot t3-harness uninstall muse --json)"
+is "Muse uninstalls" "true" "$(field '.ok' "$muse_removed")"
+is "Muse credentials survive uninstall" "$muse_auth_before" "$(dex sha256sum /home/t3/.config/muse/auth.json)"
+
 section "Uninstall retracts the managed path and preserves credentials"
 uninstall_out="$(droot t3-harness uninstall opencode --json)"
 is "opencode uninstalls" "true" "$(field '.ok' "$uninstall_out")"
@@ -557,6 +626,14 @@ post_uninstall_config="$(mise_config)"
 
 section "Recreate online: T3 sees the uninstalled provider, all state survives"
 recreate
+# Provider snapshots persist on the volume. A cached `installed: false`
+# verdict must not let this test race ahead of the new server's startup.
+if wait_health 180; then
+  ok "T3 becomes healthy after online recreation"
+else
+  no "T3 never became healthy after online recreation"
+  droot sh -c 'tail -40 /home/t3/.t3/logs/server.log 2>/dev/null || true' || true
+fi
 if wait_for_snapshot opencode 300 false; then
   ok "T3 reports the uninstalled provider as absent"
 else

@@ -78,10 +78,10 @@ function fakeHarness(facts) {
 
 const json = (fs, file) => JSON.parse(fs.files.get(file));
 
-test("provider mapping covers the five harnesses and their T3 driver kinds", () => {
+test("provider mapping covers the managed harnesses and their T3 driver kinds", () => {
   assert.deepEqual(
     PROVIDERS.map((provider) => provider.id),
-    ["claude", "codex", "opencode", "grok", "cursor"],
+    ["claude", "codex", "opencode", "grok", "cursor", "muse"],
   );
   assert.equal(driverFor("claude"), "claudeAgent");
   assert.equal(driverFor("cursor"), "cursor");
@@ -95,6 +95,28 @@ test("paths follow T3CODE_HOME and fall back to the home dotfile", () => {
   assert.equal(baseDirFor({ T3CODE_HOME: "  " }, HOME), path.join(HOME, ".t3"));
   assert.equal(settingsPathFor(BASE), SETTINGS);
   assert.equal(statePathFor(BASE), STATE);
+});
+
+test("Muse installation configures its launcher, preserves disabled state and retracts on uninstall", async () => {
+  const fs = memoryFs({ [SETTINGS]: JSON.stringify({
+    providers: { muse: { enabled: false } },
+    providerInstances: { muse: { driver: "muse", enabled: false, config: {} } },
+  }) });
+  let runnable = true;
+  const integration = createProviderIntegration({ fs, home: HOME, baseDir: BASE, harness: {
+    async status() { return { harnesses: [fact("muse", { runnable, executable: runnable ? "/mise/muse/1.4.7-R6101.1/muse" : null })], degraded: [] }; },
+  } });
+  assert.equal((await integration.sync()).ok, true);
+  const settings = json(fs, SETTINGS);
+  assert.equal(settings.providers.muse.binaryPath, launcher("muse"));
+  assert.equal(settings.providers.muse.enabled, false);
+  assert.equal(settings.providerInstances.muse.config.binaryPath, launcher("muse"));
+  assert.equal(settings.providerInstances.muse.enabled, false);
+  assert.match(fs.files.get(launcher("muse")), /exec '\/mise\/muse\/1\.4\.7-R6101\.1\/muse'/);
+  runnable = false;
+  await integration.sync();
+  assert.equal(json(fs, SETTINGS).providers.muse.binaryPath, undefined);
+  assert.equal(fs.files.has(launcher("muse")), false);
 });
 
 test("applyManaged preserves unrelated keys in both representations", () => {
@@ -468,7 +490,7 @@ test("the managed executable itself, as an older image wrote it, is ours to repl
   assert.equal(json(fs, SETTINGS).providers.claudeAgent.binaryPath, launcher("claude"));
 });
 
-test("each launcher sits where T3 offers its own update, and hands that update to the manager", () => {
+test("launchers keep managed execution and route supported T3 updates to the manager", () => {
   // T3 Code 0.0.45's checks (providerMaintenance.ts), and what it runs.
   const shape = {
     claude: [(p) => p.endsWith("/.local/bin/claude"), "update"],
@@ -476,6 +498,7 @@ test("each launcher sits where T3 offers its own update, and hands that update t
     opencode: [(p) => p.endsWith("/.opencode/bin/opencode"), "upgrade"],
     grok: [() => true, "update"],
     cursor: [() => true, "update"],
+    muse: [() => true, null],
   };
   assert.deepEqual(Object.keys(LAUNCHERS).sort(), PROVIDERS.map((p) => p.id).sort(), "one for every managed agent");
   for (const provider of PROVIDERS) {
@@ -484,7 +507,11 @@ test("each launcher sits where T3 offers its own update, and hands that update t
     assert.ok(recognised(file), `${provider.id}: ${file}`);
     assert.equal(path.basename(file), provider.defaultBinary, `${provider.id} keeps its command's name`);
     const script = launcherScript({ id: provider.id, name: provider.name, executable: "/mise/x", harnessCli: "/usr/local/bin/t3-harness" });
-    assert.ok(script.includes(`if [ "$#" -eq 1 ] && [ "$1" = '${update}' ]; then exec '/usr/local/bin/t3-harness' update '${provider.id}'; fi`), provider.id);
+    if (update) assert.ok(script.includes(`if [ "$#" -eq 1 ] && [ "$1" = '${update}' ]; then exec '/usr/local/bin/t3-harness' update '${provider.id}'; fi`), provider.id);
+    else {
+      assert.match(script, /^exec '\/mise\/x' "\$@"$/m);
+      assert.doesNotMatch(script, /t3-harness|MUSE_SYNC_UPDATE/, "Muse probes run the binary without an updater");
+    }
   }
   // Any path, quoted for sh.
   const odd = launcherScript({ id: "claude", name: "Claude Code", executable: "/odd dir/it's/claude", harnessCli: "/usr/local/bin/t3-harness" });

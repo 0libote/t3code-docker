@@ -86,6 +86,19 @@ export async function detectAuth(ctx, entry, { executable, runnable }) {
       if (parsed && typeof parsed.isAuthenticated === "boolean") return parsed.isAuthenticated;
       return null;
     }
+    case "muse": {
+      // Muse has no read-only login-status command. Its model catalogue also
+      // works while signed out. A saved credential does not prove sign-in.
+      const file = path.join(ctx.home, entry.credentials.paths[0]);
+      if (!(await ctx.fs.exists(file))) return false;
+      try {
+        const parsed = JSON.parse(await ctx.fs.readFile(file, "utf8"));
+        const credential = parsed?.providers?.meta;
+        return credential && Object.keys(credential).length ? null : false;
+      } catch {
+        return null;
+      }
+    }
     default:
       return null;
   }

@@ -43,14 +43,15 @@ Usage: t3-login <harness>
   opencode   OpenCode           -> opencode auth login
   cursor     Cursor CLI         -> cursor-agent login
   grok       Grok Build         -> grok login
+  muse       Muse Code          -> muse login
   connect    T3 Connect         -> t3 connect
 
 Run this with a TTY:  docker compose exec -it t3code t3-login claude
 Then enable the provider in T3 Code under Settings > Providers.
 
-Each agent signs in with its managed executable. The first start installs
-them in the background; if one is not there yet, wait for it (the setup page
-shows progress) or run `t3-harness install <id>`.
+Each agent signs in with its managed executable. Default agents install in
+the background on first start; optional agents install from Setup > Agents
+or with `t3-harness install <id>`.
 
 `connect` authorizes this environment for T3 Connect. It does not start or
 disturb the running server - the link takes effect on T3 Code's next start, so
@@ -75,7 +76,7 @@ harness_exec() { # id
 
 harness="${1:-}"
 case "$harness" in
-  claude|codex|opencode|cursor|grok)
+  claude|codex|opencode|cursor|grok|muse)
     case "$harness" in
       claude)   bin="$(harness_exec claude)";     args=(auth login) ;;
       codex)    bin="$(harness_exec codex)";       args=(login) ;;
@@ -84,6 +85,7 @@ case "$harness" in
       # never relied on.
       cursor)   bin="$(harness_exec cursor)"; args=(login) ;;
       grok)     bin="$(harness_exec grok)";         args=(login) ;;
+      muse)     bin="$(harness_exec muse)";         args=(login) ;;
     esac
     if [ -z "$bin" ]; then
       echo "t3-login: $harness is not installed; install it with t3-harness install $harness" >&2

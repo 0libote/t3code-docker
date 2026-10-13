@@ -48,7 +48,7 @@ keeping everything up to date, without a shell in the container.
   stored on the state volume and survive a recreate.
 - **Agents and toolchains live on the volume.** Claude Code, Codex and OpenCode,
   plus Go, Rust, Bun, Deno and uv, install in the background on first start, at
-  exact versions. Grok, Cursor and Antigravity install with one click. The image
+  exact versions. Grok, Cursor, Muse Code and Antigravity install with one click. The image
   stays small, pulling a new one doesn't reset them, and updating is a button.
   Node, Python, clang, ffmpeg, ImageMagick and psql are in the image, and any
   other tool mise can install (kubectl, Java, Terraform and about a thousand
@@ -127,7 +127,7 @@ docker compose exec -it t3code t3-login claude   # sign an agent in from a shell
 | git, git-lfs, gh, ssh, Node, Python | ✅ | ✅ |
 | clang/CMake/GDB, ffmpeg, ImageMagick, psql, redis-cli | ✅ | ✅ |
 | Claude Code, Codex, OpenCode | first start | first start |
-| Grok, Cursor, Antigravity | one click | one click |
+| Grok, Cursor, Muse Code, Antigravity | one click | one click |
 | Go, Rust, Bun, Deno, uv | first start | first start |
 | glab, fj, tea, az, for GitLab, Forgejo, Gitea and Azure DevOps | one click | one click |
 | mise, for per-project versions | ✅ | ✅ |
@@ -139,7 +139,7 @@ docker compose exec -it t3code t3-login claude   # sign an agent in from a shell
 background the first time it runs, and not again. That's about 2 GB that stays
 on the volume you already keep instead of being part of every pull. "One click"
 means the setup page installs it when you ask. `T3_PREINSTALL` changes what the
-first start installs: `all` adds Grok and Cursor, `default,source-control` adds
+first start installs: `all` adds Grok, Cursor and Muse, `default,source-control` adds
 the four source control CLIs to the usual set, and `agents`, `toolchains`, a
 list like `claude,codex,glab`, or `none` also work. Groups and ids combine; one
 named on its own replaces the default. Anything left out can be installed from
@@ -286,6 +286,14 @@ neither changes anything else in T3 Code's pages.
 
 ### Signing agents in and keeping them up to date
 
+**Muse Code** is an optional agent: choose **Install** on its row in
+**Setup → Agents**, then sign in with a Meta device code or save an API key.
+It is excluded from the default first-start installs. Using Muse in T3 Code
+requires **Nightly**, selected under **Setup → Environment**, and enabling
+**Muse Code** under **Settings → Providers**. The image still starts with
+Stable by default. You can also opt in with `T3_PREINSTALL=muse` or include it
+in a comma-separated list; `all` and `agents` include it too.
+
 Each row on the **Agents** page shows the agent's mark and the exact version
 installed, and T3 Code is pointed at that executable. When a newer release is
 available, the version gets an arrow and the row an **Update** button.
@@ -294,6 +302,19 @@ specific version is picked from the agent's list of releases, newest first,
 each marked as newest, installed, on the volume, or how recently it came out.
 Typing a prefix such as `2.1` picks the newest release under it.
 
+**OpenCode's version picker includes both 1.x and 2.x.** OpenCode 1 remains
+the default first-start install. Choose **Install a specific version…** on its
+row and search for `2` to install OpenCode 2 from the official `@opencode/cli`
+package through mise. It requires T3 Code **Nightly** and OpenCode **2.0.18**
+or newer. The two distributions share one row and one active `opencode`
+command; **Update** stays within the major version you selected.
+
+Before switching majors, stop running OpenCode sessions and keep a backup of
+its data. OpenCode 2 converts the shared OpenCode database on first use, and
+installing the older CLI does not restore that database. The picker explains
+this before starting a major-version switch. See the
+[T3 Code OpenCode guide](https://github.com/pingdotgg/t3code/blob/main/docs/user/providers-opencode.md).
+
 Downloads continue in the background. The row shows the progress and a
 **Cancel** button, so a slow connection or a tunnel's request timeout doesn't
 matter. Operations run one at a time: press Update on three rows, or **Update
@@ -301,11 +322,13 @@ all**, and they queue. If an update fails, the previous version stays
 installed. Nothing installs or updates on its own; the setup page checks for
 new releases in the background every hour.
 
-T3 Code's own **Update** in Settings → Providers does the same as the row's.
-T3 Code runs each agent through a small launcher the setup service writes, in
-`~/.local/share/t3-harness/launchers`, at a path T3 Code knows how to update.
-The launcher runs the exact release installed here, and hands T3 Code's update
-to `t3-harness update`, with the same lock, version record and rollback. Run
+T3 Code runs each agent through a small launcher the setup service writes in
+`~/.local/share/t3-harness/launchers`. It runs the exact release installed here.
+For providers with an in-app updater, T3 Code's own **Update** in
+Settings → Providers goes through that launcher to `t3-harness update`, with
+the same lock, version record and rollback as the setup page. Muse uses a
+standalone managed binary; update it from **Setup → Agents**. T3 Code only
+offers in-app Muse updates for its official auto-updating launcher. Run
 the agent's own updater over a managed install instead, and this page and T3
 Code would disagree about what is installed.
 
@@ -344,6 +367,7 @@ Each agent offers the sign-in methods it supports:
 | OpenCode | — | choose a provider; the key is written to its `auth.json` |
 | Cursor | browser sign-in, checked until it completes | — |
 | Grok Build | device code: a URL and a code to confirm | — |
+| Muse Code | Meta device code: a URL and a code to confirm | stored with `auth set --api-key-stdin` |
 | Antigravity | Google sign-in through T3 Code: paste back the address you land on | — |
 
 **Sign in** opens a sheet that follows the agent's own flow as numbered steps:
@@ -368,7 +392,13 @@ both count, as they do for T3 Code:
 | Cursor | `cursor-agent status --format json` |
 | Grok Build | `grok models`, plus `XAI_API_KEY`, as T3 Code does |
 | OpenCode | its `auth.json`, where its keys are stored |
+| Muse Code | saved credentials in `~/.config/muse/auth.json`; sign-in is checked on the first message |
 | Antigravity | T3 Code's provider status |
+
+Muse has no login-status command, and its model list works while signed out.
+The setup page reports saved credentials without claiming that they are
+verified. It ignores an inherited `META_API_KEY`, as T3 Code does; save the
+key here or set it on the Muse instance in **Settings → Providers**.
 
 Grok has no status command, and its credentials file can't be trusted on its
 own: a file in exactly the documented format still leaves the CLI reporting
@@ -618,7 +648,7 @@ the sandbox flags it needs), but it is less tested.
 
 ## Agents
 
-Claude Code, Codex and OpenCode install on first start. Grok and Cursor install
+Claude Code, Codex and OpenCode install on first start. Grok, Cursor and Muse install
 when you press **Install** on the Agents page, or on first start with
 `T3_PREINSTALL=all`. Each is installed into `/home/t3/.local/share/mise` at an
 exact version, so it survives a recreate with the rest of the volume. Sign them
@@ -633,6 +663,7 @@ credentials where the server never looks.
 | OpenCode | OpenCode | `t3-login opencode` |
 | Cursor | Cursor (executable `cursor-agent`) | `t3-login cursor` |
 | Grok Build | Grok Build | `t3-login grok` |
+| Muse Code | Muse Code (Nightly) | `t3-login muse` |
 | Antigravity | Antigravity (runtime installed by T3 Code) | — |
 
 **Antigravity** isn't a CLI that mise installs. T3 Code runs Google's
@@ -909,7 +940,8 @@ mounted (`/home/t3/.t3`), credentials and threads persist, and the next start
 reinstalls the tools.
 
 Agent CLIs normally store their sign-ins in `~/.claude`, `~/.codex`,
-`~/.cursor`, `~/.grok` and OpenCode's XDG directories, and the source control
+`~/.cursor`, `~/.grok`, OpenCode's XDG directories, Muse's `~/.config/muse`
+and `~/.local/share/muse`, and the source control
 CLIs in `~/.config/gh`, `~/.config/glab-cli`, `~/.config/tea`,
 `~/.local/share/forgejo-cli` and `~/.azure`, and git its settings in
 `~/.gitconfig` (who you commit as, and the credential helpers `gh` and `tea`

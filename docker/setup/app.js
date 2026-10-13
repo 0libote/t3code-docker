@@ -861,11 +861,11 @@
         ${shown.length ? html`<div class="tc-list">${shown.map((row) => resourceRow(row))}</div>`
           : rows.length ? html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-title">Nothing needs you</span><span class="tc-empty-desc">Every installed agent is signed in and current.</span></div>`
             : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Agent state is not readable right now.</span></div>`}
-        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Then turn each provider on in T3 Code under Settings → Providers.</span></div>
+        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Then turn each provider on in T3 Code under Settings → Providers. Muse Code requires Nightly.</span></div>
       </div>`, { actions: filter })}
       ${section('ag-how', 'How sign-in works', html`<div class="tc-group"><dl class="tc-kv">
         <dt>Credentials</dt><dd class="tc-kv-prose">On the state volume at <code>${(s.paths && s.paths.volume) || '/home/t3'}</code>. They survive a recreate.</dd>
-        <dt>Signed-in check</dt><dd class="tc-kv-prose">Asks each CLI, so keys in the environment count too.</dd>
+        <dt>Signed-in check</dt><dd class="tc-kv-prose">Asks each CLI when supported. Muse Code checks sign-in on the first message.</dd>
         <dt>From a shell</dt><dd><code>t3-login claude</code><span class="tc-subtle">·</span><code>t3-harness list</code></dd>
       </dl></div>`)}`;
   };
@@ -1739,7 +1739,7 @@
       steps = keyStep(1, true);
     }
     return html`
-      <div class="tc-sheet-head">${tile(meta, 'lg')}<div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="key-title">${isOpenCode ? 'Add a provider key' : 'Use an API key'}</h2><span class="tc-small tc-muted">${isOpenCode ? html`Writes to OpenCode’s <code>auth.json</code> on the volume` : html`Runs <code>codex login --with-api-key</code>; the key goes in on stdin`}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
+      <div class="tc-sheet-head">${tile(meta, 'lg')}<div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="key-title">${isOpenCode ? 'Add a provider key' : 'Use an API key'}</h2><span class="tc-small tc-muted">${isOpenCode ? html`Writes to OpenCode’s <code>auth.json</code> on the volume` : html`Runs <code>${meta.keyCommand}</code>; the key goes in on stdin`}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
       <div class="tc-sheet-body">${steps}</div>
       <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn tc-btn--primary" type="submit" data-key="key-save" disabled>${keySheet.saving ? html`<span class="tc-spinner" aria-hidden="true"></span>Saving` : 'Save key'}</button></div>`;
   };
@@ -2369,7 +2369,8 @@
       const kept = ((sheetFacts() || {}).managedVersions || []).filter((v) => v !== current);
       return html`<span class="tc-hint">${current
         ? html`On <span class="tc-mono">${current}</span>. T3 Code switches to the release you pick once it is installed and runs; ${current} keeps working until then.`
-        : html`T3 Code is pointed at the release you pick once it is installed and runs.`}${kept.length ? html` Also on the volume: <span class="tc-mono">${kept.join(', ')}</span>.` : ''}</span>`;
+        : html`T3 Code is pointed at the release you pick once it is installed and runs.`}${kept.length ? html` Also on the volume: <span class="tc-mono">${kept.join(', ')}</span>.` : ''}</span>
+        ${t.id === 'opencode' ? html`<span class="tc-hint">OpenCode 1 is the default. Choose a 2.x release to use OpenCode 2 with T3 Code Nightly. Updates stay on the selected major version.</span>` : ''}`;
     }
     const info = toolSheet.info;
     const bins = (info && info.bins && info.bins.length ? info.bins : t.bins) || [];
@@ -2400,6 +2401,7 @@
     if (r.supported === false) tags.push('too old for T3');
     else if (r.waiting) tags.push(r.releasedAt ? 'out ' + M.relTime(r.releasedAt, now()) : 'new');
     else if (r.prerelease) tags.push('preview');
+    if (r.requiresNightly) tags.push('requires Nightly');
     if (r.version === toolSheet.offered) tags.push('newest');
     if (r.version === current) tags.push('installed');
     else if ((facts.managedVersions || []).includes(r.version)) tags.push('on the volume');
@@ -2428,7 +2430,8 @@
               <li class="tc-option" role="option" id="ver-opt-${i}" data-version="${r.version}" aria-selected="${String(i === toolSheet.versionActive)}"${r.supported === false ? raw(' aria-disabled="true"') : ''}><span class="tc-mono">${r.version}</span>${releaseMeta(r)}</li>`)}</ul>`
               : ''}
       </div>
-      <span class="${cx('tc-hint', hint.err && 'tc-hint--err')}">${hint.text}</span>`;
+      <span class="${cx('tc-hint', hint.err && 'tc-hint--err')}">${hint.text}</span>
+      ${toolSheet.versionsWarning ? html`<span class="tc-hint tc-hint--err">${toolSheet.versionsWarning}</span>` : ''}`;
   };
 
   /**
@@ -2514,7 +2517,7 @@
   const selectTool = (tool) => {
     const draft = toolSheet.target === 'harness' ? versionDrafts.get(tool.id) || '' : '';
     Object.assign(toolSheet, {
-      tool, info: null, infoError: null, releases: null, offered: null, versionsError: null,
+      tool, info: null, infoError: null, releases: null, offered: null, versionsError: null, versionsWarning: null,
       versionMode: toolSheet.mode === 'version' ? 'pick' : 'latest', versionQuery: draft, version: '', versionActive: 0, error: null,
     });
     renderToolSheet();
@@ -2533,6 +2536,9 @@
       if (res.ok) {
         toolSheet.releases = res.data.releases || [];
         toolSheet.offered = res.data.latest || null;
+        if (agent && tool.id === 'opencode' && res.data.degraded?.length) {
+          toolSheet.versionsWarning = res.data.degraded.map((item) => item.tool === 'npm:@opencode/cli' ? 'OpenCode 2' : 'OpenCode 1').join(' and ') + ' releases could not be loaded. Try reopening this picker.';
+        }
         toolSheet.versionActive = activeRelease(toolSheet.versionQuery);
       } else {
         toolSheet.versionsError = res.error || 'mise could not list its releases';
@@ -2563,6 +2569,26 @@
       renderToolSheet();
       focusIn('#ver-q');
       return;
+    }
+    if (agent && t.id === 'opencode') {
+      const current = sheetCurrent() || '';
+      const target = exactChoice();
+      const toV2 = /^2\./.test(target) && !/^2\./.test(current);
+      const toV1 = /^1\./.test(target) && /^2\./.test(current);
+      if (toV2 || toV1) {
+        const confirmed = await Kit.confirm({
+          title: toV2 ? 'Install OpenCode 2?' : 'Switch back to OpenCode 1?',
+          body: toV2
+            ? 'Use T3 Code Nightly and stop running OpenCode sessions before switching. OpenCode 2 converts its shared database on first use.'
+            : 'Stop running OpenCode sessions before switching. Installing OpenCode 1 does not restore a database or configuration converted by OpenCode 2.',
+          consequences: [
+            { icon: 'shield-check', text: 'Keep a backup of your OpenCode data before switching' },
+            { icon: 'info', text: 'OpenCode 1 and 2 must not run together against the same data' },
+          ],
+          confirm: toV2 ? 'Install OpenCode 2' : 'Install OpenCode 1',
+        });
+        if (!confirmed) return;
+      }
     }
     toolSheet.saving = true;
     toolSheet.error = null;

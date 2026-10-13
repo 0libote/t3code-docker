@@ -184,8 +184,8 @@ export async function toolInfo(ctx, tool) {
 }
 
 /** The concrete executable mise resolves for a tool, or null. */
-export async function which(ctx, tool) {
-  const result = await ctx.run(miseArgs(ctx, ["which", tool]), {
+export async function which(ctx, tool, { installation = null } = {}) {
+  const result = await ctx.run(miseArgs(ctx, ["which", ...(installation ? ["--tool", installation] : []), tool]), {
     env: readEnv(ctx.env),
     cwd: ctx.home,
     timeoutMs: ctx.timeouts.mise,

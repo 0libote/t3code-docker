@@ -1,5 +1,5 @@
 #!/bin/bash
-# Manage the five supported agent harnesses through the shared manager.
+# Manage the supported agent harnesses through the shared manager.
 #
 # The setup console's Agents card and this CLI are thin surfaces over one
 # module (docker/harness/, baked as /opt/t3-harness/index.mjs), so they report
@@ -16,7 +16,7 @@
 #   t3-harness update <id> [--version <v>] [--json]
 #   t3-harness uninstall <id> [--json]
 #
-# Agent ids: claude, codex, opencode, grok, cursor. Toolchain ids: go, rust,
+# Agent ids: claude, codex, opencode, grok, cursor, muse. Toolchain ids: go, rust,
 # bun, deno, uv. Source control CLIs: glab, fj, tea, az, and gh, which is
 # part of the image: installing gh adds a newer one through mise, as an added
 # tool, and update and uninstall act on that one. Install defaults to mise's
@@ -53,7 +53,7 @@ usage() {
   cat <<'USAGE'
 Usage: t3-harness <command> [options]
 
-  list [--json]                 the five agents
+  list [--json]                 the supported agents
   toolchains [--json]           Go, Rust, Bun, Deno, uv
   source-control [--json]       gh, glab, fj, tea, az, and who each is signed in as
   packages [--json]             every other tool in the global mise config
@@ -62,7 +62,7 @@ Usage: t3-harness <command> [options]
   update <id> [--version <version>] [--json]
   uninstall <id> [--json]
 
-  id is an agent (claude, codex, opencode, grok, cursor), a toolchain
+  id is an agent (claude, codex, opencode, grok, cursor, muse), a toolchain
   (go, rust, bun, deno, uv), a source control CLI (glab, fj, tea, az; gh comes
   with the image, and installing it adds a newer one as an added tool), or any
   other mise tool, which is managed as an
@@ -173,7 +173,7 @@ export T3_HARNESS_COMMAND="$command" T3_HARNESS_ARG="${1:-}"
   };
 
   const TOOLCHAIN_IDS = ["go", "rust", "bun", "deno", "uv"];
-  const AGENT_IDS = ["claude", "codex", "opencode", "grok", "cursor"];
+  const AGENT_IDS = catalogue.CATALOGUE.map((entry) => entry.id);
   const SCM_IDS = catalogue.SOURCE_CONTROL.map((entry) => entry.id);
   // The gh in the image is not managed here, but a newer one added through mise
   // (`install gh`, `mise use -g gh`, or Add a tool on the page) is an added
