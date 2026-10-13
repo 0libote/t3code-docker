@@ -626,6 +626,14 @@ post_uninstall_config="$(mise_config)"
 
 section "Recreate online: T3 sees the uninstalled provider, all state survives"
 recreate
+# Provider snapshots persist on the volume. A cached `installed: false`
+# verdict must not let this test race ahead of the new server's startup.
+if wait_health 180; then
+  ok "T3 becomes healthy after online recreation"
+else
+  no "T3 never became healthy after online recreation"
+  droot sh -c 'tail -40 /home/t3/.t3/logs/server.log 2>/dev/null || true' || true
+fi
 if wait_for_snapshot opencode 300 false; then
   ok "T3 reports the uninstalled provider as absent"
 else
