@@ -86,6 +86,11 @@ test("the manager and the page agree on stable, preview, build and date versions
     ["v1.2.3", "1.2.3", 0],
     ["1.10.0", "1.9.0", 1],
     ["2026.10.02-abc", "2026.10.01-def", 1],
+    ["1.4.7-R100.1", "1.4.7-R99.9", 1],
+    ["1.4.7-R100.10", "1.4.7-R100.2", 1],
+    ["1.4.7-R100", "1.4.7-R100.0", 0],
+    ["1.4.7-R100.1", "1.4.7", 0],
+    ["1.4.7-R100.1", "1.4.7-rc.1", 1],
   ]) {
     assert.equal(compareVersions(left, right), expected, `${left} vs ${right}`);
     assert.equal(M.compareVersions(left, right), expected, `${left} vs ${right} in the page`);
@@ -169,6 +174,39 @@ test("a row shows exactly the one verb its state calls for", () => {
     if (r.state !== "missing") assert.equal(last.cmd, "harness.uninstall", `${r.id}: uninstall is last`);
     if (r.state !== "missing") assert.equal(last.danger, true);
   }
+});
+
+test("Muse offers opt-in install, sign-in and updates without claiming saved credentials are verified", () => {
+  const at = (overrides) => row(statusWith({ harnesses: [harness("muse", { canSetKey: true, ...overrides })] }), "muse");
+  const missing = at({ installed: false, runnable: false, version: null, installedVersion: null });
+  assert.equal(missing.name, "Muse Code");
+  assert.equal(missing.action.cmd, "harness.install");
+  assert.equal(missing.status.text, "Not installed · requires T3 Code Nightly");
+  assert.equal(missing.attention, false, "an optional agent is not a setup problem");
+  const signedOut = at({ signedIn: false });
+  assert.equal(signedOut.action.cmd, "harness.signin");
+  assert.ok(signedOut.menu.some((item) => item.cmd === "harness.apikey"));
+  const saved = at({ signedIn: null, credentialsPresent: true });
+  assert.equal(saved.status.text, "Credentials saved · sign-in checked on the first message");
+  assert.equal(saved.attention, false);
+  const update = at({ signedIn: null, credentialsPresent: true, installedVersion: "1.4.7-R99.1", latestVersion: "1.4.7-R100.1" });
+  assert.equal(update.action.cmd, "harness.update");
+  assert.equal(update.updateAvailable, true);
+  const newer = at({ signedIn: null, installedVersion: "1.4.7-R100.1", latestVersion: "1.4.7-R99.1" });
+  assert.equal(newer.updateAvailable, false);
+});
+
+test("OpenCode v2 releases can be found by major prefix, preserving release-age and minimum-version markers", () => {
+  const releases = [
+    { version: "2.0.28", waiting: true, supported: true, requiresNightly: true },
+    { version: "2.0.27", supported: true, requiresNightly: true },
+    { version: "2.0.17", supported: false, requiresNightly: true },
+    { version: "1.19.0", supported: true },
+  ];
+  assert.deepEqual(plain(M.matchReleases(releases, "2")).map(r => r.version), ["2.0.28", "2.0.27", "2.0.17"]);
+  assert.equal(M.resolveRelease(releases, "2"), "2.0.27");
+  assert.equal(M.resolveRelease(releases, "2.0.28"), "2.0.28");
+  assert.equal(M.resolveRelease(releases, "1"), "1.19.0");
 });
 
 test("OpenCode names its provider keys when it has them", () => {

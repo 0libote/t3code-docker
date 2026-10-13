@@ -202,10 +202,11 @@ cred() {
 cred claude   "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"
 cred codex    "$HOME/.codex/auth.json"
 cred opencode "$HOME/.local/share/opencode/auth.json"
-for h in cursor grok; do
+for h in cursor grok muse; do
   case "$h" in
     cursor) dir="$HOME/.cursor" ;;
     grok)   dir="$HOME/.grok" ;;
+    muse)   dir="$HOME/.config/muse" ;;
   esac
   if [ -z "${runnable[$h]:-}" ]; then
     warn "$h" "not installed"
@@ -215,7 +216,7 @@ for h in cursor grok; do
     warn "$h" "no config dir yet"
   fi
 done
-printf '  %s\n' "(sign in with: t3-login claude|codex|opencode|cursor|grok)"
+printf '  %s\n' "(sign in with: t3-login claude|codex|opencode|cursor|grok|muse)"
 
 head_ "Toolchains"
 version_of node node --version

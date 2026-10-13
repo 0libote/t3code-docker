@@ -1,4 +1,4 @@
-// The five supported agent harnesses, the toolchains, and the source control
+// The supported agent harnesses, the toolchains, and the source control
 // CLIs. This file is data only: every executable name, architecture,
 // credential surface, and minimum version the manager enforces comes from
 // here, so the module, the setup console, and the CLI all describe the same
@@ -9,6 +9,7 @@
  * not select one. T3's provider contract requires this minimum version.
  */
 export const MINIMUM_OPENCODE_VERSION = "1.14.19";
+export const MINIMUM_OPENCODE2_VERSION = "2.0.18";
 
 /**
  * Canonical Cursor executable. `agent` is an alias only the vendor installer
@@ -65,10 +66,23 @@ export const CATALOGUE = Object.freeze([
     name: "OpenCode",
     firstStart: true,
     miseTool: "opencode",
+    releaseMajor: "1",
     executable: "opencode",
     versionArgs: ["--version"],
     versionPattern: "(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?)",
     minimumVersion: MINIMUM_OPENCODE_VERSION,
+    // v2 is published on npm rather than the v1 GitHub release feed. It
+    // remains an explicit choice on the same OpenCode row.
+    alternateInstallations: [{
+      versionPattern: "^2\\.",
+      miseTool: "npm:@opencode/cli",
+      releaseMajor: "2",
+      miseOptions: "allow_builds=@opencode/cli",
+      executable: "node_modules/.bin/opencode",
+      bin: "opencode",
+      minimumVersion: MINIMUM_OPENCODE2_VERSION,
+      requiresNightly: true,
+    }],
     architectures: ["x64", "arm64"],
     credentials: {
       env: [],
@@ -121,11 +135,48 @@ export const CATALOGUE = Object.freeze([
     },
     auth: "cursor",
   },
+  {
+    id: "muse",
+    name: "Muse Code",
+    firstStart: false,
+    miseTool: "muse",
+    executable: "muse",
+    versionArgs: ["--version"],
+    // Prefer the exact revision in Muse Code 1.4.7 (1.4.7-R6101.1).
+    versionPattern: "\\b(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?)\\)?\\s*$",
+    minimumVersion: null,
+    architectures: ["x64", "arm64"],
+    credentials: {
+      // T3 ignores an inherited META_API_KEY. Use Muse's saved credential,
+      // or set a key explicitly on its T3 provider instance.
+      env: [],
+      paths: [".config/muse/auth.json"],
+    },
+    auth: "muse",
+  },
 ]);
 
 /** Look up one catalogue entry by its stable id. */
 export function getHarness(id) {
   return CATALOGUE.find((entry) => entry.id === id) ?? null;
+}
+
+/** All distributions for a harness; the first remains the default. */
+export function harnessInstallations(entry) {
+  const base = getHarness(entry.id) ?? entry;
+  return [base, ...(base.alternateInstallations ?? []).map((alternate) => ({
+    ...base, ...alternate,
+    // The alternate's pattern selects its distribution, not its CLI version
+    // output. All distributions use the harness's version probe pattern.
+    versionPattern: base.versionPattern,
+  }))];
+}
+
+/** The distribution that publishes an explicitly selected release. */
+export function harnessInstallationForVersion(entry, version) {
+  const base = getHarness(entry.id) ?? entry;
+  const index = (base.alternateInstallations ?? []).findIndex((alternate) => new RegExp(alternate.versionPattern).test(String(version ?? "")));
+  return harnessInstallations(base)[index + 1];
 }
 
 /** Map `dpkg --print-architecture`/uname spellings onto node's arch names. */

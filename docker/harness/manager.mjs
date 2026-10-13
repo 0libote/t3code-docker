@@ -1,6 +1,6 @@
 // The persistent harness manager.
 //
-// One module owns the five supported harnesses (and, the same way, the
+// One module owns the supported harnesses (and, the same way, the
 // toolchains and source control CLIs): their exact-version install,
 // the global mise selection, the concrete executable path, and the facts
 // (configured, installed, runnable, authenticated, failed) the
@@ -12,7 +12,7 @@ import path from "node:path";
 
 import {
   CATALOGUE, SOURCE_CONTROL, TOOLCHAINS, getHarness, getManagedTool, getSourceControl, normalizeArch, releaseSpec,
-  supportsArch,
+  supportsArch, harnessInstallations, harnessInstallationForVersion,
 } from "./catalogue.mjs";
 import { createFs, createRunner, isExecutable, processAlive, processStartTime } from "./io.mjs";
 import * as lock from "./lock.mjs";
@@ -155,7 +155,23 @@ export function createHarnessManager(options = {}) {
     }
   }
 
+  /** A recorded distribution wins while configured; otherwise adopt the one
+   * the user selected in mise. An empty home uses the catalogue's default. */
+  function activeInstallation(entry, snap) {
+    const preferred = harnessInstallationForVersion(entry, snap.saved.harnesses[entry.id]?.version);
+    const configured = (candidate) => (snap.tools[candidate.miseTool] ?? []).some((item) => item.source);
+    return configured(preferred) ? preferred : harnessInstallations(entry).find(configured) ?? preferred;
+  }
+
+  async function installationForRequest(entry, requested) {
+    if (cleanVersion(requested)) return harnessInstallationForVersion(entry, requested);
+    return entry.alternateInstallations ? activeInstallation(entry, await snapshot()) : entry;
+  }
+
+  const latestSpec = (entry) => entry.releaseMajor ? `${entry.miseTool}@${entry.releaseMajor}` : entry.miseTool;
+
   async function factsFor(entry, snap, { authenticate = true } = {}) {
+    entry = activeInstallation(entry, snap);
     const entries = snap.tools[entry.miseTool] ?? [];
     const sourceEntry = entries.find((candidate) => candidate.source) ?? null;
     const selected = entries.find((candidate) => candidate.active) ?? sourceEntry ?? entries[entries.length - 1] ?? null;
@@ -237,8 +253,11 @@ export function createHarnessManager(options = {}) {
 
   /** Exact-version selection from mise's install: the concrete executable. */
   async function resolveExecutable(entry, version) {
-    const resolved = await mise.which(ctx, entry.miseTool);
+    const resolved = await mise.which(ctx, entry.bin ?? entry.miseTool, {
+      ...(entry.bin || entry.alternateInstallations ? { installation: mise.toolSpec(entry.miseTool, version, entry.miseOptions) } : {}),
+    });
     if (resolved) return resolved;
+    if (entry.bin || entry.alternateInstallations) throw operationError("not-runnable", `could not resolve the managed ${entry.name} executable`);
     return path.join(mise.installDir(ctx, entry.miseTool, version), entry.executable);
   }
 
@@ -358,7 +377,7 @@ export function createHarnessManager(options = {}) {
     if (!requested || requested === "latest") op.phase("resolving");
     const target = requested && requested !== "latest"
       ? requested
-      : await mise.latest(ctx, entry.miseTool, { signal: op.signal, anyAge, fresh });
+      : await mise.latest(ctx, latestSpec(entry), { signal: op.signal, anyAge, fresh });
     assertVersion(target);
     if (meetsMinimum(target, entry.minimumVersion) === false) {
       throw operationError("version-below-minimum", `${entry.name} ${target} is below the required ${entry.minimumVersion}`);
@@ -375,12 +394,29 @@ export function createHarnessManager(options = {}) {
 
   /** Install and select one exact release, and prove it runs before recording it. */
   async function select(entry, previous, target, op = NO_OP) {
+    entry = harnessInstallationForVersion(entry, target);
+    const otherSelections = [];
+    for (const other of harnessInstallations(entry).filter((other) => other.miseTool !== entry.miseTool)) {
+      const version = await globalVersion(other.miseTool);
+      if (version) otherSelections.push({ entry: other, version });
+    }
     const { executable, probe } = await useVerified(entry, target, async () => {
       const resolved = await resolveExecutable(entry, target);
       const result = await probeVersion(ctx, entry, resolved);
       if (!result.ok) throw operationError("not-runnable", result.error ?? "the installed executable did not run");
       if (compareVersions(result.version, target) !== 0) {
         throw operationError("version-mismatch", `${entry.name} reported ${result.version} after installing ${target}`);
+      }
+      // Both distributions provide `opencode`. Verify the new one by its own
+      // tool spec before unselecting the old one, so failure leaves it working
+      // and successful switches give terminals exactly one active binary.
+      try {
+        for (const other of otherSelections) await mise.unuse(ctx, other.entry.miseTool);
+      } catch (error) {
+        for (const other of otherSelections) {
+          try { await mise.use(ctx, other.entry.miseTool, other.version, other.entry.miseOptions); } catch { /* best effort */ }
+        }
+        throw error;
       }
       return { executable: resolved, probe: result };
     }, op, previous);
@@ -401,8 +437,15 @@ export function createHarnessManager(options = {}) {
   async function install(id, options = {}) {
     const refused = refuseMalformed(options.version);
     if (refused) return refused;
-    return runOperation(id, "install", async (entry, previous, op) =>
-      select(entry, previous, await targetVersion(entry, options.version, op), op), options);
+    return runOperation(id, "install", async (entry, previous, op) => {
+      entry = await installationForRequest(entry, options.version);
+      const target = await targetVersion(entry, options.version, op);
+      if (entry.alternateInstallations && !cleanVersion(options.version)) {
+        const current = await resolve(id, { authenticate: false });
+        if (keepNewer(entry, current.installedVersion, target, op)) return {};
+      }
+      return select(entry, previous, target, op);
+    }, options);
   }
 
   /** Update to the newest stable immediately, keeping newer installed versions. */
@@ -415,6 +458,7 @@ export function createHarnessManager(options = {}) {
       return { ok: false, code: "not-installed", error: `${current.name} is not installed`, harness: current };
     }
     return runOperation(id, "update", async (entry, previous, op) => {
+      entry = await installationForRequest(entry, options.version);
       if (!previous.version) {
         const current = await resolve(id, { authenticate: false });
         if (!current.installed) throw operationError("not-installed", `${entry.name} is not installed`);
@@ -454,22 +498,25 @@ export function createHarnessManager(options = {}) {
       // selection currently points at, so a harness installed before the
       // manager kept state still uninstalls cleanly.
       const before = await mise.listTools(ctx);
-      const configured = (before.tools?.[entry.miseTool] ?? [])
+      const installations = harnessInstallations(entry);
+      const configured = installations.flatMap((installation) => (before.tools?.[installation.miseTool] ?? [])
         .filter((candidate) => candidate.source && candidate.installed)
-        .map((candidate) => candidate.version);
+        .map((candidate) => candidate.version));
       const versions = union(
         previous.managedVersions,
         previous.version ? [previous.version] : [],
         configured,
       );
-      try {
-        await mise.unuse(ctx, entry.miseTool);
-      } catch (error) {
-        // A tool that is not configured is already unselected.
-        if (!/not (found|present|installed)/i.test(String(error?.message ?? ""))) throw error;
+      for (const installation of installations) {
+        try {
+          await mise.unuse(ctx, installation.miseTool);
+        } catch (error) {
+          // A tool that is not configured is already unselected.
+          if (!/not (found|present|installed)/i.test(String(error?.message ?? ""))) throw error;
+        }
       }
       for (const version of versions) {
-        await mise.uninstall(ctx, entry.miseTool, version);
+        await mise.uninstall(ctx, harnessInstallationForVersion(entry, version).miseTool, version);
       }
       return {
         version: undefined,
@@ -964,9 +1011,10 @@ export function createHarnessManager(options = {}) {
    * the registry, so it belongs in a background job, never on a status read.
    */
   async function latest(id) {
-    const entry = getHarness(id);
+    let entry = getHarness(id);
     if (!entry) throw new Error(`unknown harness: ${id}`);
-    return mise.latest(ctx, entry.miseTool, { anyAge: true });
+    entry = await installationForRequest(entry, null);
+    return mise.latest(ctx, latestSpec(entry), { anyAge: true });
   }
 
   async function latestToolchain(id) {
@@ -985,14 +1033,14 @@ export function createHarnessManager(options = {}) {
    * whether mise is still holding it back (`waiting`: newer than what `mise
    * latest` offers). Asks the network, so never on a status read.
    */
-  async function releaseList(tool, { minimumVersion = null } = {}) {
+  async function releaseList(tool, { minimumVersion = null, releaseMajor = null } = {}) {
     const [listing, offered] = await Promise.all([
       mise.lsRemote(ctx, tool, { json: true, anyAge: true }),
-      mise.latest(ctx, tool).catch(() => null),
+      mise.latest(ctx, releaseMajor ? `${tool}@${releaseMajor}` : tool).catch(() => null),
     ]);
     return {
       latest: offered,
-      releases: parseReleases(listing).map((release) => ({
+      releases: parseReleases(listing).filter((release) => !releaseMajor || release.version.startsWith(`${releaseMajor}.`)).map((release) => ({
         ...release,
         waiting: Boolean(offered) && !release.prerelease && compareVersions(release.version, offered) > 0,
         ...(minimumVersion ? { supported: meetsMinimum(release.version, minimumVersion) !== false } : {}),
@@ -1022,7 +1070,19 @@ export function createHarnessManager(options = {}) {
   async function versions(id) {
     const entry = getHarness(id);
     if (!entry) throw new Error(`unknown harness: ${id}`);
-    return releaseList(entry.miseTool, { minimumVersion: entry.minimumVersion });
+    const installations = harnessInstallations(entry);
+    if (installations.length === 1) return releaseList(entry.miseTool, { minimumVersion: entry.minimumVersion });
+    const active = await installationForRequest(entry, null);
+    const results = await Promise.allSettled(installations.map((installation) => releaseList(installation.miseTool, installation)));
+    const available = results.filter((result) => result.status === "fulfilled");
+    if (!available.length) throw results[0].reason;
+    return {
+      latest: results[installations.findIndex((installation) => installation.miseTool === active.miseTool)].value?.latest ?? null,
+      releases: results.flatMap((result, index) => result.status === "fulfilled" ? result.value.releases.map((release) => ({
+        ...release, requiresNightly: Boolean(installations[index].requiresNightly),
+      })) : []).sort((a, b) => compareVersions(b.version, a.version)),
+      degraded: results.flatMap((result, index) => result.status === "rejected" ? [{ tool: installations[index].miseTool, error: String(result.reason?.message ?? result.reason) }] : []),
+    };
   }
 
   async function latestRelease(id) {

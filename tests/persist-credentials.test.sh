@@ -46,6 +46,9 @@ mkdir -p "$T3_HOME" "$T3CODE_HOME"
 mkdir -p "$T3_HOME/.config/gh"
 echo "github.com: {user: ana}" > "$T3_HOME/.config/gh/hosts.yml"
 printf '[user]\n\tname = Ana\n' > "$T3_HOME/.gitconfig"
+mkdir -p "$T3_HOME/.config/muse" "$T3_HOME/.local/share/muse"
+printf '%s' '{"providers":{"meta":{"api_key":"muse-test-key"}}}' > "$T3_HOME/.config/muse/auth.json"
+printf '%s' 'saved Muse session' > "$T3_HOME/.local/share/muse/session-test"
 # The host's glab sign-in, mounted into the container.
 mkdir -p "$T3_HOME/.config/glab-cli"
 echo "host's" > "$T3_HOME/.config/glab-cli/config.yml"
@@ -75,6 +78,8 @@ mkdir -p "$T3_HOME"
 MOUNTED=""
 persist_agent_credentials
 is "after a recreate, the sign-in is back" "github.com: {user: ana}" "$(cat "$T3_HOME/.config/gh/hosts.yml")"
+is "Muse credentials survive a recreate" '{"providers":{"meta":{"api_key":"muse-test-key"}}}' "$(cat "$T3_HOME/.config/muse/auth.json")"
+is "Muse sessions survive a recreate" 'saved Muse session' "$(cat "$T3_HOME/.local/share/muse/session-test")"
 is "and so is git's identity" "Ana" "$(HOME="$T3_HOME" git config --global user.name)"
 is "and its credential helper" '!gh auth git-credential' "$(HOME="$T3_HOME" git config --global credential.https://github.com.helper)"
 

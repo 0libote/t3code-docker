@@ -15,14 +15,15 @@ const T3Model = (() => {
   // signed in; this says how to present it, so the strings live in one place.
   const AGENTS = {
     claude: { name: 'Claude Code', mark: 'claude', mono: 'CC', hue: '--id-claude', how: 'browser sign-in', flow: 'code', command: 'claude auth login' },
-    codex: { name: 'Codex', mark: 'codex', mono: 'CO', hue: '--id-codex', how: 'device code', flow: 'device', command: 'codex login --device-auth' },
+    codex: { name: 'Codex', mark: 'codex', mono: 'CO', hue: '--id-codex', how: 'device code', flow: 'device', command: 'codex login --device-auth', keyCommand: 'codex login --with-api-key' },
     opencode: { name: 'OpenCode', mark: 'opencode', mono: 'OC', hue: '--id-opencode', how: 'API key, per provider', flow: 'key', command: null },
     grok: { name: 'Grok Build', mark: 'grok', mono: 'GB', hue: '--id-grok', how: 'device code', flow: 'device', command: 'grok login --device-auth' },
     cursor: { name: 'Cursor', mark: 'cursor', mono: 'CU', hue: '--id-cursor', how: 'browser sign-in', flow: 'browser', command: 'cursor-agent login' },
+    muse: { name: 'Muse Code', mark: null, mono: 'MC', hue: '--id-toolchain', how: 'device code', flow: 'device', command: 'muse login', keyCommand: 'muse auth set --api-key-stdin', requiresNightly: true },
     // Installed and signed in by T3 Code itself (managedBy: 't3').
     antigravity: { name: 'Antigravity', mark: 'antigravity', mono: 'AG', hue: '--id-toolchain', how: 'Google sign-in', flow: 'redirect', command: null },
   };
-  const AGENT_ORDER = ['claude', 'codex', 'opencode', 'grok', 'cursor', 'antigravity'];
+  const AGENT_ORDER = ['claude', 'codex', 'opencode', 'grok', 'cursor', 'muse', 'antigravity'];
 
   const TOOLCHAINS = {
     go: { name: 'Go', mark: 'go', mono: 'Go' },
@@ -70,8 +71,10 @@ const T3Model = (() => {
   const parseVersion = (v) => {
     const text = String(v ?? '').trim().replace(/^v/i, '');
     const numeric = /^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(text);
+    const revision = /^R(\d+)(?:\.(\d+))?$/.exec(numeric?.[2] ?? '');
     return numeric
-      ? { numeric: true, core: numeric[1].split('.'), pre: numeric[2]?.split('.') ?? null }
+      ? { numeric: true, core: numeric[1].split('.'), pre: revision ? null : numeric[2]?.split('.') ?? null,
+        revision: revision ? [revision[1], revision[2] ?? '0'] : null }
       : { numeric: false, core: text.split(/[.+-]/).filter(Boolean), pre: null };
   };
   const compareParts = (left, right, prerelease) => {
@@ -97,6 +100,7 @@ const T3Model = (() => {
     const right = parseVersion(b);
     const core = compareParts(left.core, right.core);
     if (core !== 0 || !left.numeric || !right.numeric) return core;
+    if (left.revision && right.revision) return compareParts(left.revision, right.revision);
     if (left.pre === null) return right.pre === null ? 0 : 1;
     if (right.pre === null) return -1;
     return compareParts(left.pre, right.pre, true);
@@ -361,7 +365,7 @@ const T3Model = (() => {
         row.action = { cmd: 'harness.install', label: 'Retry', icon: 'refresh-cw', variant: 'warning' };
       } else {
         row.state = 'missing';
-        row.status.text = 'Not installed';
+        row.status.text = 'Not installed' + (meta.requiresNightly ? ' · requires T3 Code Nightly' : '');
         row.action = { cmd: 'harness.install', label: 'Install', icon: 'download' };
       }
       row.menu = [{ cmd: 'harness.version', label: 'Install a specific version…', icon: 'history' }];
@@ -390,7 +394,9 @@ const T3Model = (() => {
         : { cmd: 'harness.signin', label: 'Sign in', icon: 'log-in', variant: 'primary' };
     } else if (h.signedIn !== true) {
       row.state = 'unknown';
-      row.status.text = 'Sign-in state not readable';
+      row.status.text = h.id === 'muse' && h.credentialsPresent
+        ? 'Credentials saved · sign-in checked on the first message' : 'Sign-in state not readable';
+      if (h.id === 'muse' && updateAvailable) row.action = { cmd: 'harness.update', label: 'Update' };
     } else {
       row.state = updateAvailable ? 'update' : 'ok';
       if (isKey) {
@@ -782,7 +788,8 @@ const T3Model = (() => {
   // added tools; the Add a tool search shows them, but says where they live.
   const MANAGED_ON = {
     claude: 'Agents', 'claude-code': 'Agents', codex: 'Agents', opencode: 'Agents', grok: 'Agents', cursor: 'Agents',
-    'cursor-agent': 'Agents', 'cursor-cli': 'Agents',
+    'cursor-agent': 'Agents', 'cursor-cli': 'Agents', muse: 'Agents', 'muse-code': 'Agents',
+    'npm:@opencode/cli': 'Agents', '@opencode/cli': 'Agents',
     go: 'Toolchains', rust: 'Toolchains', bun: 'Toolchains', deno: 'Toolchains', uv: 'Toolchains',
     // The source control CLIs, under every name mise knows them by.
     glab: 'Source control', 'azure-cli': 'Source control', azure: 'Source control', 'pipx:azure-cli': 'Source control',

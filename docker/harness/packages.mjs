@@ -10,7 +10,7 @@
 // and hand its output here, so the rules - what a tool name may be, which names
 // belong to an agent or a toolchain, how the registry reads - are unit-tested
 // without mise.
-import { CATALOGUE, SOURCE_CONTROL, TOOLCHAINS } from "./catalogue.mjs";
+import { CATALOGUE, SOURCE_CONTROL, TOOLCHAINS, harnessInstallations } from "./catalogue.mjs";
 
 // `[backend:]name`. The backend is any lowercase word (mise owns that list and
 // grows it: aqua, asdf, github, cargo, npm, pypi, ...). The name may carry an
@@ -106,7 +106,7 @@ export function indexRegistry(entries) {
 // az extension), never as a package. `gh` is not one of them: the image has
 // it, and adding a newer one through mise is still an added tool.
 const RESERVED = new Map([
-  ...CATALOGUE.map((entry) => [entry.miseTool, { kind: "agent", id: entry.id, name: entry.name }]),
+  ...CATALOGUE.flatMap(harnessInstallations).map((entry) => [entry.miseTool, { kind: "agent", id: entry.id, name: entry.name }]),
   ...CATALOGUE.map((entry) => [entry.id, { kind: "agent", id: entry.id, name: entry.name }]),
   ...TOOLCHAINS.map((entry) => [entry.miseTool, { kind: "toolchain", id: entry.id, name: entry.name }]),
   ...SOURCE_CONTROL.filter((entry) => !entry.inImage)

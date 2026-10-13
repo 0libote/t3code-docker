@@ -140,7 +140,7 @@ check "t3 runs" "docker exec $NAME t3 --version"
 # PATH are all the root-owned dispatcher, which runs the managed install.
 only_the_dispatcher_is_baked() {
   docker exec "$NAME" sh -c '
-    for agent in claude codex opencode grok cursor-agent; do
+    for agent in claude codex opencode grok cursor-agent muse; do
       [ "$(command -v "$agent")" = "/usr/local/lib/t3-agents/$agent" ] || exit 1
       [ "$(readlink -f "/usr/local/lib/t3-agents/$agent")" = /usr/local/bin/t3-agent ] || exit 1
     done
@@ -627,24 +627,23 @@ sys.exit(0 if want <= done and planned <= want else 1)'
 }
 check "the first start installs Claude Code, Codex, OpenCode and the toolchains, nothing else" setup_installed_defaults
 
-# Grok and Cursor wait for someone to ask. Ask the way the Agents page does,
-# one after the other, and everything below sees all five.
+# Optional agents wait for someone to ask. Ask the way the Agents page does.
 optional_agents_install() {
   local id code
-  for id in grok cursor; do
+  for id in grok cursor muse; do
     status_json | jq -e ".harnesses[] | select(.id == \"$id\") | .installed == false" >/dev/null || return 1
     code="$(lifecycle_post install "$id")"
     case "$code" in 200|202) ;; *) return 1 ;; esac
     operation_result "$id" || return 1
   done
 }
-check "Grok and Cursor are not installed unasked, and install from the page" optional_agents_install
+check "Grok, Cursor and Muse are not installed unasked, and install from the page" optional_agents_install
 
 agents_runnable() {
   status_json | python3 -c '
 import json, sys
 h = {a["id"]: a for a in json.load(sys.stdin)["harnesses"]}
-sys.exit(0 if all(h[i]["runnable"] and h[i]["version"] for i in ("claude", "codex", "opencode", "grok", "cursor")) else 1)'
+sys.exit(0 if all(h[i]["runnable"] and h[i]["version"] for i in ("claude", "codex", "opencode", "grok", "cursor", "muse")) else 1)'
 }
 # Retried: the card's facts refresh on the poll after the last install lands.
 check "every agent is runnable at a recorded version" "retry 10 agents_runnable"
@@ -722,6 +721,16 @@ check "the OpenCode floor matches T3's, and the install meets it" opencode_floor
 # the first start installed.
 printf '\nAgent authentication (variant %s)\n' "$VARIANT"
 auth_post() { docker exec "$NAME" sh -c "curl -sS -b /tmp/jar -H 'content-type: application/json' -d '$1' http://127.0.0.1:3774$2"; }
+
+muse_api_key() {
+  # First observe the signed-out verdict. Saving a key must replace it with
+  # unknown; the CLI cannot verify login without sending a model request.
+  status_json | jq -e '.harnesses[] | select(.id == "muse") | .signedIn == false' >/dev/null || return 1
+  auth_post '{"agent":"muse","key":"muse-smoke-test-key"}' /auth/apikey | jq -e '.ok' >/dev/null || return 1
+  status_json | jq -e '.harnesses[] | select(.id == "muse") | .credentialsPresent and (.signedIn == null)' >/dev/null &&
+  docker exec -u t3 "$NAME" cat /home/t3/.config/muse/auth.json | jq -e '.providers.meta.api_key == "muse-smoke-test-key"' >/dev/null
+}
+check "Muse saves an API key through stdin and replaces the stale signed-out verdict" muse_api_key
 as_t3() { docker exec -u t3 "$NAME" bash -lc "$1"; }
 
 codex_key_stored() {
@@ -883,6 +892,22 @@ grok_device_code() {
   session_state "$id" | grep -q 'accounts.x.ai'
 }
 check "Grok sign-in captures a device URL" grok_device_code
+
+muse_device_code() {
+  local id valid=0
+  id="$(signin_id muse)"
+  [ -n "$id" ] || return 1
+  for _ in $(seq 1 10); do
+    if session_state "$id" | jq -e '.needsCode == false and (.url | startswith("https://auth.meta.com/")) and (.code | test("^[A-Z0-9]{4}-[A-Z0-9]{4}$"))' >/dev/null; then
+      valid=1
+      break
+    fi
+    sleep 1
+  done
+  auth_post "{\"id\":\"$id\"}" /auth/cancel >/dev/null
+  [ "$valid" = 1 ]
+}
+check "Muse sign-in captures a Meta device URL and code, then cancels" muse_device_code
 
 # OpenCode takes a key per provider and there are over two hundred of them, so
 # the page offers the models.dev catalog rather than asking you to recall an id.

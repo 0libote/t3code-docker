@@ -159,9 +159,9 @@ if (baseUrl && setupKey) {
     const harnesses = await get("/harnesses");
     check("live GET /harnesses is 200", harnesses.status === 200, `got ${harnesses.status}`);
     const list = harnesses.body?.harnesses ?? [];
-    check("live lifecycle lists five harnesses", list.length === 5, `got ${list.length}`);
+    check("live lifecycle lists six harnesses", list.length === 6, `got ${list.length}`);
     const required = ["id", "runnable", "installedVersion", "failed", "inProgress", "executable"];
-    for (const id of ["claude", "codex", "opencode", "grok", "cursor"]) {
+    for (const id of ["claude", "codex", "opencode", "grok", "cursor", "muse"]) {
       const one = list.find((h) => h.id === id);
       check(`live ${id} is present`, Boolean(one), "missing from /harnesses");
       if (one) {
@@ -173,7 +173,7 @@ if (baseUrl && setupKey) {
     const status = await get("/status");
     check("live GET /status is 200", status.status === 200, `got ${status.status}`);
     check("live status carries the managed card fields",
-      Array.isArray(status.body?.harnesses) && status.body.harnesses.length === 5
+      Array.isArray(status.body?.harnesses) && status.body.harnesses.length >= 6
       && status.body.harnesses.every((h) => "runnable" in h && "installedVersion" in h),
       "status harnesses must carry managed lifecycle fields");
     const unauth = await fetch(`${baseUrl.replace(/\/+$/, "")}/harnesses`, { signal: AbortSignal.timeout(10000) });

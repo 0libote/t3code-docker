@@ -304,6 +304,9 @@ const refreshSignInState = async (id) => {
 // into "not readable".
 const lastKnown = new Map();
 const stableAuth = (id, value) => {
+  // Muse's null is a real state after credentials are saved, rather than a
+  // missed probe. Retaining its earlier false would keep it signed out forever.
+  if (id === "muse") return value;
   if (value === null) return lastKnown.has(id) ? lastKnown.get(id) : null;
   lastKnown.set(id, value);
   return value;
@@ -582,7 +585,7 @@ const managedExecutable = async (id) => {
   return null;
 };
 
-const HARNESS_IDS = new Set(["claude", "codex", "opencode", "grok", "cursor"]);
+const HARNESS_IDS = new Set(["claude", "codex", "opencode", "grok", "cursor", "muse"]);
 
 const lifecycleHttpStatus = (code) => {
   switch (code) {
@@ -1249,6 +1252,9 @@ const AGENTS = {
     signin: { argv: ["grok", "login", "--device-auth"], pty: false } },
   cursor: { name: "Cursor",
     signin: { argv: ["cursor-agent", "login"], pty: true, env: { NO_OPEN_BROWSER: "1" } } },
+  muse: { name: "Muse Code",
+    apiKey: { kind: "stdin", argv: ["muse", "auth", "set", "--api-key-stdin"] },
+    signin: { argv: ["muse", "login"], pty: false } },
   opencode: { name: "OpenCode", apiKey: { kind: "opencode" } },
   // Signed in through T3's own Google flow (startAntigravitySignin).
   antigravity: { name: "Antigravity" },

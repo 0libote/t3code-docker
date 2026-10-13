@@ -7,6 +7,9 @@ export function compareVersions(a, b) {
   const right = parse(b);
   const core = compareParts(left.core, right.core);
   if (core !== 0 || !left.numeric || !right.numeric) return core;
+  // Muse's -R suffix is a stable release revision, not a prerelease. A
+  // display version without one cannot say which revision is newer.
+  if (left.revision && right.revision) return compareParts(left.revision, right.revision);
   // Build metadata has no precedence, and a stable release follows all its
   // prereleases. A preview must never look newer than the stable release.
   if (left.pre === null) return right.pre === null ? 0 : 1;
@@ -44,7 +47,9 @@ export function meetsMinimum(version, minimum) {
 function parse(value) {
   const text = String(value ?? "").trim().replace(/^v/i, "");
   const numeric = /^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(text);
+  const revision = /^R(\d+)(?:\.(\d+))?$/.exec(numeric?.[2] ?? "");
   return numeric
-    ? { numeric: true, core: numeric[1].split("."), pre: numeric[2]?.split(".") ?? null }
+    ? { numeric: true, core: numeric[1].split("."), pre: revision ? null : numeric[2]?.split(".") ?? null,
+      revision: revision ? [revision[1], revision[2] ?? "0"] : null }
     : { numeric: false, core: text.split(/[.+-]/).filter(Boolean), pre: null };
 }

@@ -69,11 +69,15 @@ test("agents and toolchains own their names in every spelling", () => {
   const index = indexRegistry(parseRegistry(REGISTRY));
   assert.equal(isReservedTool("claude"), true);
   assert.equal(isReservedTool("cursor-agent"), true);
+  assert.equal(isReservedTool("muse"), true);
+  assert.equal(isReservedTool("npm:@opencode/cli"), true);
   assert.equal(isReservedTool("ripgrep"), false);
   assert.deepEqual(managedElsewhere("claude-code", index), { kind: "agent", id: "claude", name: "Claude Code" });
   assert.deepEqual(managedElsewhere("aqua:anthropics/claude-code", index), { kind: "agent", id: "claude", name: "Claude Code" });
   assert.deepEqual(managedElsewhere("cursor-cli", index), { kind: "agent", id: "cursor", name: "Cursor" });
   assert.deepEqual(managedElsewhere("cursor", index), { kind: "agent", id: "cursor", name: "Cursor" });
+  assert.deepEqual(managedElsewhere("muse", index), { kind: "agent", id: "muse", name: "Muse Code" });
+  assert.deepEqual(managedElsewhere("npm:@opencode/cli", index), { kind: "agent", id: "opencode", name: "OpenCode" });
   assert.deepEqual(managedElsewhere("pypi:uv", index), { kind: "toolchain", id: "uv", name: "uv" });
   assert.deepEqual(managedElsewhere("core:go", null), { kind: "toolchain", id: "go", name: "Go" }, "core: needs no registry");
   assert.equal(managedElsewhere("ripgrep", index), null);
