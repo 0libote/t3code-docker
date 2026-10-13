@@ -587,7 +587,12 @@ has "the isolated v2 lifecycle completed" "OpenCode v2 lifecycle passed" "$openc
 if [ "$code" != 0 ]; then info "$opencode_v2_out"; fi
 
 section "Optional Muse installation, saved credentials and uninstall"
-muse_out="$(droot t3-harness install muse --json)"
+muse_out="$(droot t3-harness install muse --json 2>&1)" && code=0 || code=$?
+is "Muse CLI install exits successfully" "0" "$code"
+if [ "$code" != 0 ]; then
+  info "$muse_out"
+  exit 1
+fi
 is "Muse installs only when requested" "true" "$(field '.ok' "$muse_out")"
 muse_version="$(field '.harness.installedVersion' "$muse_out")"
 is "Muse records the exact revision it runs" "$muse_version" "$(field '.harness.verifiedVersion' "$muse_out")"
