@@ -35,6 +35,8 @@ html.tc-locked { overflow: hidden; }
 /* The sidebar stays put while the page scrolls under the top bar. */
 .tc-sidebar { position: sticky; top: 0; height: 100vh; height: 100dvh; min-height: 0; overflow-y: auto; }
 .tc-sidebar-foot .tc-server { margin-bottom: 4px; }
+/* Full-width runtime metadata keeps long Nightly builds clear of the status. */
+.tc-server-version { overflow-wrap: anywhere; }
 .tc-sidebar-row { display: flex; align-items: center; gap: var(--space-1); }
 .tc-sidebar-row > .tc-nav-item { flex: 1 1 auto; min-width: 0; }
 .tc-banner-text { min-width: 0; }
@@ -100,6 +102,9 @@ html.tc-locked { overflow: hidden; }
 .tc-ready-cta { margin-top: var(--space-1); display: grid; gap: var(--space-2); }
 /* A checklist step with a second, quieter way to do it beside its button. */
 .tc-check > .tc-check-actions { grid-column: 3; grid-row: 1 / span 2; display: flex; align-items: center; gap: var(--space-2); }
+@media (max-width: 1023.98px) {
+  .tc-check > .tc-check-aside { grid-column: 2 / -1; grid-row: 2; overflow-wrap: anywhere; }
+}
 /* A choice of buttons beside the text it answers while there is room, and
    under it on a phone, rather than squeezing the text to a word a line. When
    the buttons themselves wrap, the primary (last in the markup, rightmost on

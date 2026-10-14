@@ -127,6 +127,7 @@ function createWorld(fs, { arch = "x64" } = {}) {
     latest: {
       claude: "2.1.273", codex: "0.154.1", opencode: "1.18.31", grok: "1.0.34", "cursor-agent": "2026.09.15-d2fe57e", muse: "1.4.7-R6101.1",
       "npm:@opencode/cli": "2.0.27",
+      "aqua:anomalyco/opencode": "1.18.31",
       go: "1.27.1", rust: "1.98.1", bun: "1.4.2", deno: "2.9.7", uv: "0.12.21",
       glab: "1.120.0", "forgejo:forgejo-contrib/forgejo-cli": "0.6.0", "pipx:azure-cli": "2.90.0",
       // tea is only found on gitea.com: asked without its api_url, mise finds nothing.
@@ -162,6 +163,7 @@ function createWorld(fs, { arch = "x64" } = {}) {
       "npm:prettier": ["3.3.3", "3.4.2"],
       claude: ["2.1.270", "2.1.271", "2.1.273"],
       opencode: ["1.14.0", "1.18.31"],
+      "aqua:anomalyco/opencode": ["1.14.0", "1.18.31"],
       "npm:@opencode/cli": ["2.0.17", "2.0.18", "2.0.27"],
     },
     // Published, but younger than mise's minimum release age: listed and
@@ -554,6 +556,32 @@ test("OpenCode floating installs, updates and latest checks stay within the sele
   assert.equal((await manager.update("opencode")).harness.installedVersion, "2.0.28");
   assert.equal((await manager.install("opencode")).harness.installedVersion, "2.0.28");
   assert.ok(world.useSpecs.at(-1).includes("[allow_builds=@opencode/cli]@2.0.28"), "updates retain the vendor's required postinstall");
+});
+
+test("OpenCode v1 remains installable and discoverable when the short-name feed only lists v2", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  world.versions.opencode = ["2.0.27"];
+  world.latest.opencode = "2.0.27";
+  const manager = managerFor(world);
+
+  const installed = await manager.install("opencode");
+  assert.equal(installed.ok, true);
+  assert.equal(installed.harness.installedVersion, "1.18.31");
+  assert.equal(installed.harness.runnable, true);
+  assert.equal(await manager.latest("opencode"), "1.18.31");
+
+  world.versions["aqua:anomalyco/opencode"].push("1.18.32");
+  world.latest["aqua:anomalyco/opencode"] = "1.18.32";
+  const updated = await manager.update("opencode");
+  assert.equal(updated.ok, true);
+  assert.equal(updated.harness.installedVersion, "1.18.32");
+  assert.deepEqual(world.useSpecs, ["opencode@1.18.31", "opencode@1.18.32"], "the existing installation identity is preserved");
+
+  const choices = await manager.versions("opencode");
+  assert.equal(choices.latest, "1.18.32");
+  assert.ok(choices.releases.some(release => release.version === "1.18.32" && !release.requiresNightly));
+  assert.ok(choices.releases.some(release => release.version === "2.0.27" && release.requiresNightly));
 });
 
 test("an explicit switch back to OpenCode v1 verifies that distribution even when v2 shadows its command", async () => {

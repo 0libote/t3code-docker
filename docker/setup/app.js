@@ -1211,7 +1211,8 @@
     const server = s.server || {};
     const image = s.image || {};
     patch($('server-card'), html`
-      <div class="tc-server-row">${dot(server.ok ? 'ok' : 'danger', server.ok && 'tc-dot--live')}<strong>${server.ok ? 'Running' : 'Not answering'}</strong>${server.version ? html`<span class="tc-mono">${server.version}</span>` : ''}</div>
+      <div class="tc-server-row">${dot(server.ok ? 'ok' : 'danger', server.ok && 'tc-dot--live')}<strong>${server.ok ? 'Running' : 'Not answering'}</strong></div>
+      ${server.version ? html`<div class="tc-server-version tc-mono">${server.version}</div>` : ''}
       <div class="tc-server-row"><span class="tc-mono tc-truncate" title="${M.imageLabel(image).full || ''}">${M.imageLabel(image).text || 'unversioned build'}</span></div>`);
     patch($('phone-status'), html`${dot(server.ok ? 'ok' : 'danger', server.ok && 'tc-dot--live')}${server.ok ? 'Running' : 'Down'}`);
     for (const link of document.querySelectorAll('[data-open-t3]')) if (link.getAttribute('href') !== t3Url()) link.setAttribute('href', t3Url());
