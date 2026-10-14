@@ -625,7 +625,13 @@ if want - done: print("not installed:", sorted(want - done))
 if planned - want: print("installed unasked:", sorted(planned - want))
 sys.exit(0 if want <= done and planned <= want else 1)'
 }
-check "the first start installs Claude Code, Codex, OpenCode and the toolchains, nothing else" setup_installed_defaults
+if setup_installed_defaults; then
+  ok "the first start installs Claude Code, Codex, OpenCode and the toolchains, nothing else"
+else
+  no "the first start installs Claude Code, Codex, OpenCode and the toolchains, nothing else"
+  status_json | jq '{setup: {state: .setup.state, items: [.setup.items[] | {kind, id, state, error}]},
+    harnesses: [.harnesses[] | {id, installed, runnable, version, failure}]}' || true
+fi
 
 # Optional agents wait for someone to ask. Ask the way the Agents page does.
 optional_agents_install() {

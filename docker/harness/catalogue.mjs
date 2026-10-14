@@ -66,6 +66,8 @@ export const CATALOGUE = Object.freeze([
     name: "OpenCode",
     firstStart: true,
     miseTool: "opencode",
+    // The short-name version feed lists npm's v2 releases; v1 comes from GitHub.
+    releaseTool: "aqua:anomalyco/opencode",
     releaseMajor: "1",
     executable: "opencode",
     versionArgs: ["--version"],
@@ -76,6 +78,7 @@ export const CATALOGUE = Object.freeze([
     alternateInstallations: [{
       versionPattern: "^2\\.",
       miseTool: "npm:@opencode/cli",
+      releaseTool: "npm:@opencode/cli",
       releaseMajor: "2",
       miseOptions: "allow_builds=@opencode/cli",
       executable: "node_modules/.bin/opencode",

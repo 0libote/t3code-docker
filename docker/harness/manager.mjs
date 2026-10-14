@@ -168,7 +168,8 @@ export function createHarnessManager(options = {}) {
     return entry.alternateInstallations ? activeInstallation(entry, await snapshot()) : entry;
   }
 
-  const latestSpec = (entry) => entry.releaseMajor ? `${entry.miseTool}@${entry.releaseMajor}` : entry.miseTool;
+  const releaseTool = (entry) => entry.releaseTool ?? entry.miseTool;
+  const latestSpec = (entry) => entry.releaseMajor ? `${releaseTool(entry)}@${entry.releaseMajor}` : releaseTool(entry);
 
   async function factsFor(entry, snap, { authenticate = true } = {}) {
     entry = activeInstallation(entry, snap);
@@ -1071,9 +1072,9 @@ export function createHarnessManager(options = {}) {
     const entry = getHarness(id);
     if (!entry) throw new Error(`unknown harness: ${id}`);
     const installations = harnessInstallations(entry);
-    if (installations.length === 1) return releaseList(entry.miseTool, { minimumVersion: entry.minimumVersion });
+    if (installations.length === 1) return releaseList(releaseTool(entry), { minimumVersion: entry.minimumVersion });
     const active = await installationForRequest(entry, null);
-    const results = await Promise.allSettled(installations.map((installation) => releaseList(installation.miseTool, installation)));
+    const results = await Promise.allSettled(installations.map((installation) => releaseList(releaseTool(installation), installation)));
     const available = results.filter((result) => result.status === "fulfilled");
     if (!available.length) throw results[0].reason;
     return {
