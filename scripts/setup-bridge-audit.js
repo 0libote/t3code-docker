@@ -247,6 +247,7 @@ const run = async (base) => {
       const lit = theirs.find((row) => row.hasAttribute("data-highlighted"));
       const list = dialog.querySelector('[data-slot="command-list"]');
       return {
+        query: dialog.querySelector('input[role="combobox"]')?.value,
         ours: ours.map((row) => row.getAttribute("data-t3-setup-item")),
         ourLit: ours.findIndex((row) => row.hasAttribute("data-highlighted")),
         theirs: theirs.length,
@@ -263,11 +264,11 @@ const run = async (base) => {
         active: document.activeElement && document.activeElement.getAttribute("aria-activedescendant"),
       };
     });
-    const search = async (query) => {
+    const search = async (query, { setupRows = true } = {}) => {
       await closePalette();
       await page.keyboard.press("Control+k");
-      await page.waitForSelector(PALETTE + " input", { timeout: 5000 });
-      await page.keyboard.type(query, { delay: 20 });
+      await page.locator(PALETTE + ' input[role="combobox"]').fill(query, { timeout: 5000 });
+      if (setupRows) await page.locator(PALETTE + " [data-t3-setup-item]").first().waitFor({ state: "visible", timeout: 5000 });
       await page.waitForTimeout(600);
       return rows();
     };
@@ -335,7 +336,7 @@ const run = async (base) => {
       expect(found.ours[0] === "setup" && found.ourLit === -1 && /^base-ui/.test(found.active || ""),
         "\"set\" lists Open setup but leaves Enter with T3's first result", JSON.stringify(found));
     }
-    found = await search("settings");
+    found = await search("settings", { setupRows: false });
     expect(found && found.ours.length === 0, "\"settings\" is T3's alone", JSON.stringify(found));
     await closePalette();
 
