@@ -360,7 +360,11 @@ RUN set -eux; \
         fonts-noto-color-emoji fonts-noto-cjk; \
     rm -rf /var/lib/apt/lists/*
 
-ENV CHROME_PATH=/usr/bin/chromium \
+# T3's server-hosted browser also runs inside Docker. Container and host
+# namespace restrictions can block Chrome's sandbox; keep the container as
+# the isolation boundary, as the browser MCP launchers already do.
+ENV T3CODE_SERVER_BROWSER_SANDBOX=0 \
+    CHROME_PATH=/usr/bin/chromium \
     CHROME_BIN=/usr/bin/chromium \
     PUPPETEER_SKIP_DOWNLOAD=1 \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
