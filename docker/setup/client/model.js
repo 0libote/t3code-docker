@@ -19,7 +19,7 @@ const T3Model = (() => {
     opencode: { name: 'OpenCode', mark: 'opencode', mono: 'OC', hue: '--id-opencode', how: 'API key, per provider', flow: 'key', command: null },
     grok: { name: 'Grok Build', mark: 'grok', mono: 'GB', hue: '--id-grok', how: 'device code', flow: 'device', command: 'grok login --device-auth' },
     cursor: { name: 'Cursor', mark: 'cursor', mono: 'CU', hue: '--id-cursor', how: 'browser sign-in', flow: 'browser', command: 'cursor-agent login' },
-    muse: { name: 'Muse Code', mark: null, mono: 'MC', hue: '--id-toolchain', how: 'device code', flow: 'device', command: 'muse login', keyCommand: 'muse auth set --api-key-stdin', requiresNightly: true },
+    muse: { name: 'Muse Code', mark: 'muse', mono: 'MC', hue: '--id-toolchain', how: 'device code', flow: 'device', command: 'muse login', keyCommand: 'muse auth set --api-key-stdin', requiresNightly: true },
     // Installed and signed in by T3 Code itself (managedBy: 't3').
     antigravity: { name: 'Antigravity', mark: 'antigravity', mono: 'AG', hue: '--id-toolchain', how: 'Google sign-in', flow: 'redirect', command: null },
   };
@@ -1159,10 +1159,10 @@ const T3Model = (() => {
       urlStep(s, ui),
       {
         id: 'pair',
-        title: 'Pair a device',
+        title: s.authLists?.session.available === false ? 'Reading paired devices' : 'Pair a device',
         done: (s.sessions || []).length > 0,
-        desc: 'Scan the QR with the T3 Code app, or open the link in a browser.',
-        action: { cmd: 'pair.start', label: 'Create pairing link', icon: 'link' },
+        desc: s.authLists?.session.available === false ? 'The device list is loading in the background. This page updates automatically.' : 'Scan the QR with the T3 Code app, or open the link in a browser.',
+        action: s.authLists?.session.available === false ? null : { cmd: 'pair.start', label: 'Create pairing link', icon: 'link' },
       },
       {
         id: 'agents',
@@ -1190,7 +1190,9 @@ const T3Model = (() => {
     const headlines = {
       server: ['Waiting for T3 Code to start', 'The server answers on its own port inside the container. This page notices as soon as it does.'],
       url: ['Set the public URL', 'A paired phone reaches this server at its public URL, so a pairing link needs one before anything else.'],
-      pair: ['Pair your first device', 'A phone is enough to drive this server. Pairing takes one scan and no shell in the container.'],
+      pair: s.authLists?.session.available === false
+        ? ['Reading paired devices', 'T3 Code is reading the device list in the background. This page updates automatically.']
+        : ['Pair your first device', 'A phone is enough to drive this server. Pairing takes one scan and no shell in the container.'],
       agents: ['Sign in your agents', 'Each agent signs in with its own flow, driven from here. Credentials stay on the volume.'],
     };
     const next = todo === -1 ? null : steps[todo];
@@ -1370,7 +1372,7 @@ const T3Model = (() => {
     const links = (s.pairings || []).length;
     return {
       overview: { text: hostOf(s.publicUrl) || host || '', mono: true },
-      devices: { text: sessions || links ? [sessions + ' paired', links ? plural(links, 'link') + ' waiting' : null].filter(Boolean).join(' · ') : 'No devices yet' },
+      devices: { text: Object.values(s.authLists || {}).some((entry) => !entry.available) ? 'Reading device details' : sessions || links ? [sessions + ' paired', links ? plural(links, 'link') + ' waiting' : null].filter(Boolean).join(' · ') : 'No devices yet' },
       agents: { text: installed.length ? signed + ' of ' + installed.length + ' signed in' : 'None installed yet' },
       toolchains: { text: [tools.filter((t) => t.installed).length + ' of ' + tools.length + ' installed', added ? added + ' added' : null, 'through mise'].filter(Boolean).join(' · ') },
       sourcecontrol: { text: (() => {
