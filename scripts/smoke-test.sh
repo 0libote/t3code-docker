@@ -150,7 +150,17 @@ check "no harness executable is baked, only the root-owned dispatcher" only_the_
 check "mise ships" "docker exec $NAME mise --version"
 check "harness installer ships" "docker exec $NAME t3-harness --help"
 check "storage CLI ships" "docker exec $NAME t3-storage --help"
-check "storage CLI reads filesystem space" "output_has 'docker exec $NAME t3-storage status --json' 'availableBytes'"
+storage_cli_has_disk() {
+  local output
+  output="$(docker exec "$NAME" t3-storage status --json)" || return 1
+  printf '%s' "$output" | python3 -c '
+import json, sys
+disk = json.load(sys.stdin)["disk"]
+assert disk["totalBytes"] > 0
+assert disk["availableBytes"] >= 0
+'
+}
+check "storage CLI reads filesystem space" storage_cli_has_disk
 check "provider integration ships" "docker exec $NAME test -r /opt/t3-provider/cli.mjs"
 
 # T3 Code enforces a minimum `gh` at runtime: too old and it reports "GitHub
@@ -1039,17 +1049,22 @@ check "and uninstalls, leaving nothing in the config or the list" added_tool_uni
 # the result, so parsing it proves nothing; assert instead that what the
 # browser receives is byte-for-byte the file on disk.
 client_script_is_verbatim() {
+  local expected_scripts
   PAGE_HTML="$(mktemp)"; SETUP_COPY="$(mktemp -d)"
   docker exec "$NAME" sh -c \
     "curl -sS -c /tmp/j3 -d 'key=$SETUP_KEY' -o /dev/null http://127.0.0.1:3774/login && \
      curl -sS -b /tmp/j3 http://127.0.0.1:3774/" > "$PAGE_HTML" || return 1
   docker cp "$NAME:/opt/t3-setup/." "$SETUP_COPY" >/dev/null 2>&1 || return 1
+  expected_scripts="$(docker exec "$NAME" /usr/local/bin/node --input-type=module -e '
+    import { CONSOLE_SCRIPTS } from "/opt/t3-setup/page.mjs";
+    process.stdout.write(JSON.stringify(CONSOLE_SCRIPTS));
+  ')" || return 1
   # Every inlined script names its file; each must arrive byte for byte.
-  python3 - "$PAGE_HTML" "$SETUP_COPY" <<'PYEOF'
-import os, re, sys
+  python3 - "$PAGE_HTML" "$SETUP_COPY" "$expected_scripts" <<'PYEOF'
+import json, os, re, sys
 page = open(sys.argv[1], encoding="utf-8").read()
 blocks = re.findall(r'<script nonce="[^"]*" data-src="([^"]+)">(.*?)</script>', page, re.S)
-if [src for src, _ in blocks] != ["client/base.js", "design/ui.js", "client/model.js", "client/kit.js", "app.js"]:
+if [src for src, _ in blocks] != json.loads(sys.argv[3]):
     sys.exit(1)
 for src, code in blocks:
     if code != open(os.path.join(sys.argv[2], src), encoding="utf-8").read():
