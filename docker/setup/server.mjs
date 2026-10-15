@@ -2552,7 +2552,11 @@ const server = createServer(async (req, res) => {
         } catch {
           // Unknown install state links everything, as before.
         }
-        const reconciled = await Context.reconcileAgentsMd(fs, STATE_DIR, { home: CONTEXT_HOME, env: process.env, only });
+        // Bootstrap missing links only on creation. Subsequent edits must keep
+        // providers explicitly set to None disconnected.
+        const reconciled = result.created
+          ? await Context.reconcileAgentsMd(fs, STATE_DIR, { home: CONTEXT_HOME, env: process.env, only })
+          : { ok: true, linked: [], skipped: [], error: null };
         recordEvent("context.saved", "Saved global AGENTS.md");
         return sendJson(res, 200, { ok: true, ...result, reconcile: reconciled });
       } catch (error) {

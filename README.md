@@ -223,7 +223,7 @@ styles from anywhere else, which helps over a slow tunnel.
 
 **Setup → Context** edits one shared global `AGENTS.md`, with Markdown upload
 and download. Claude Code, Codex and OpenCode can each use **Shared** global
-instructions or a **Separate** file. Switching to Shared backs up an existing
+instructions, a **Separate** file, or **None**. Switching to Shared backs up an existing
 file; switching back restores it, or creates an independent copy of the shared
 instructions. Separate files can be edited in place, preserving symlinks and
 permissions. Start a new agent session to load changes.

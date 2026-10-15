@@ -6,7 +6,8 @@ on desktop and opens as a bottom sheet on phones. Uploading a Markdown file
 replaces the draft; only **Save** applies it. Downloads include unsaved edits.
 
 The canonical file lives at `$T3CODE_HOME/setup/context/AGENTS.md`, on the state
-volume. Saving writes it atomically with mode `0600` and creates missing links:
+volume. Saving writes it atomically with mode `0600`; initial creation links
+missing native files:
 
 | Provider | Native global instruction target | Environment override |
 | --- | --- | --- |
@@ -14,7 +15,7 @@ volume. Saving writes it atomically with mode `0600` and creates missing links:
 | Codex | `~/.codex/AGENTS.md` | `CODEX_HOME` |
 | OpenCode | `~/.config/opencode/AGENTS.md` | `XDG_CONFIG_HOME` (config root) |
 
-Each provider has a **Shared / Separate** selector:
+Each provider has a **Shared / Separate / None** selector:
 
 - **Shared** uses the global file, so subsequent global edits reach that provider.
   **Edit** opens the shared editor. Switching an existing separate file to Shared
@@ -25,6 +26,10 @@ Each provider has a **Shared / Separate** selector:
   previous file, it starts with a copy of the shared instructions; before shared
   instructions exist, it starts with a Markdown heading. The separate editor
   opens after switching. Later shared edits leave the separate file alone.
+- **None** removes the native link or parks a separate file in its backup slot.
+  Later global edits leave it disconnected; Separate restores the backup.
+  Deleting the global file disconnects shared providers and keeps backups.
+  Creating the global file again bootstraps missing native links.
 
 Source choices are inferred from the native files and links; there is no new
 manifest format. Provider IDs select fixed paths, so callers cannot supply an
@@ -39,7 +44,8 @@ provider editors also detect a retargeted link. On a conflict, download the draf
 and reopen the editor to load the current file. Missing or unreadable targets
 cannot be saved over.
 
-Saving shared instructions creates only missing native links. Existing separate
+Creating shared instructions links missing native files; later saves update only
+providers already using Shared. Existing separate
 files stay in place until the user explicitly chooses Shared for that provider.
 A symlink at the canonical shared file is refused rather than replaced.
 

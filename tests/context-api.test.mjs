@@ -107,6 +107,14 @@ test("global instruction API discovers existing files and changes them only on e
   assert.equal((await api({ content: '# Stale shared content', revision: secondShared.revision })).status, 409);
   assert.equal((await (await api()).json()).content, '# New shared content');
 
+  // Saving shared edits must not undo an explicit None selection.
+  const openCodeState = (await context()).providers.find((file) => file.provider === 'opencode');
+  assert.equal((await api({ provider: 'opencode', mode: 'none', sourceRevision: openCodeState.sourceRevision })).status, 200);
+  const beforeEdit = await (await api()).json();
+  assert.equal((await api({ content: '# Keep None disconnected', revision: beforeEdit.revision })).status, 200);
+  assert.equal((await context()).providers.find((file) => file.provider === 'opencode').mode, null);
+  await assert.rejects(fs.lstat(path.join(config, 'opencode/AGENTS.md')), { code: 'ENOENT' });
+
   // JSON escaping and metadata must not reduce the 64 KiB Markdown allowance.
   const boundaryFiles = [
     'x'.repeat(65536),

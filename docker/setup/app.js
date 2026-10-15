@@ -1236,7 +1236,7 @@
     ${pageNotices('context')}
     ${section('cx-agentsmd', 'Instructions', html`<div class="tc-group">
       <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map(contextProviderRow)}</div>
-      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Choose Shared to use the global file, Separate for that provider's own instructions, or None for no instructions. Separate restores its previous file when available, otherwise starts with a copy of the global file. Only installed agents are listed. Start a new agent session after saving.</span></div>
+      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Choose Shared to use the global file, Separate for that provider's own instructions, or None for no instructions. Separate restores its previous file when available, otherwise starts with a copy of the global file. Installed agents and existing instruction files are listed. Start a new agent session after saving.</span></div>
     </div>`)}
     ${M.contextView(s).error ? notice('danger', 'circle-alert', 'Could not read instructions', M.contextView(s).error) : ''}`;
 

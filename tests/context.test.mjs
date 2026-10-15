@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
-import { agentsMdTargets, agentsMdPathFor, validateAgentsMd, readAgentsMd, writeAgentsMd, reconcileAgentsMd, contextStatus, readProviderAgentsMd, writeProviderAgentsMd, providerInstructionState, setProviderInstructionMode } from "../docker/setup/context.mjs";
+import { agentsMdTargets, agentsMdPathFor, validateAgentsMd, readAgentsMd, writeAgentsMd, reconcileAgentsMd, contextStatus, readProviderAgentsMd, writeProviderAgentsMd, providerInstructionState, setProviderInstructionMode, deleteAgentsMd } from "../docker/setup/context.mjs";
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(tmpdir(), "t3-context-"));
@@ -339,4 +339,43 @@ test("separate mode can start before a shared file exists; unknown modes cannot 
   assert.equal((await setProviderInstructionMode(fs, f.baseDir, 'codex', 'other', state.sourceRevision, f)).ok, false);
   assert.equal((await setProviderInstructionMode(fs, f.baseDir, 'codex', 'separate', state.sourceRevision, f)).ok, true);
   assert.match((await readProviderAgentsMd(fs, 'codex', f)).content, /codex instructions/);
+});
+
+
+test("None preserves separate files for restoration and rejects occupied backups", async (t) => {
+  const f = await fixture(t);
+  let state = await providerInstructionState(fs, f.baseDir, 'codex', f);
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, 'codex', 'separate', state.sourceRevision, f)).ok, true);
+  const target = agentsMdTargets({}, f.home).find((entry) => entry.provider === 'codex').path;
+  await fs.writeFile(target, '# Keep my instructions');
+  await fs.chmod(target, 0o640);
+  state = await providerInstructionState(fs, f.baseDir, 'codex', f);
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, 'codex', 'none', state.sourceRevision, f)).ok, true);
+  await assert.rejects(fs.lstat(target), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(target + '.t3-context-backup', 'utf8'), '# Keep my instructions');
+  state = await providerInstructionState(fs, f.baseDir, 'codex', f);
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, 'codex', 'separate', state.sourceRevision, f)).ok, true);
+  assert.equal(await fs.readFile(target, 'utf8'), '# Keep my instructions');
+  assert.equal((await fs.stat(target)).mode & 0o777, 0o640);
+  await fs.writeFile(target + '.t3-context-backup', '# Previous backup');
+  state = await providerInstructionState(fs, f.baseDir, 'codex', f);
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, 'codex', 'none', state.sourceRevision, f)).code, 'conflict');
+  assert.equal(await fs.readFile(target, 'utf8'), '# Keep my instructions');
+});
+
+test("global deletion checks revisions, removes shared links and preserves separate files and backups", async (t) => {
+  const f = await fixture(t);
+  await writeAgentsMd(fs, f.baseDir, '# Shared');
+  await reconcileAgentsMd(fs, f.baseDir, f);
+  const targets = agentsMdTargets({}, f.home);
+  const codex = await providerInstructionState(fs, f.baseDir, 'codex', f);
+  await setProviderInstructionMode(fs, f.baseDir, 'codex', 'separate', codex.sourceRevision, f);
+  await fs.writeFile(targets[0].path + '.t3-context-backup', '# Original');
+  assert.equal((await deleteAgentsMd(fs, f.baseDir, 'stale', f)).code, 'conflict');
+  const read = await readAgentsMd(fs, f.baseDir);
+  assert.equal((await deleteAgentsMd(fs, f.baseDir, read.revision, f)).unlinked, 2);
+  assert.equal((await readAgentsMd(fs, f.baseDir)).present, false);
+  assert.equal(await fs.readFile(targets[1].path, 'utf8'), '# Shared');
+  assert.equal(await fs.readFile(targets[0].path + '.t3-context-backup', 'utf8'), '# Original');
+  for (const target of [targets[0], targets[2]]) await assert.rejects(fs.lstat(target.path), { code: 'ENOENT' });
 });

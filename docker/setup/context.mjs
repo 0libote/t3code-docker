@@ -92,7 +92,7 @@ export async function writeAgentsMd(fs, baseDir, content, revision = null) {
       if (error?.code !== "ENOENT") throw error;
     }
     await writeFileAtomic(fs, file, String(content));
-    return { ok: true, path: file, bytes: v.bytes, revision: revisionFor(file, String(content)) };
+    return { ok: true, path: file, created: !read.present, bytes: v.bytes, revision: revisionFor(file, String(content)) };
   });
 }
 
@@ -240,21 +240,14 @@ export async function setProviderInstructionMode(fs, baseDir, provider, mode, so
       // Remove the provider file so no instructions apply. A separate file is
       // kept in the backup slot so Separate can restore it later; a shared
       // link is simply unlinked and any existing backup is left for Separate.
-      if (state.mode === "shared") {
-        await fs.rm(state.path, { force: true });
-      } else {
+      if (state.mode === "separate") {
         try {
           await fs.lstat(backup);
-          // A separate file is already parked: refusing to overwrite it keeps
-          // the restore unambiguous.
-          if (state.mode === "separate") return { ok: false, code: "conflict", error: "A previous instruction backup already exists: " + backup };
-          await fs.rm(state.path, { force: true });
-        } catch (error) {
-          if (error?.code !== "ENOENT") throw error;
-          // No backup: move a separate file aside, or unlink a dangling link.
-          if (state.mode === "separate") await fs.rename(state.path, backup);
-          else await fs.rm(state.path, { force: true });
-        }
+          return { ok: false, code: "conflict", error: "A previous instruction backup already exists: " + backup };
+        } catch (error) { if (error?.code !== "ENOENT") throw error; }
+        await fs.rename(state.path, backup);
+      } else {
+        await fs.rm(state.path, { force: true });
       }
       return { ok: true, provider, mode: null };
     }
