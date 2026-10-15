@@ -48,7 +48,8 @@ if(action==='list') {
   assert.deepEqual((await fs.readFile(path.join(root,'calls'),'utf8')).trim().split('\n').sort(), ['pairing','session']);
   await fs.writeFile(path.join(root,'release'),'yes');
   let warm;
-  for(let i=0;i<100;i++){warm=await request('/status');if(warm.authLists.session.available)break;await pause(20)}
+  // The two CLI reads complete independently; wait for both snapshots.
+  for(let i=0;i<100;i++){warm=await request('/status');if(warm.authLists.session.available && warm.authLists.pairing.available)break;await pause(20)}
   assert.equal(warm.sessions[0].sessionId,'phone');assert.equal(warm.authLists.session.stale,false);
   assert.deepEqual(warm.pairings,[]);assert.equal(warm.authLists.pairing.available,true);
   await request('/revoke',{kind:'session',id:'phone'});
