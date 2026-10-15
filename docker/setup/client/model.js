@@ -1503,6 +1503,7 @@ const T3Model = (() => {
     for (const l of linkRows(s.pairings, null, now)) add('Devices', 'Revoke link ' + l.name + '…', 'trash-2', { cmd: 'link.revoke', id: l.id });
 
     add('Context', 'Edit global AGENTS.md…', 'pencil', { cmd: 'context.edit' });
+    if (contextView(s).present) add('Context', 'Delete global AGENTS.md…', 'trash-2', { cmd: 'context.delete' });
     for (const row of contextProviderRows(s).filter((row) => row.mode)) add('Context', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id });
     add('Actions', 'Create pairing link', 'link', { cmd: 'pair.start' }, { shortcut: 'P' });
     const agentUpdates = agentRows(s, ui, now).filter((a) => a.updateAvailable).length;
@@ -1654,23 +1655,30 @@ const T3Model = (() => {
       status: { text: view.present ? 'Shared instructions; linked to agent homes where supported' : 'Not set yet. Edit to add shared instructions.' },
       badge: view.present ? { tone: 'ok', text: 'Set' } : null,
       action: { cmd: 'context.edit', label: 'Edit', icon: 'pencil' },
-      menu: [],
+      menu: view.present ? [{ cmd: 'context.delete', label: 'Delete…', icon: 'trash-2', danger: true }] : [],
       attention: false,
     };
   };
 
-  const contextProviderRows = (status) => ((status?.context?.providers) || []).map((file) => ({
-    id: file.provider,
-    key: 'agentsmd:' + file.provider,
-    target: 'context-provider',
-    name: ({ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[file.provider] || file.provider) + ' instructions',
-    description: '', mono: 'AG', hue: '--id-toolchain', version: null, state: 'ok',
-    status: { text: file.error || (file.mode === 'shared' ? 'Uses the shared global instructions' : file.mode === 'separate' ? file.path : 'Choose shared or separate instructions') },
-    badge: file.error ? { tone: 'warn', text: 'Unavailable' } : file.mode ? { text: file.mode === 'shared' ? 'Shared' : 'Separate' } : null,
-    mode: file.mode || null, sourceRevision: file.sourceRevision, error: file.error || null,
-    action: { cmd: 'context.provider.edit', label: 'Edit', icon: 'pencil' },
-    menu: [], attention: false,
-  }));
+  // Only show the agents in use: installed harnesses, plus any provider that
+  // already has instructions (so an uninstalled agent's leftover file can still
+  // be edited or cleared). Without harness facts, show everything as before.
+  const contextProviderRows = (status) => {
+    const providers = status?.context?.providers || [];
+    const harnesses = status?.harnesses;
+    const installed = Array.isArray(harnesses) ? new Set(harnesses.filter((h) => h.installed).map((h) => h.id)) : null;
+    const list = !installed || installed.size === 0 ? providers
+      : providers.filter((file) => installed.has(file.provider) || file.mode || file.error);
+    return list.map((file) => ({
+      id: file.provider,
+      key: 'agentsmd:' + file.provider,
+      name: ({ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[file.provider] || file.provider) + ' instructions',
+      mono: 'AG', hue: '--id-toolchain',
+      status: { text: file.error || (file.mode === 'shared' ? 'Uses the shared global instructions' : file.mode === 'separate' ? file.path : 'No instructions for this agent') },
+      badge: file.error ? { tone: 'warn', text: 'Unavailable' } : file.mode ? { text: file.mode === 'shared' ? 'Shared' : 'Separate' } : { text: 'None' },
+      mode: file.mode || null, sourceRevision: file.sourceRevision, error: file.error || null,
+    }));
+  };
 
   return {
     AGENTS, TOOLCHAINS, SOURCE_CONTROL, DONE, WORKING, FAILED,

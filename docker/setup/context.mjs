@@ -75,11 +75,7 @@ export async function readAgentsMd(fs, baseDir) {
   const { text, error } = await readFileSafe(fs, file);
   if (error) return { present: false, path: file, content: null, revision: null, bytes: 0, error };
   if (text === null) return { present: false, path: file, content: null, revision: null, bytes: 0, error: null };
-  let updatedAt = null;
-  try {
-    updatedAt = (await fs.stat(file)).mtimeMs ?? null;
-  } catch { /* ignore */ }
-  return { present: true, path: file, content: text, revision: revisionFor(file, text), bytes: Buffer.byteLength(text, "utf8"), updatedAt, error: null };
+  return { present: true, path: file, content: text, revision: revisionFor(file, text), bytes: Buffer.byteLength(text, "utf8"), error: null };
 }
 
 export async function writeAgentsMd(fs, baseDir, content, revision = null) {
@@ -100,21 +96,61 @@ export async function writeAgentsMd(fs, baseDir, content, revision = null) {
   });
 }
 
+/**
+ * Delete the shared global file. Provider links pointing at it are unlinked
+ * so they return to "no instructions" instead of dangling; their separate
+ * backups are left for a later Separate. Blank saves stay rejected - removal
+ * is explicit.
+ */
+export async function deleteAgentsMd(fs, baseDir, revision = null, { home = "/home/t3", env = {} } = {}) {
+  const file = agentsMdPathFor(baseDir);
+  return withInstructionWrite(file, async () => {
+    const read = await readAgentsMd(fs, baseDir);
+    if (read.error) return { ok: false, error: read.error };
+    if (!read.present) return { ok: true, path: file, deleted: false };
+    if (read.revision !== revision) return changedInstructions();
+    try {
+      if ((await fs.lstat(file)).isSymbolicLink()) return { ok: false, error: "Global AGENTS.md is a symlink; edit its target directly." };
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    const canonical = path.resolve(file);
+    await fs.rm(file, { force: true });
+    let unlinked = 0;
+    for (const target of agentsMdTargets(env, home)) {
+      try {
+        const stat = await fs.lstat(target.path);
+        if (!stat.isSymbolicLink()) continue;
+        const resolved = path.resolve(path.dirname(target.path), await fs.readlink(target.path));
+        if (resolved === canonical) {
+          await fs.rm(target.path, { force: true });
+          unlinked += 1;
+        }
+      } catch {
+        // Missing or unreadable provider files need no cleanup.
+      }
+    }
+    return { ok: true, path: file, deleted: true, unlinked };
+  });
+}
+
 /** Link missing targets without replacing existing files or user symlinks. */
-export async function reconcileAgentsMd(fs, baseDir, { home = "/home/t3", env = {} } = {}) {
+export async function reconcileAgentsMd(fs, baseDir, { home = "/home/t3", env = {}, only = null } = {}) {
   const canonical = agentsMdPathFor(baseDir);
   const read = await readAgentsMd(fs, baseDir);
   if (!read.present) return { ok: false, linked: [], skipped: [], error: read.error || "no global AGENTS.md yet" };
+  const allowed = only ? new Set(only) : null;
   const linked = [];
   const skipped = [];
   for (const target of agentsMdTargets(env, home)) {
+    if (allowed && !allowed.has(target.provider)) continue;
     try {
       try {
         const stat = await fs.lstat(target.path);
         if (stat.isSymbolicLink() && path.resolve(path.dirname(target.path), await fs.readlink(target.path)) === path.resolve(canonical)) {
           linked.push({ ...target, state: "exists" });
         } else {
-          skipped.push({ ...target, reason: "Existing instructions left in place" });
+          skipped.push({ ...target, reason: "Existing instructions left in place", preserved: true });
         }
         continue;
       } catch (error) {
@@ -180,24 +216,48 @@ export async function providerInstructionState(fs, baseDir, provider, options = 
   return {
     ok: true, ...target, mode: read.resolvedPath === sharedPath ? "shared" : "separate",
     sourceRevision: revisionFor(target.path, link + "\0" + read.revision),
-    resolvedPath: read.resolvedPath, bytes: read.bytes, error: null,
+    resolvedPath: read.resolvedPath, error: null,
   };
 }
 
 /** Explicit mode changes preserve the separate file next to its native path. */
 export async function setProviderInstructionMode(fs, baseDir, provider, mode, sourceRevision, options = {}) {
-  if (!["shared", "separate"].includes(mode)) return { ok: false, code: "invalid", error: "Choose shared or separate instructions" };
+  if (!["shared", "separate", "none"].includes(mode)) return { ok: false, code: "invalid", error: "Choose shared, separate or no instructions" };
   const initial = await providerInstructionState(fs, baseDir, provider, options);
   if (!initial.ok) return initial;
+  // Clearing an already-absent provider is a no-op, but still checks the
+  // revision so a stale selector cannot hide a file created elsewhere.
   return withInstructionWrite(initial.resolvedPath || initial.path, async () => {
     const state = await providerInstructionState(fs, baseDir, provider, options);
     if (!state.ok) return state;
     if (!sourceRevision || state.sourceRevision !== sourceRevision) return changedInstructions();
-    if (state.mode === mode) return { ok: true, provider, mode };
+    if (state.mode === mode || (state.mode === null && mode === "none" && !state.error)) return { ok: true, provider, mode: mode === "none" ? null : mode };
     const shared = await readAgentsMd(fs, baseDir);
     if (shared.error) return { ok: false, error: shared.error };
     const backup = state.path + ".t3-context-backup";
     const temporary = state.path + ".tmp." + randomBytes(6).toString("hex");
+    if (mode === "none") {
+      // Remove the provider file so no instructions apply. A separate file is
+      // kept in the backup slot so Separate can restore it later; a shared
+      // link is simply unlinked and any existing backup is left for Separate.
+      if (state.mode === "shared") {
+        await fs.rm(state.path, { force: true });
+      } else {
+        try {
+          await fs.lstat(backup);
+          // A separate file is already parked: refusing to overwrite it keeps
+          // the restore unambiguous.
+          if (state.mode === "separate") return { ok: false, code: "conflict", error: "A previous instruction backup already exists: " + backup };
+          await fs.rm(state.path, { force: true });
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+          // No backup: move a separate file aside, or unlink a dangling link.
+          if (state.mode === "separate") await fs.rename(state.path, backup);
+          else await fs.rm(state.path, { force: true });
+        }
+      }
+      return { ok: true, provider, mode: null };
+    }
     if (mode === "shared") {
       if (!shared.present) return { ok: false, error: "Save shared global instructions first" };
       let backedUp = false;
@@ -235,13 +295,20 @@ export async function setProviderInstructionMode(fs, baseDir, provider, mode, so
   });
 }
 
-/** Local metadata only: instruction text is fetched when the editor opens. */
+/** Return metadata only; instruction text stays server-side until the editor opens. */
 export async function contextStatus(fs, { baseDir, home = "/home/t3", env = {} } = {}) {
-  const read = await readAgentsMd(fs, baseDir);
+  // Shared provider links resolve to the same file; read it once per poll.
+  const reads = new Map();
+  const snapshotFs = { ...fs, readFile(file, encoding) {
+    const key = path.resolve(file);
+    if (!reads.has(key)) reads.set(key, fs.readFile(file, encoding));
+    return reads.get(key);
+  } };
+  const read = await readAgentsMd(snapshotFs, baseDir);
   const providers = [];
   for (const target of agentsMdTargets(env, home)) {
-    const state = await providerInstructionState(fs, baseDir, target.provider, { home, env });
-    providers.push({ ...target, mode: state.mode, sourceRevision: state.sourceRevision, bytes: state.bytes ?? 0, error: state.error ?? null });
+    const state = await providerInstructionState(snapshotFs, baseDir, target.provider, { home, env });
+    providers.push({ ...target, mode: state.mode, sourceRevision: state.sourceRevision, error: state.error ?? null });
   }
-  return { agentsMd: { present: read.present, bytes: read.bytes, updatedAt: read.updatedAt ?? null, error: read.error }, providers };
+  return { agentsMd: { present: read.present, bytes: read.bytes, error: read.error }, providers };
 }

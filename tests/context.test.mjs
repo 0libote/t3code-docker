@@ -43,7 +43,12 @@ test("saving twice updates existing provider links without replacing them", asyn
   }
   assert.equal((await fs.stat(agentsMdPathFor(f.baseDir))).mode & 0o777, 0o600);
   await assert.rejects(fs.stat(path.join(f.home, ".claude/AGENTS.md")), { code: "ENOENT" });
-  const status = await contextStatus(fs, f);
+  let reads = 0;
+  const status = await contextStatus({ ...fs, readFile: (...args) => {
+    reads++;
+    return fs.readFile(...args);
+  } }, f);
+  assert.equal(reads, 1, "shared provider files are read once per status snapshot");
   assert.deepEqual(Object.keys(status), ["agentsMd", "providers"]);
   assert.deepEqual(status.providers.map((entry) => entry.mode), ['shared', 'shared', 'shared']);
   assert.equal(status.agentsMd.bytes, 9);
@@ -63,6 +68,7 @@ test("global reconciliation preserves real files and absolute, relative and dang
     }
     const result = await reconcileAgentsMd(fs, f.baseDir, f);
     assert.equal(result.skipped.length, 3, kind);
+    assert.ok(result.skipped.every((entry) => entry.preserved));
     for (const target of agentsMdTargets({}, f.home)) {
       if (kind === "file") assert.equal(await fs.readFile(target.path, "utf8"), "# Existing");
       else {
@@ -81,7 +87,8 @@ test("canonical symlinks and invalid saves preserve existing instructions", asyn
   await fs.mkdir(path.dirname(canonical), { recursive: true });
   await fs.writeFile(target, "# User");
   await fs.symlink(target, canonical);
-  assert.equal((await writeAgentsMd(fs, f.baseDir, "# Replacement")).ok, false);
+  const revision = (await readAgentsMd(fs, f.baseDir)).revision;
+  assert.match((await writeAgentsMd(fs, f.baseDir, "# Replacement", revision)).error, /symlink/);
   assert.equal(await fs.readlink(canonical), target);
   assert.equal(await fs.readFile(target, "utf8"), "# User");
   await fs.unlink(canonical);
@@ -209,13 +216,11 @@ test("unknown, absent, dangling and directory provider targets cannot be overwri
   assert.deepEqual(await fs.readdir(target), []);
 });
 
-test("provider view rows and palette expose each discovered file without adding attention", () => {
-  const status = { context: { providers: [{ provider: 'claude', path: '/custom/CLAUDE.md', bytes: 12, mode: 'separate' }] } };
+test("provider view rows and palette expose each discovered file", () => {
+  const status = { context: { providers: [{ provider: 'claude', path: '/custom/CLAUDE.md', mode: 'separate' }] } };
   const row = M.contextProviderRows(status)[0];
   assert.equal(row.name, 'Claude Code instructions');
   assert.equal(row.status.text, '/custom/CLAUDE.md');
-  assert.equal(row.action.cmd, 'context.provider.edit');
-  assert.equal(row.attention, false);
   assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.cmd.cmd === 'context.provider.edit' && i.cmd.id === 'claude'));
 });
 

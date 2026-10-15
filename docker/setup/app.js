@@ -1226,7 +1226,7 @@
         <div class="tc-row-title"><span class="tc-row-name">${row.name}</span>${badge(row.badge)}</div>
         ${statusLine(row.status)}
         <div class="tc-seg" role="group" aria-label="${row.name} source">
-          ${[['shared', 'Shared'], ['separate', 'Separate']].map(([mode, label]) => html`<button type="button" data-cmd="context.provider.mode" data-id="${row.id}" data-mode="${mode}" aria-pressed="${String(row.mode === mode)}"${contextSwitching.has(row.id) || row.error || (mode === 'shared' && !M.contextView(state.status).present) ? raw(' disabled') : ''}>${label}</button>`)}
+          ${[['shared', 'Shared'], ['separate', 'Separate'], ['none', 'None']].map(([mode, label]) => html`<button type="button" data-cmd="context.provider.mode" data-id="${row.id}" data-mode="${mode}" aria-pressed="${String((row.mode || 'none') === mode)}"${contextSwitching.has(row.id) || row.error || (mode === 'shared' && !M.contextView(state.status).present) || (mode === 'none' && !row.mode) ? raw(' disabled') : ''}>${label}</button>`)}
         </div>
       </div>
       <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="context.provider.edit" data-id="${row.id}"${!row.mode || row.error || contextSwitching.has(row.id) ? raw(' disabled') : ''}>${icon('pencil')}Edit</button></div>
@@ -1236,7 +1236,7 @@
     ${pageNotices('context')}
     ${section('cx-agentsmd', 'Instructions', html`<div class="tc-group">
       <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map(contextProviderRow)}</div>
-      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Choose Shared to use the global file, or Separate for that provider's own instructions. Separate restores its previous file when available, otherwise starts with a copy of the global file. Start a new agent session after saving.</span></div>
+      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Choose Shared to use the global file, Separate for that provider's own instructions, or None for no instructions. Separate restores its previous file when available, otherwise starts with a copy of the global file. Only installed agents are listed. Start a new agent session after saving.</span></div>
     </div>`)}
     ${M.contextView(s).error ? notice('danger', 'circle-alert', 'Could not read instructions', M.contextView(s).error) : ''}`;
 
@@ -1327,7 +1327,7 @@
         contextEditor.saving = false;
         if (!save.ok) { contextEditor.error = save.error; contextEditor.layer.render(); return; }
         contextEditor.layer.close('saved');
-        const skipped = save.data?.reconcile?.skipped || [];
+        const skipped = (save.data?.reconcile?.skipped || []).filter((target) => !target.preserved);
         Kit.toast(provider ? 'Saved ' + providerName + ' instructions' : 'Saved global AGENTS.md', skipped.length ? { tone: 'warn', detail: skipped.map((t) => t.provider + ': ' + t.reason).join('; ') } : undefined);
         loadStatus();
       }
@@ -2927,7 +2927,6 @@
   const rowFor = (target, id) => (target === 'harness' ? M.agentRows(state.status, ui, now())
     : target === 'package' ? M.packageRows(state.status, ui, now())
     : target === 'context-agentsmd' ? [M.contextAgentsMdRow(state.status)]
-    : target === 'context-provider' ? M.contextProviderRows(state.status)
       : [...M.toolchainRows(state.status, ui, now()), ...M.sourceControlRows(state.status, ui, now())]).find((r) => r.id === id);
 
   const deviceRename = { layer: null, device: null, label: '', initial: '', saving: false, error: null, invalid: false };
@@ -3186,13 +3185,29 @@
     'agents.filter': (a) => { state.agentFilter = a.value; render(); },
 
     'context.edit': (a, el) => openContextEditor(el),
+    'context.delete': async () => {
+      const view = M.contextView(state.status);
+      if (!view.present) return;
+      const confirmed = await Kit.confirm({
+        title: 'Delete global AGENTS.md?',
+        body: 'Removes the shared instructions file. Providers using Shared will have no instructions until you save new shared instructions or switch them to Separate.',
+        confirm: 'Delete',
+      });
+      if (!confirmed) return;
+      const current = await api('/context/agents-md');
+      if (!current.ok) { Kit.toast('Could not delete instructions', { tone: 'danger', detail: current.error }); return; }
+      const result = await api('/context/agents-md', { body: { delete: true, revision: current.data.revision } });
+      if (!result.ok) { Kit.toast('Could not delete instructions', { tone: 'danger', detail: result.error }); return; }
+      Kit.toast('Deleted global AGENTS.md');
+      await loadStatus();
+    },
     'context.provider.edit': (a, el) => {
       const row = M.contextProviderRows(state.status).find((entry) => entry.id === a.id);
       if (row?.mode) openContextEditor(el, row.mode === 'shared' ? null : a.id);
     },
     'context.provider.mode': async (a, el) => {
       const row = M.contextProviderRows(state.status).find((entry) => entry.id === a.id);
-      if (!row || row.mode === a.mode || contextSwitching.has(a.id)) return;
+      if (!row || (row.mode || 'none') === a.mode || contextSwitching.has(a.id)) return;
       contextSwitching.add(a.id);
       render();
       try {
@@ -3204,9 +3219,19 @@
           });
           if (!confirmed) return;
         }
+        if (a.mode === 'none') {
+          const confirmed = await Kit.confirm({
+            title: 'Remove instructions for ' + row.name.replace(' instructions', '') + '?',
+            body: row.mode === 'separate'
+              ? 'Your separate file will be backed up and restored if you switch back to Separate.'
+              : 'The shared link for this provider will be removed. Its separate backup, if any, is kept for a later Separate.',
+            confirm: 'Remove',
+          });
+          if (!confirmed) return;
+        }
         const result = await api('/context/agents-md', { body: { provider: a.id, mode: a.mode, sourceRevision: row.sourceRevision } });
         if (!result.ok) { Kit.toast('Could not switch instructions', { tone: 'danger', detail: result.error }); return; }
-        Kit.toast(a.mode === 'shared' ? 'Using shared instructions' : 'Using separate instructions');
+        Kit.toast(a.mode === 'shared' ? 'Using shared instructions' : a.mode === 'none' ? 'No instructions for this provider' : 'Using separate instructions');
         await loadStatus();
         if (a.mode === 'separate') openContextEditor(el, a.id);
       } finally {
