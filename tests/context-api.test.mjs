@@ -138,4 +138,36 @@ test("global instruction API discovers existing files and changes them only on e
   }
   assert.equal((await api({ content: '# Small', revision: final.revision, padding: 'x'.repeat(400000) })).status, 400);
   assert.equal((await (await api()).json()).content, final.content);
+
+  // Existing oversized files are reported without editor contents or revisions.
+  const oversized = 'x'.repeat(65537);
+  await fs.writeFile(path.join(home, '.t3/setup/context/AGENTS.md'), oversized);
+  const sharedResponse = await api();
+  assert.equal(sharedResponse.status, 400);
+  const sharedRead = await sharedResponse.json();
+  assert.equal(sharedRead.present, true);
+  assert.equal(sharedRead.code, 'too_large');
+  assert.equal(sharedRead.bytes, 65537);
+  assert.equal(sharedRead.content, null);
+  assert.equal(sharedRead.revision, null);
+  assert.equal((await api({ content: '# Replacement', revision: final.revision })).status, 400);
+  for (const symlink of [false, true]) {
+    const file = path.join(codex, 'AGENTS.md');
+    await fs.unlink(file);
+    if (symlink) await fs.symlink(path.join(home, '.t3/setup/context/AGENTS.md'), file);
+    else await fs.writeFile(file, oversized);
+    const response = await readProvider('codex');
+    assert.equal(response.status, 400);
+    const read = await response.json();
+    assert.equal(read.code, 'too_large');
+    assert.equal(read.content, null);
+    assert.equal(read.revision, null);
+    assert.match(read.error, /too large to edit/);
+    const status = await context();
+    assert.equal(status.agentsMd.present, true);
+    assert.equal(status.providers.find((p) => p.provider === 'codex').mode, symlink ? 'shared' : 'separate');
+    assert.match(status.providers.find((p) => p.provider === 'codex').error, /too large to edit/);
+    assert.equal((await api({ provider: 'codex', content: '# Replacement', revision: null })).status, 400);
+    assert.equal(await fs.readFile(file, 'utf8'), oversized);
+  }
 });

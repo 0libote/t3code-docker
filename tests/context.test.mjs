@@ -29,6 +29,115 @@ test("validation rejects blank and oversized UTF-8 content", () => {
   assert.equal(validateAgentsMd("é".repeat(32768)).bytes, 65536);
 });
 
+test("oversized shared files and provider symlink targets are never opened, including on repeated polls", async (t) => {
+  const f = await fixture(t);
+  const shared = agentsMdPathFor(f.baseDir);
+  const targets = agentsMdTargets({}, f.home);
+  await fs.mkdir(path.dirname(shared), { recursive: true });
+  await fs.writeFile(shared, 'x'.repeat(65537));
+  for (const target of targets) await fs.mkdir(path.dirname(target.path), { recursive: true });
+  await fs.symlink(shared, targets[0].path);
+  await fs.writeFile(targets[1].path, 'é'.repeat(32769));
+  const external = path.join(f.root, 'external.md');
+  await fs.writeFile(external, 'x'.repeat(1024 * 1024));
+  await fs.symlink(path.relative(path.dirname(targets[2].path), external), targets[2].path);
+  let opens = 0;
+  const guarded = { ...fs, open: async () => { opens++; throw new Error('oversized instructions must not be opened'); },
+    readFile: async () => { throw new Error('unbounded reads must not be used'); } };
+  for (let poll = 0; poll < 2; poll++) {
+    const status = await contextStatus(guarded, f);
+    assert.equal(status.agentsMd.present, true);
+    assert.equal(status.agentsMd.bytes, 65537);
+    assert.match(status.agentsMd.error, /too large to edit/);
+    assert.deepEqual(status.providers.map((p) => p.mode), ['shared', 'separate', 'separate']);
+    assert.ok(status.providers.every((p) => /too large to edit/.test(p.error) && p.sourceRevision === null));
+    assert.ok(!JSON.stringify(status).includes('content'));
+  }
+  const read = await readAgentsMd(guarded, f.baseDir);
+  assert.equal(read.code, 'too_large');
+  assert.equal(read.content, null);
+  assert.equal(read.revision, null);
+  for (const target of targets) {
+    const read = await readProviderAgentsMd(guarded, target.provider, f);
+    assert.equal(read.code, 'too_large');
+    assert.equal(read.content, null);
+    assert.equal(read.revision, null);
+    assert.equal(read.bytes, (await fs.stat(target.path)).size);
+    assert.equal((await writeProviderAgentsMd(guarded, target.provider, '# Replacement', null, f)).ok, false);
+    assert.equal((await setProviderInstructionMode(guarded, f.baseDir, target.provider, 'none', null, f)).ok, false);
+  }
+  assert.equal((await writeAgentsMd(guarded, f.baseDir, '# Replacement')).ok, false);
+  assert.equal((await deleteAgentsMd(guarded, f.baseDir, null, f)).ok, false);
+  assert.equal((await reconcileAgentsMd(guarded, f.baseDir, f)).ok, false);
+  assert.equal(opens, 0);
+  assert.equal((await fs.stat(shared)).size, 65537);
+  assert.equal((await fs.stat(targets[1].path)).size, 65538);
+  assert.equal((await fs.stat(external)).size, 1024 * 1024);
+  assert.equal(await fs.readlink(targets[0].path), shared);
+  assert.equal(await fs.readlink(targets[2].path), path.relative(path.dirname(targets[2].path), external));
+});
+
+test("exactly 64 KiB of UTF-8 instructions loads through shared and provider editors", async (t) => {
+  const f = await fixture(t);
+  const content = 'é'.repeat(32768);
+  await writeAgentsMd(fs, f.baseDir, content);
+  await reconcileAgentsMd(fs, f.baseDir, f);
+  for (const read of [await readAgentsMd(fs, f.baseDir), await readProviderAgentsMd(fs, 'codex', f)]) {
+    assert.equal(read.content, content);
+    assert.equal(read.bytes, 65536);
+    assert.ok(read.revision);
+  }
+});
+
+test("instruction reads remain bounded across short reads when a file grows after stat", async (t) => {
+  const f = await fixture(t);
+  await writeAgentsMd(fs, f.baseDir, '# Small');
+  await reconcileAgentsMd(fs, f.baseDir, f);
+  const file = agentsMdPathFor(f.baseDir);
+  for (const provider of [null, 'codex']) {
+    await fs.writeFile(file, '# Small');
+    let bytesRead = 0, closed = false;
+    const growing = { ...fs, open: async (...args) => {
+      const handle = await fs.open(...args);
+      return {
+        stat: () => handle.stat(),
+        read: async (buffer, offset, length, position) => {
+          if (position === 0) await fs.appendFile(file, 'x'.repeat(1024 * 1024));
+          assert.equal(buffer.length, 65537);
+          const result = await handle.read(buffer, offset, Math.min(length, 4096), position);
+          bytesRead += result.bytesRead;
+          return result;
+        },
+        close: async () => { closed = true; await handle.close(); },
+      };
+    } };
+    const read = provider ? await readProviderAgentsMd(growing, provider, f) : await readAgentsMd(growing, f.baseDir);
+    assert.equal(read.code, 'too_large');
+    assert.equal(read.content, null);
+    assert.equal(read.revision, null);
+    assert.equal(bytesRead, 65537);
+    assert.equal(closed, true);
+  }
+});
+
+test("the opened file is checked again before reading and closed if it grew", async (t) => {
+  const f = await fixture(t);
+  await writeAgentsMd(fs, f.baseDir, '# Small');
+  const file = agentsMdPathFor(f.baseDir);
+  let closed = false;
+  const growing = { ...fs, open: async (...args) => {
+    await fs.appendFile(file, 'x'.repeat(65536));
+    const handle = await fs.open(...args);
+    return {
+      stat: () => handle.stat(),
+      read: () => { assert.fail('the grown file must not be read'); },
+      close: async () => { closed = true; await handle.close(); },
+    };
+  } };
+  assert.equal((await readAgentsMd(growing, f.baseDir)).code, 'too_large');
+  assert.equal(closed, true);
+});
+
 test("saving twice updates existing provider links without replacing them", async (t) => {
   const f = await fixture(t);
   assert.equal((await readAgentsMd(fs, f.baseDir)).present, false);
@@ -44,9 +153,9 @@ test("saving twice updates existing provider links without replacing them", asyn
   assert.equal((await fs.stat(agentsMdPathFor(f.baseDir))).mode & 0o777, 0o600);
   await assert.rejects(fs.stat(path.join(f.home, ".claude/AGENTS.md")), { code: "ENOENT" });
   let reads = 0;
-  const status = await contextStatus({ ...fs, readFile: (...args) => {
+  const status = await contextStatus({ ...fs, open: (...args) => {
     reads++;
-    return fs.readFile(...args);
+    return fs.open(...args);
   } }, f);
   assert.equal(reads, 1, "shared provider files are read once per status snapshot");
   assert.deepEqual(Object.keys(status), ["agentsMd", "providers"]);
@@ -108,7 +217,7 @@ test("a failed atomic rename preserves instructions and cleans up its temporary 
 
 test("read errors remain visible in instruction status", async (t) => {
   const f = await fixture(t);
-  const broken = { ...fs, readFile: async () => { throw new Error("permission denied"); } };
+  const broken = { ...fs, stat: async () => { throw new Error("permission denied"); } };
   assert.match((await contextStatus(broken, f)).agentsMd.error, /permission denied/);
 });
 
@@ -127,6 +236,20 @@ test("Context offers only global instructions and never adds attention", () => {
   const items = M.paletteItems(status, null, ui, Date.now()).filter((i) => i.group === "Context");
   assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.label === "Edit global AGENTS.md…"));
   assert.ok(items.every((i) => !/skill|setup|project/i.test(i.label)));
+});
+
+test("oversized instructions remain visible without editor or delete actions", () => {
+  const error = 'Instructions are too large to edit (64 KiB maximum).';
+  const status = { context: { agentsMd: { present: true, bytes: 65537, error },
+    providers: [{ provider: 'codex', mode: 'separate', error }] } };
+  const row = M.contextAgentsMdRow(status);
+  assert.equal(row.status.text, error);
+  assert.equal(row.badge.text, 'Unavailable');
+  assert.equal(row.action, null);
+  assert.equal(row.menu.length, 0);
+  assert.equal(M.contextProviderRows(status)[0].mode, 'separate');
+  assert.equal(M.contextProviderRows(status)[0].error, error);
+  assert.equal(M.paletteItems(status, null, ui, Date.now()).filter((i) => i.group === 'Context').length, 0);
 });
 
 test("existing provider files appear in Context and edits preserve their permissions and separation", async (t) => {

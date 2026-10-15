@@ -44,6 +44,13 @@ provider editors also detect a retargeted link. On a conflict, download the draf
 and reopen the editor to load the current file. Missing or unreadable targets
 cannot be saved over.
 
+Status polls and editor loads check the resolved file size before reading.
+Files larger than 64 KiB stay in place and show as too large to edit; reduce
+them directly on disk before editing in the console. Reads are capped at
+64 KiB plus one byte to detect growth after the size check. Shared and separate
+source choices remain visible, but unavailable files cannot be edited or
+switched through the console.
+
 Creating shared instructions links missing native files; later saves update only
 providers already using Shared. Existing separate
 files stay in place until the user explicitly chooses Shared for that provider.

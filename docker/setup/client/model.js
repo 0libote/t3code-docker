@@ -1502,9 +1502,11 @@ const T3Model = (() => {
     for (const d of deviceRows(s.sessions, now)) add('Devices', 'Revoke ' + d.name + '…', 'trash-2', { cmd: 'device.revoke', id: d.id }, { meta: { text: d.kind } });
     for (const l of linkRows(s.pairings, null, now)) add('Devices', 'Revoke link ' + l.name + '…', 'trash-2', { cmd: 'link.revoke', id: l.id });
 
-    add('Context', 'Edit global AGENTS.md…', 'pencil', { cmd: 'context.edit' });
-    if (contextView(s).present) add('Context', 'Delete global AGENTS.md…', 'trash-2', { cmd: 'context.delete' });
-    for (const row of contextProviderRows(s).filter((row) => row.mode)) add('Context', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id });
+    if (!contextView(s).error) {
+      add('Context', 'Edit global AGENTS.md…', 'pencil', { cmd: 'context.edit' });
+      if (contextView(s).present) add('Context', 'Delete global AGENTS.md…', 'trash-2', { cmd: 'context.delete' });
+    }
+    for (const row of contextProviderRows(s).filter((row) => row.mode && !row.error)) add('Context', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id });
     add('Actions', 'Create pairing link', 'link', { cmd: 'pair.start' }, { shortcut: 'P' });
     const agentUpdates = agentRows(s, ui, now).filter((a) => a.updateAvailable).length;
     if (agentUpdates) add('Actions', 'Update all agents', 'circle-arrow-up', { cmd: 'harness.updateAll' }, { meta: { text: plural(agentUpdates, 'update') }, attention: true });
@@ -1651,11 +1653,11 @@ const T3Model = (() => {
       mono: 'AG',
       hue: '--id-toolchain',
       version: view.present && view.bytes ? view.bytes + ' B' : null,
-      state: 'ok',
-      status: { text: view.present ? 'Shared instructions; linked to agent homes where supported' : 'Not set yet. Edit to add shared instructions.' },
-      badge: view.present ? { tone: 'ok', text: 'Set' } : null,
-      action: { cmd: 'context.edit', label: 'Edit', icon: 'pencil' },
-      menu: view.present ? [{ cmd: 'context.delete', label: 'Delete…', icon: 'trash-2', danger: true }] : [],
+      state: view.error ? 'unavailable' : 'ok',
+      status: { text: view.error || (view.present ? 'Shared instructions; linked to agent homes where supported' : 'Not set yet. Edit to add shared instructions.') },
+      badge: view.error ? { tone: 'warn', text: 'Unavailable' } : view.present ? { tone: 'ok', text: 'Set' } : null,
+      action: view.error ? null : { cmd: 'context.edit', label: 'Edit', icon: 'pencil' },
+      menu: view.present && !view.error ? [{ cmd: 'context.delete', label: 'Delete…', icon: 'trash-2', danger: true }] : [],
       attention: false,
     };
   };

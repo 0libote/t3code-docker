@@ -2517,7 +2517,7 @@ const server = createServer(async (req, res) => {
           return sendJson(res, read.ok ? 200 : read.code === "missing" ? 404 : 400, read);
         }
         const read = await Context.readAgentsMd(await contextFs(), STATE_DIR);
-        return sendJson(res, read.error ? 500 : 200, { ok: !read.error, ...read });
+        return sendJson(res, read.error ? read.code === "too_large" ? 400 : 500 : 200, { ok: !read.error, ...read });
       } catch (error) {
         return sendJson(res, 500, { ok: false, error: String(error?.message ?? error).slice(0, 300) });
       }

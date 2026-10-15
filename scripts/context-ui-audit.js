@@ -16,12 +16,18 @@ const assert = require('node:assert/strict');
  const page = await browser.newPage({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce'});
  await page.addInitScript(mode => localStorage.setItem('t3-console-theme', mode), theme);
  const providerModes = {claude:'separate',codex:'separate',opencode:'separate'};
+ let oversizedStatus = false;
+ const oversizedError = 'Instructions are too large to edit (64 KiB maximum). Edit the file directly to reduce its size.';
  const errors=[];page.on('pageerror', e=>errors.push(e.message));
  await page.route('**/status', async route => {
    const response = await route.fetch();
    const status = await response.json();
    status.context.agentsMd = {present:true,bytes:12};
    status.context.providers = ['claude', 'codex', 'opencode'].map(provider => ({provider, mode:providerModes[provider],sourceRevision:provider+'-'+providerModes[provider],path:'/home/t3/a-very-long-existing-configuration-directory-for-' + provider + '/AGENTS.md', bytes:12}));
+   if (oversizedStatus) {
+     status.context.agentsMd = {present:true,bytes:65537,error:oversizedError};
+     Object.assign(status.context.providers[1], {error:oversizedError,sourceRevision:null});
+   }
    await route.fulfill({json:status});
  });
  await page.goto(base);
@@ -171,6 +177,21 @@ const assert = require('node:assert/strict');
  await page.getByText('Instruction file unavailable',{exact:true}).waitFor();
  assert.equal(await page.getByRole('button',{name:'Save',exact:true}).isDisabled(),true);
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ // An oversized file discovered after status cannot load an editable blank draft.
+ await page.route('**/context/agents-md', route => route.fulfill({status:400,json:{ok:false,code:'too_large',error:oversizedError}}));
+ await page.locator('[data-cmd="context.edit"]').click();
+ await page.getByText(oversizedError,{exact:true}).waitFor();
+ assert.equal(await page.locator('#cx-input').isDisabled(),true);
+ assert.equal(await page.getByRole('button',{name:'Save',exact:true}).isDisabled(),true);
+ await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ // Polling keeps oversized instructions visible while removing unsafe actions.
+ oversizedStatus = true;
+ await page.reload();
+ await page.getByText(oversizedError,{exact:true}).first().waitFor();
+ assert.equal(await page.locator('[data-cmd="context.edit"]').count(),0);
+ assert.equal(await page.locator('[data-cmd="context.provider.edit"][data-id="codex"]').isDisabled(),true);
+ assert.equal(await separateButton.getAttribute('aria-pressed'),'true');
+ assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
  assert.deepEqual(errors,[]);
  console.log('PASS Context interactions:',theme,width+'x'+height,embedded?'embedded':'standalone');
  await page.close();

@@ -24,7 +24,11 @@ export function agentsMdTargets(env = {}, home = "/home/t3") {
   ];
 }
 
-export function validateAgentsMd(text, maxBytes = 64 * 1024) {
+const MAX_INSTRUCTION_BYTES = 64 * 1024;
+const instructionReads = Symbol("instructionReads");
+const tooLarge = (bytes) => Object.assign(new Error("Instructions are too large to edit (64 KiB maximum). Edit the file directly to reduce its size."), { code: "too_large", bytes });
+
+export function validateAgentsMd(text, maxBytes = MAX_INSTRUCTION_BYTES) {
   const src = String(text ?? "");
   if (!src.trim()) return { ok: false, error: "AGENTS.md is empty" };
   if (Buffer.byteLength(src, "utf8") > maxBytes) {
@@ -33,13 +37,38 @@ export function validateAgentsMd(text, maxBytes = 64 * 1024) {
   return { ok: true, bytes: Buffer.byteLength(src, "utf8") };
 }
 
-async function readFileSafe(fs, file) {
-  try {
-    return { text: await fs.readFile(file, "utf8"), error: null };
-  } catch (error) {
-    if (error?.code === "ENOENT") return { text: null, error: null };
-    return { text: null, error: String(error?.message ?? error) };
-  }
+async function readInstructionFile(fs, file) {
+  const cache = fs[instructionReads];
+  const key = path.resolve(file);
+  if (cache?.has(key)) return cache.get(key);
+  const read = (async () => {
+    const check = (stat) => {
+      if (!stat.isFile()) throw Object.assign(new Error("Instructions must be a regular file"), { code: "invalid" });
+      if (stat.size > MAX_INSTRUCTION_BYTES) throw tooLarge(stat.size);
+    };
+    // Reject oversized targets before opening them, including through symlinks.
+    check(await fs.stat(file));
+    const handle = await fs.open(file, "r");
+    try {
+      const stat = await handle.stat();
+      check(stat);
+      // A file may grow after stat. Read at most the limit plus one byte,
+      // including across short reads, so status polling can never load it all.
+      const buffer = Buffer.alloc(MAX_INSTRUCTION_BYTES + 1);
+      let bytes = 0;
+      while (bytes < buffer.length) {
+        const result = await handle.read(buffer, bytes, buffer.length - bytes, bytes);
+        if (!result.bytesRead) break;
+        bytes += result.bytesRead;
+      }
+      if (bytes > MAX_INSTRUCTION_BYTES) throw tooLarge(bytes);
+      return { content: buffer.toString("utf8", 0, bytes), bytes, mode: stat.mode & 0o777 };
+    } finally {
+      await handle.close();
+    }
+  })();
+  cache?.set(key, read);
+  return read;
 }
 
 async function writeFileAtomic(fs, file, text, mode = 0o600) {
@@ -72,10 +101,14 @@ async function withInstructionWrite(file, work) {
 
 export async function readAgentsMd(fs, baseDir) {
   const file = agentsMdPathFor(baseDir);
-  const { text, error } = await readFileSafe(fs, file);
-  if (error) return { present: false, path: file, content: null, revision: null, bytes: 0, error };
-  if (text === null) return { present: false, path: file, content: null, revision: null, bytes: 0, error: null };
-  return { present: true, path: file, content: text, revision: revisionFor(file, text), bytes: Buffer.byteLength(text, "utf8"), error: null };
+  try {
+    const { content, bytes } = await readInstructionFile(fs, file);
+    return { present: true, path: file, content, revision: revisionFor(file, content), bytes, error: null };
+  } catch (error) {
+    return { present: error?.code === "too_large", path: file, content: null, revision: null,
+      bytes: error?.bytes ?? 0, code: error?.code === "too_large" ? "too_large" : undefined,
+      error: error?.code === "ENOENT" ? null : String(error?.message ?? error) };
+  }
 }
 
 export async function writeAgentsMd(fs, baseDir, content, revision = null) {
@@ -138,7 +171,7 @@ export async function deleteAgentsMd(fs, baseDir, revision = null, { home = "/ho
 export async function reconcileAgentsMd(fs, baseDir, { home = "/home/t3", env = {}, only = null } = {}) {
   const canonical = agentsMdPathFor(baseDir);
   const read = await readAgentsMd(fs, baseDir);
-  if (!read.present) return { ok: false, linked: [], skipped: [], error: read.error || "no global AGENTS.md yet" };
+  if (read.error || !read.present) return { ok: false, linked: [], skipped: [], error: read.error || "no global AGENTS.md yet" };
   const allowed = only ? new Set(only) : null;
   const linked = [];
   const skipped = [];
@@ -170,15 +203,15 @@ export async function reconcileAgentsMd(fs, baseDir, { home = "/home/t3", env = 
 export async function readProviderAgentsMd(fs, provider, { home = "/home/t3", env = {} } = {}) {
   const target = agentsMdTargets(env, home).find((entry) => entry.provider === provider);
   if (!target) return { ok: false, code: "invalid", error: "Unknown instruction provider" };
+  let resolvedPath;
   try {
-    const resolvedPath = await fs.realpath(target.path);
-    const stat = await fs.stat(resolvedPath);
-    if (!stat.isFile()) return { ok: false, code: "invalid", error: "Instructions must be a regular file" };
-    const content = await fs.readFile(resolvedPath, "utf8");
+    resolvedPath = await fs.realpath(target.path);
+    const { content, bytes, mode } = await readInstructionFile(fs, resolvedPath);
     const revision = revisionFor(resolvedPath, content);
-    return { ok: true, ...target, resolvedPath, content, revision, bytes: Buffer.byteLength(content), mode: stat.mode & 0o777 };
+    return { ok: true, ...target, resolvedPath, content, revision, bytes, mode };
   } catch (error) {
-    return { ok: false, ...target, code: error?.code === "ENOENT" ? "missing" : "unavailable", error: error?.code === "ENOENT" ? "The instruction file or its linked target no longer exists" : String(error?.message ?? error) };
+    if (error?.code === "too_large") return { ok: false, ...target, resolvedPath, content: null, revision: null, bytes: error.bytes, code: "too_large", error: error.message };
+    return { ok: false, ...target, code: error?.code === "ENOENT" ? "missing" : error?.code === "invalid" ? "invalid" : "unavailable", error: error?.code === "ENOENT" ? "The instruction file or its linked target no longer exists" : String(error?.message ?? error) };
   }
 }
 
@@ -210,11 +243,13 @@ export async function providerInstructionState(fs, baseDir, provider, options = 
     return { ok: false, ...target, error: String(error?.message ?? error) };
   }
   const read = await readProviderAgentsMd(fs, provider, options);
-  if (!read.ok) return { ...read, mode: null };
+  if (!read.ok && read.code !== "too_large") return { ...read, mode: null };
   const sharedPath = await fs.realpath(agentsMdPathFor(baseDir)).catch(() => path.resolve(agentsMdPathFor(baseDir)));
+  const mode = read.resolvedPath === sharedPath ? "shared" : "separate";
+  if (!read.ok) return { ...read, mode, sourceRevision: null };
   const link = entry.isSymbolicLink() ? await fs.readlink(target.path) : "regular";
   return {
-    ok: true, ...target, mode: read.resolvedPath === sharedPath ? "shared" : "separate",
+    ok: true, ...target, mode,
     sourceRevision: revisionFor(target.path, link + "\0" + read.revision),
     resolvedPath: read.resolvedPath, error: null,
   };
@@ -291,12 +326,7 @@ export async function setProviderInstructionMode(fs, baseDir, provider, mode, so
 /** Return metadata only; instruction text stays server-side until the editor opens. */
 export async function contextStatus(fs, { baseDir, home = "/home/t3", env = {} } = {}) {
   // Shared provider links resolve to the same file; read it once per poll.
-  const reads = new Map();
-  const snapshotFs = { ...fs, readFile(file, encoding) {
-    const key = path.resolve(file);
-    if (!reads.has(key)) reads.set(key, fs.readFile(file, encoding));
-    return reads.get(key);
-  } };
+  const snapshotFs = { ...fs, [instructionReads]: new Map() };
   const read = await readAgentsMd(snapshotFs, baseDir);
   const providers = [];
   for (const target of agentsMdTargets(env, home)) {
