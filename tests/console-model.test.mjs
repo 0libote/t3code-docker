@@ -24,6 +24,27 @@ const NOW = Date.parse("2026-10-02T12:00:00Z");
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
 
+test("storage view handles loading, unknown sizes, disk pressure, and job progress", () => {
+  assert.equal(M.storageView({}, NOW).loading, true);
+  const view = M.storageView({ storage: { at: NOW, disk: { usedPercent: 99, availableBytes: 1000 },
+    categories: [{ id: 'go', bytes: 5000, cleanable: true }, { id: 'npm', bytes: null, cleanable: true }, { id: 'history', bytes: 10000 }],
+    operation: { state: 'running', phase: 'npm' } } }, NOW);
+  assert.deepEqual(plain(view.ids), ['go']); assert.equal(view.cleanableBytes, 5000);
+  assert.equal(view.disk.tone, 'danger'); assert.equal(view.busy, true);
+  assert.match(view.progress, /npm/); assert.equal(view.cacheRows[1].canClean, false);
+  assert.equal(M.storageView({ storage: { disk: { usedPercent: 150 } } }, NOW).disk.usedPercent, 100);
+  assert.equal(M.storageView({ storage: { disk: { usedPercent: null } } }, NOW).disk, null);
+  assert.equal(M.storageView({ storage: { operation: { state: 'interrupted' } } }, NOW).busy, false);
+});
+
+test("disk pressure appears in navigation attention and storage is searchable", () => {
+  const status = { storage: { disk: { usedPercent: 89 } } };
+  assert.equal(M.navBadges(status).environment.count, 1);
+  assert.equal(M.navBadges(status).more.count, 1);
+  assert.equal(M.navBadges({ storage: { disk: { usedPercent: 79 } } }).environment, null);
+  assert.ok(M.paletteItems(status, null, {}, NOW).some((item) => item.cmd.cmd === 'storage.goto'));
+});
+
 const harness = (id, overrides = {}) => ({
   id,
   name: M.AGENTS[id].name,

@@ -23,7 +23,6 @@ import {
 } from "./cache.mjs";
 import { loadAssets, renderConsole, renderUnlock, contentSecurityPolicy } from "./page.mjs";
 import { parseListeners, processLabel, looksLikeDatabase } from "./ports.mjs";
-import { createStorageFacts } from "./storage.mjs";
 import { createLatestCache } from "./latest.mjs";
 import { createT3Api } from "./t3-api.mjs";
 import { createAntigravity } from "./antigravity.mjs";
@@ -59,7 +58,7 @@ const SINGLE_PORT = Number(process.env.T3_SINGLE_PORT) || null;
 const SINGLE_PREFIX = BASE_PATH ? (BASE_PATH.startsWith("/") ? BASE_PATH : `/${BASE_PATH}`) : "/__setup";
 // Where T3 Code keeps its state; the volume a user mounts is the home around it.
 const STATE_DIR = process.env.T3CODE_HOME || `${process.env.HOME || "/home/t3"}/.t3`;
-const VOLUME = STATE_DIR.replace(/\/\.t3\/?$/, "") || STATE_DIR;
+const VOLUME = process.env.HOME || STATE_DIR.replace(/\/\.t3\/?$/, "") || STATE_DIR;
 const WORKSPACE = process.env.T3_WORKSPACE || "/workspace";
 // The setup key and where it came from (setup-key.mjs): "env" for
 // T3_SETUP_KEY, "volume" for one kept on the state volume, "boot" for one the
@@ -479,7 +478,20 @@ const ttlCache = (ttlMs, limit = 200) => {
 const versionsCache = ttlCache(10 * 60 * 1000);
 const infoCache = ttlCache(6 * 60 * 60 * 1000);
 
-const storage = createStorageFacts({ volume: VOLUME, workspace: WORKSPACE });
+let storagePromise = null;
+const loadStorage = () => {
+  if (!storagePromise) storagePromise = (async () => {
+    const harness = await loadHarness();
+    if (typeof harnessModule.createStorageManager === "function") {
+      return harnessModule.createStorageManager({ home: VOLUME, workspace: WORKSPACE, harness });
+    }
+    // An older harness fixture or installed module can coexist with checkout
+    // console code. Resolve the new service without changing its installer.
+    const source = await import(new URL("../harness/index.mjs", import.meta.url));
+    return source.createStorageManager({ home: VOLUME, workspace: WORKSPACE });
+  })().catch((error) => { storagePromise = null; throw error; });
+  return storagePromise;
+};
 
 // The browser image's agent browser, as built: the versions are build args the
 // Dockerfile bakes into the environment. Absent on the core image.
@@ -786,12 +798,13 @@ const status = async () => {
   const sourceControl = (toolchainSnap?.sourceControl ?? []).map((row) => ({ ...row, auth: verdicts.get(row.id) ?? null }));
   knownSourceControl.clear();
   for (const row of sourceControl) if (row.installed && !row.inImage) knownSourceControl.add(row.id);
-  const disk = storage.snapshot();
+  const disk = await loadStorage().then((storage) => storage.status()).catch(() => ({ error: "Storage is not available. Try refreshing." }));
   for (const entry of harnessSnap?.degraded ?? []) {
     degraded.push({ what: `harness ${entry.what}`, error: String(entry.error ?? "").slice(0, 200) });
   }
 
   return {
+    storage: disk,
     // uptimeSeconds is this service's: it starts with the container and is
     // only restarted by its own loop, which is rare and logged.
     server: { ...server, uptimeSeconds: Math.round(process.uptime()) },
@@ -835,6 +848,7 @@ const status = async () => {
       pairTtl: process.env.T3_PAIR_TTL || "30d",
       // From the background storage check; null until its first pass lands.
       volumeKind: disk.volumeKind,
+      stateKind: disk.stateKind,
       workspaceKind: disk.workspaceKind,
       volumeBytes: disk.volumeBytes,
       workspaceProjects: disk.workspaceProjects,
@@ -2100,6 +2114,7 @@ const cancelLifecycle = (target, rawId) => {
 };
 
 const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/devices/rename", "/ports",
+  "/storage/versions/prune", "/storage/versions", "/storage/refresh", "/storage/clean", "/storage/policy", "/storage",
   "/public-url/clear", "/public-url", "/setup-key/reveal", "/setup-key/replace", "/connect/unlink", "/t3/restart",
   "/t3/updates/check", "/t3/update", "/ports/expose", "/ports/unexpose",
   "/harnesses/install", "/harnesses/update", "/harnesses/uninstall", "/harnesses/cancel", "/harnesses/versions", "/harnesses/enable", "/harnesses",
@@ -2109,6 +2124,25 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/providers", "/updates/check",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info"];
+
+const storageHttpStatus = (result) => result.ok ? 200
+  : ["busy", "stale-preview"].includes(result.code) ? 409
+    : ["invalid-cache", "invalid-policy"].includes(result.code) ? 400 : 503;
+
+/** Acknowledges durable operation state before a scan/native cleanup finishes. */
+const startStorageWork = async (storage, kind, input) => {
+  let acknowledge;
+  const started = new Promise((resolve) => { acknowledge = resolve; });
+  const options = { onStarted: (operation) => acknowledge({ http: 202, body: { ok: true, operation } }) };
+  const done = Promise.resolve().then(() => kind === "versions"
+    ? storage.trimVersions({ ...options, token: input.token }) : storage.clean(input.ids, options))
+    .then((result) => {
+      if (result.ok) recordEvent(kind === "versions" ? "storage.trimmed" : "storage.cleaned",
+        kind === "versions" ? "Trimmed older tool versions" : "Cleared build and download caches");
+      return { http: storageHttpStatus(result), body: result };
+    }).catch(() => ({ http: 503, body: { ok: false, error: "Storage cleanup could not finish. Refresh and try again." } }));
+  return Promise.race([started, done]);
+};
 
 // The session cookie. Secure when the request reached us over HTTPS (directly
 // or through a proxy that says so); a plain-http LAN address must still work.
@@ -2292,6 +2326,34 @@ const server = createServer(async (req, res) => {
     // `viewer` says how this browser got in, so the page offers Lock only
     // where locking would end something.
     if (route === "/status") return sendJson(res, 200, { ...(await status()), viewer: { via: viewer.via } });
+
+    if (route.startsWith("/storage")) {
+      const storage = await loadStorage();
+      if (req.method === "GET" && route === "/storage") return sendJson(res, 200, await storage.status());
+      if (req.method === "GET" && route === "/storage/versions") return sendJson(res, 200, await storage.previewVersions());
+      if (req.method === "POST" && route === "/storage/refresh") {
+        void storage.refresh();
+        return sendJson(res, 202, { ok: true, storage: storage.snapshot() });
+      }
+      if (req.method === "POST" && ["/storage/clean", "/storage/policy", "/storage/versions/prune"].includes(route)) {
+        let input;
+        try { input = JSON.parse((await readBody(req)) || "{}"); }
+        catch { return sendJson(res, 400, { ok: false, error: "Use a valid storage request." }); }
+        if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Use a valid storage request." });
+        if (route === "/storage/policy") {
+          const result = await storage.setPolicy(input);
+          return sendJson(res, storageHttpStatus(result), result);
+        }
+        const allowed = route === "/storage/clean" ? ["ids"] : ["token"];
+        if (Object.keys(input).some((key) => !allowed.includes(key))) return sendJson(res, 400, { ok: false, error: "Unknown storage request field." });
+        if (route === "/storage/versions/prune" && !/^[a-f0-9]{64}$/.test(String(input.token || ""))) {
+          return sendJson(res, 400, { ok: false, error: "Review older versions before trimming them." });
+        }
+        const result = await startStorageWork(storage, route === "/storage/clean" ? "caches" : "versions", input);
+        return sendJson(res, result.http, result.body);
+      }
+      return sendJson(res, 405, { ok: false, error: "This storage action does not support that method." });
+    }
 
     if (req.method === "GET" && route === "/harnesses") {
       try {
@@ -2633,7 +2695,7 @@ server.listen(PORT, "0.0.0.0", () => {
   // Background facts: the storage check now, release lookups shortly after
   // (a first start is busy downloading; the cache on the volume answers until
   // then) and every half hour after that, each pass skipped while fresh.
-  void storage.refresh();
+  void loadStorage().then((storage) => storage.refresh()).catch(() => {});
   void latestCache.load();
   void runtimeManager.check().catch(() => {});
   setInterval(() => { void runtimeManager.check().catch(() => {}); }, 60 * 60 * 1000).unref();

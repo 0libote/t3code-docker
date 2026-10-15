@@ -87,6 +87,80 @@ html.tc-locked { overflow: hidden; }
 .tc-input--sm { height: var(--control-sm); font-size: 13px; }
 
 .tc-section-sub { font-size: 12px; line-height: 18px; color: var(--fg-muted); }
+
+/* Storage is a maintenance section within Environment. Reuse the console's
+   surfaces, typography, and controls; the rules here only compose its layout. */
+.tc-storage-disk { padding: var(--space-4); display: grid; gap: var(--space-3); }
+.tc-storage-disk-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.tc-storage-readouts { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: var(--space-4); align-items: end; }
+.tc-storage-readouts > div { display: grid; gap: 4px; min-width: 0; }
+.tc-storage-number { font-size: 24px; line-height: 32px; font-weight: 500; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+.tc-storage .tc-hint, .tc-storage-settings .tc-hint { margin: 0; }
+.tc-storage-meter > span { background: var(--storage-tone); }
+.tc-storage-cache-head { padding: var(--space-4); border-top: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.tc-storage-cache-head > div { min-width: 0; display: grid; gap: 4px; }
+.tc-storage-cache-head h3 { margin: 0; }
+.tc-storage-cache-head > button { flex: none; }
+.tc-storage-cache-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--space-3); align-items: center; padding: 12px var(--space-4); }
+.tc-storage-cache-row + .tc-storage-cache-row { border-top: 1px solid var(--hairline); }
+.tc-storage-cache-row .tc-row-main { display: grid; gap: 2px; }
+.tc-storage-cache-list { border-top: 1px solid var(--hairline); }
+.tc-storage-size { font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
+.tc-storage-empty { display: flex; align-items: center; gap: 8px; padding: var(--space-4); color: var(--fg-muted); font-size: 13px; }
+.tc-storage-operation { padding: 12px var(--space-4); display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; color: var(--fg-muted); font-size: 12px; }
+.tc-storage-operation > .tc-progress { grid-column: 1 / -1; }
+.tc-storage-message { display: flex; gap: 8px; align-items: flex-start; padding: 12px var(--space-4); font-size: 12px; color: var(--danger-text); }
+.tc-storage-message > .tc-icon { flex: none; margin-top: 2px; }
+.tc-storage-last { display: flex; gap: 8px; align-items: center; padding: 12px var(--space-4); }
+.tc-storage-tools { padding: var(--space-4); display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); border-top: 1px solid var(--hairline); }
+.tc-storage-tools > div { display: grid; gap: 4px; min-width: 0; }
+.tc-storage-tools > button { flex: none; }
+.tc-storage-foot { padding: 8px var(--space-4); border-top: 1px solid var(--hairline); display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.tc-storage-auto-state { color: var(--fg-muted); font-weight: 400; }
+.tc-storage-disclosure { appearance: none; border: 0; border-top: 1px solid var(--hairline); background: none; width: 100%; padding: 12px var(--space-4); color: var(--fg-muted); font: inherit; font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; cursor: pointer; }
+.tc-storage-disclosure:hover { color: var(--fg); background: var(--hover); }
+.tc-storage-disclosure:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; border-radius: var(--radius-sm); }
+.tc-storage-disclosure[aria-expanded="true"] > .tc-icon { rotate: 180deg; }
+.tc-storage-data { border-top: 1px solid var(--hairline); padding: 0 var(--space-4); }
+.tc-storage-data[hidden] { display: none; }
+.tc-storage-data-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-4); align-items: center; padding: 10px 0; }
+.tc-storage-data-row + .tc-storage-data-row { border-top: 1px solid var(--hairline); }
+.tc-storage-data-row > div { min-width: 0; display: grid; gap: 3px; }
+.tc-storage-path { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 16px; color: var(--fg-muted); }
+.tc-storage-data-note { padding: 12px 0; border-top: 1px solid var(--hairline); }
+.tc-storage-settings, .tc-storage-review { width: 480px; max-width: calc(100vw - 32px); }
+.tc-storage-setting { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-4); align-items: center; margin-top: var(--space-5); }
+.tc-storage-setting > div { display: grid; gap: 5px; }
+.tc-storage-setting--border { padding-top: var(--space-4); border-top: 1px solid var(--hairline); }
+.tc-storage-toggle { display: grid; place-items: center; width: 44px; height: 44px; }
+.tc-storage-setting .tc-switch { --_t: 18px; }
+.tc-storage-setting .tc-switch::before { content: ""; position: absolute; inset: -12px -5px; }
+.tc-storage-budgets { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin: var(--space-4) 0 8px; }
+.tc-storage-input { position: relative; }
+.tc-storage-input > input { width: 100%; padding-right: 38px; font-variant-numeric: tabular-nums; }
+.tc-storage-input > span { position: absolute; top: 50%; right: 12px; translate: 0 -50%; font-size: 12px; color: var(--fg-muted); pointer-events: none; }
+.tc-storage-review-loading { display: flex; align-items: center; gap: 8px; margin-top: var(--space-4); font-size: 13px; color: var(--fg-muted); }
+.tc-storage-review-summary { display: grid; gap: 3px; margin: var(--space-4) 0; }
+.tc-storage-review-summary > strong { font-weight: 500; }
+.tc-storage-version-list { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.tc-storage-version { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 12px; }
+.tc-storage-version + .tc-storage-version { border-top: 1px solid var(--hairline); }
+.tc-storage-version > div { min-width: 0; display: grid; gap: 2px; }
+.tc-storage-version > div > span { overflow-wrap: anywhere; }
+.tc-storage-version > span { text-align: right; }
+.tc-storage-removable { color: var(--accent-text); }
+@media (max-width: 639.98px) {
+  .tc-storage-cache-head { flex-wrap: wrap; gap: 12px; }
+  .tc-storage-cache-head > button { width: 100%; }
+  .tc-storage-cache-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .tc-storage-cache-row > .tc-storage-size { grid-column: 2; grid-row: 2; }
+  .tc-storage-cache-row > button { grid-column: 3; grid-row: 1 / span 2; }
+  .tc-storage-cache-row > .tc-tile { grid-row: 1 / span 2; }
+  .tc-storage-readouts { gap: 12px; }
+  .tc-storage-number { font-size: 21px; line-height: 28px; }
+  .tc-storage-disk-head > .tc-row-name { font-size: 13px; }
+  .tc-storage-disk-head > .tc-badge { flex: none; }
+}
 .tc-group-pad { padding: var(--space-4); }
 .tc-foot-cmds code { color: var(--fg); }
 .tc-filter { margin-left: 4px; }

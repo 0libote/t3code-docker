@@ -1337,9 +1337,10 @@ const T3Model = (() => {
       ports: portsFailed ? { tone: 'warn', count: portsFailed }
         : published ? { tone: 'info', count: published } : ports ? { count: portList.length } : null,
       // Settings an older image left in the container's environment.
-      environment: (s.legacyEnv || []).length ? { tone: 'warn', count: 1 } : null,
-      more: toolsFailed + scmAttention + ((s.legacyEnv || []).length ? 1 : 0)
-        ? { tone: 'warn', count: toolsFailed + scmAttention + ((s.legacyEnv || []).length ? 1 : 0) } : null,
+      environment: ((s.legacyEnv || []).length ? 1 : 0) + (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? 1 : 0)
+        ? { tone: 'warn', count: ((s.legacyEnv || []).length ? 1 : 0) + (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? 1 : 0) } : null,
+      more: toolsFailed + scmAttention + ((s.legacyEnv || []).length ? 1 : 0) + (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? 1 : 0)
+        ? { tone: 'warn', count: toolsFailed + scmAttention + ((s.legacyEnv || []).length ? 1 : 0) + (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? 1 : 0) } : null,
     };
   };
 
@@ -1408,6 +1409,8 @@ const T3Model = (() => {
     const add = (group, label, icon, cmd, extra) => items.push(Object.assign(
       { group, label, icon, cmd, id: group + ':' + label, keywords: (KEYWORDS[cmd.cmd] || '') + (cmd.cmd === 'goto' ? ' ' + label : '') },
       extra || {}));
+    add('Environment', 'Manage storage', 'server', { cmd: 'storage.goto' }, { keywords: 'disk space caches cleanup folders usage', attention: Boolean(s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80) });
+    add('Environment', 'Storage maintenance…', 'sliders-horizontal', { cmd: 'storage.preferences' }, { keywords: 'cache limits automatic cleanup retention preferences' });
 
     for (const a of agentRows(s, ui, now)) {
       const hint = a.state === 'signin' ? { text: 'not signed in', dot: 'warn' }
@@ -1577,6 +1580,39 @@ const T3Model = (() => {
   };
 
   // ----------------------------------------------------------- diagnostics --
+  /** Storage presentation stays pure so loading, partial scans, disk pressure,
+   * and interrupted operations can be verified without a browser. */
+  const storageView = (status, now) => {
+    const storage = status && status.storage || {};
+    const operation = storage.operation || null;
+    const categories = Array.isArray(storage.categories) ? storage.categories : [];
+    const size = (item) => Number.isFinite(item.bytes) && item.bytes >= 0 ? item.bytes : null;
+    const cacheRows = categories.filter((item) => ['go', 'npm'].includes(item.id)).map((item) => ({
+      ...item, bytes: size(item), size: formatBytes(size(item)),
+      canClean: Boolean(item.cleanable && size(item) > 0),
+    }));
+    const dataRows = categories.filter((item) => !['go', 'npm'].includes(item.id)).map((item) => ({ ...item, bytes: size(item), size: formatBytes(size(item)) }))
+      .sort((a, b) => (b.bytes || 0) - (a.bytes || 0));
+    const ids = cacheRows.filter((item) => item.canClean).map((item) => item.id);
+    const cleanableBytes = cacheRows.filter((item) => item.canClean).reduce((sum, item) => sum + item.bytes, 0);
+    const rawDisk = storage.disk;
+    const disk = rawDisk && Number.isFinite(rawDisk.usedPercent) ? {
+      ...rawDisk, usedPercent: Math.max(0, Math.min(100, rawDisk.usedPercent)),
+      used: formatBytes(rawDisk.usedBytes), total: formatBytes(rawDisk.totalBytes), available: formatBytes(rawDisk.availableBytes),
+      tone: rawDisk.usedPercent >= 90 ? 'danger' : rawDisk.usedPercent >= 80 ? 'warn' : 'info',
+      title: rawDisk.usedPercent >= 90 ? 'Disk space is nearly full' : rawDisk.usedPercent >= 80 ? 'Disk space is running low' : 'Filesystem space',
+    } : null;
+    return {
+      ...storage, operation, disk, cacheRows, dataRows, ids, cleanableBytes,
+      busy: Boolean(operation && operation.state === 'running'),
+      loading: !storage.at, refreshing: Boolean(storage.refreshing),
+      checked: storage.at ? 'Checked ' + relTime(storage.at, now) : 'Not measured yet',
+      progress: !operation || operation.state !== 'running' ? null : operation.phase === 'go' ? 'Clearing Go build cache…'
+        : operation.phase === 'npm' ? 'Clearing npm downloads…' : operation.phase === 'versions' ? 'Trimming older tool versions…' : 'Checking caches…',
+      policy: storage.policy || { automatic: false, retainManagedVersions: true, goBudgetBytes: 10_000_000_000, npmBudgetBytes: 2_000_000_000 },
+    };
+  };
+
   /** /status with anything identifying taken out, for pasting into an issue. */
   const redactedDiagnostics = (status, ports, extra) => {
     const copy = JSON.parse(JSON.stringify(status || {}));
@@ -1602,6 +1638,6 @@ const T3Model = (() => {
     publicUrlSource, hereOffer, connectView,
     navBadges, attentionCount, summaries, runtimeView,
     paletteItems, searchPalette,
-    redactedDiagnostics,
+    redactedDiagnostics, storageView,
   };
 })();

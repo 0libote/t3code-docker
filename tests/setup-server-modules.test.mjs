@@ -2,7 +2,7 @@
 //
 //   node --test tests/setup-server-modules.test.mjs
 //
-// ports.mjs parses `ss` and names listeners, storage.mjs judges mounts the way
+// ports.mjs parses `ss` and names listeners, storage/system.mjs judges mounts the way
 // t3-doctor does, and latest.mjs keeps release lookups off the poll path. All
 // are pure or take their effects as arguments, so none of this needs a
 // container.
@@ -13,7 +13,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { looksLikeDatabase, parseListeners, processLabel, splitLocal } from "../docker/setup/ports.mjs";
-import { countProjects, coveringMount, mountKind } from "../docker/setup/storage.mjs";
+import { countProjects, coveringMount, mountKind } from "../docker/harness/storage/system.mjs";
 import { createLatestCache } from "../docker/setup/latest.mjs";
 import { clientAddress, isLoopback, plainAddress } from "../docker/setup/client-address.mjs";
 

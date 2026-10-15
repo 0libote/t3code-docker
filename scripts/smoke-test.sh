@@ -149,6 +149,8 @@ only_the_dispatcher_is_baked() {
 check "no harness executable is baked, only the root-owned dispatcher" only_the_dispatcher_is_baked
 check "mise ships" "docker exec $NAME mise --version"
 check "harness installer ships" "docker exec $NAME t3-harness --help"
+check "storage CLI ships" "docker exec $NAME t3-storage --help"
+check "storage CLI reads filesystem space" "output_has 'docker exec $NAME t3-storage status --json' 'availableBytes'"
 check "provider integration ships" "docker exec $NAME test -r /opt/t3-provider/cli.mjs"
 
 # T3 Code enforces a minimum `gh` at runtime: too old and it reports "GitHub
@@ -410,6 +412,9 @@ assert set(runtime['releases']) <= {'stable', 'nightly'}, 'only public release c
 assert all('latestVersion' in h for h in s['harnesses']), 'harness latestVersion'
 assert all('latestVersion' in t for t in s['toolchains']), 'toolchain latestVersion'
 assert 'volumeKind' in s['paths'] and 'volumeBytes' in s['paths'], 'storage facts'
+assert s['storage']['disk']['totalBytes'] > 0, 'filesystem capacity'
+assert s['storage']['policy']['automatic'] is False, 'automatic cache cleanup starts off'
+assert s['storage']['policy']['retainManagedVersions'] is True, 'managed version retention starts on'
 "
 }
 check "status carries what the console reads" status_has_console_fields

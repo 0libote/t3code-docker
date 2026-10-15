@@ -13,7 +13,13 @@
 //
 // `status`/`resolve` are read-only. `install`/`update`/`uninstall` run one at a
 // time under a lock and record the exact version they resolved.
-export { createHarnessManager } from "./manager.mjs";
+import { createHarnessManager } from "./manager.mjs";
+import { createStorageManager as storageManager } from "./storage/manager.mjs";
+export { createHarnessManager };
+export function createStorageManager(options = {}) {
+  const harness = options.harness ?? createHarnessManager({ env: options.env, home: options.home });
+  return storageManager({ ...options, retention: options.retention ?? harness.retention });
+}
 export {
   CATALOGUE,
   CURSOR_EXECUTABLE,
