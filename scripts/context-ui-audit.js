@@ -16,6 +16,12 @@ const assert = require('node:assert/strict');
  const page = await browser.newPage({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce'});
  await page.addInitScript(mode => localStorage.setItem('t3-console-theme', mode), theme);
  const errors=[];page.on('pageerror', e=>errors.push(e.message));
+ await page.route('**/status', async route => {
+   const response = await route.fetch();
+   const status = await response.json();
+   status.context.providers = ['claude', 'codex', 'opencode'].map(provider => ({provider, path:'/home/t3/a-very-long-existing-configuration-directory-for-' + provider + '/AGENTS.md', bytes:12}));
+   await route.fulfill({json:status});
+ });
  await page.goto(base);
  if (await page.locator('input[type="password"]').isVisible()) {
    await page.locator('input[type="password"]').fill(key);
@@ -69,6 +75,50 @@ const assert = require('node:assert/strict');
  assert.equal(await page.locator('#cx-input').isDisabled(),true);
  await page.getByText('Save failed in fixture',{exact:true}).waitFor();
  assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
+ await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ // All existing provider files are discoverable, editable and saved explicitly.
+ await page.route('**/context/agents-md?provider=*', async route => {
+   const provider = new URL(route.request().url()).searchParams.get('provider');
+   await route.fulfill({json:{ok:true, content:'# Existing ' + provider, revision:provider + '-revision', resolvedPath:'/home/t3/existing/' + provider + '/instructions.md'}});
+ });
+ let expectedProvider = null;
+ let conflict = false;
+ let providerSaves = 0;
+ await page.route('**/context/agents-md', async route => {
+   assert.equal(route.request().method(),'POST');
+   const body = route.request().postDataJSON();
+   assert.equal(body.provider,expectedProvider);
+   assert.equal(body.revision,expectedProvider + '-revision');
+   assert.equal(body.content,'# Edited ' + expectedProvider);
+   providerSaves++;
+   await new Promise(resolve => setTimeout(resolve,100));
+   await route.fulfill({status:conflict ? 409 : 200,json:conflict ? {ok:false,error:'Instructions changed since you opened them.'} : {ok:true}});
+ });
+ assert.equal(await page.locator('[data-cmd="context.provider.edit"]').count(),3);
+ for (const provider of ['claude','codex','opencode']) {
+   expectedProvider = provider;
+   await page.locator('[data-cmd="context.provider.edit"][data-id="' + provider + '"]').click();
+   await page.waitForFunction(text => document.querySelector('#cx-input')?.value === text,'# Existing ' + provider);
+   await checkCentered();
+   await page.locator('#cx-input').fill('# Edited ' + provider);
+   await checkDownload(provider === 'claude' ? 'CLAUDE.md' : 'AGENTS.md','# Edited ' + provider);
+   if (provider === 'codex') {
+     conflict = true;
+     await page.getByRole('button',{name:'Save',exact:true}).click();
+     await page.getByText('Instructions changed since you opened them.',{exact:true}).waitFor();
+     assert.equal(await page.locator('#cx-input').inputValue(),'# Edited codex');
+     conflict = false;
+   }
+   await page.getByRole('button',{name:'Save',exact:true}).click();
+   await page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
+ }
+ assert.equal(providerSaves,4);
+ assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
+ // Failed reads cannot turn into a save of blank content.
+ await page.route('**/context/agents-md?provider=*', route => route.fulfill({status:400,json:{ok:false,error:'Instruction file unavailable'}}));
+ await page.locator('[data-cmd="context.provider.edit"][data-id="claude"]').click();
+ await page.getByText('Instruction file unavailable',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'Save',exact:true}).isDisabled(),true);
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  assert.deepEqual(errors,[]);
  console.log('PASS Context interactions:',theme,width+'x'+height,embedded?'embedded':'standalone');

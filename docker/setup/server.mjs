@@ -500,7 +500,7 @@ const CONTEXT_HOME = process.env.HOME || "/home/t3";
 const contextFs = async () => (await import("node:fs/promises"));
 const contextStatusSafe = async () => {
   try {
-    return await Context.contextStatus(await contextFs(), { baseDir: STATE_DIR });
+    return await Context.contextStatus(await contextFs(), { baseDir: STATE_DIR, home: CONTEXT_HOME, env: process.env });
   } catch (error) {
     return { agentsMd: { present: false, bytes: 0, updatedAt: null, error: String(error?.message ?? error).slice(0, 200) } };
   }
@@ -2516,6 +2516,11 @@ const server = createServer(async (req, res) => {
     // --- global instructions ----------------------------------------------
     if (req.method === "GET" && route === "/context/agents-md") {
       try {
+        const params = new URL(req.url, "http://localhost").searchParams;
+        if (params.has("provider")) {
+          const read = await Context.readProviderAgentsMd(await contextFs(), params.get("provider"), { home: CONTEXT_HOME, env: process.env });
+          return sendJson(res, read.ok ? 200 : read.code === "missing" ? 404 : 400, read);
+        }
         const read = await Context.readAgentsMd(await contextFs(), STATE_DIR);
         return sendJson(res, read.error ? 500 : 200, { ok: !read.error, ...read });
       } catch (error) {
@@ -2526,6 +2531,11 @@ const server = createServer(async (req, res) => {
       try {
         const input = JSON.parse((await readBody(req)) || "{}");
         const fs = await contextFs();
+        if (input.provider !== undefined) {
+          const result = await Context.writeProviderAgentsMd(fs, input.provider, input.content, input.revision, { home: CONTEXT_HOME, env: process.env });
+          if (result.ok) recordEvent("context.saved", `Saved ${input.provider} global instructions`);
+          return sendJson(res, result.ok ? 200 : result.code === "conflict" ? 409 : 400, result);
+        }
         const result = await Context.writeAgentsMd(fs, STATE_DIR, input.content);
         if (!result.ok) return sendJson(res, 400, { ok: false, code: "invalid", error: result.error });
         const reconciled = await Context.reconcileAgentsMd(fs, STATE_DIR, { home: CONTEXT_HOME, env: process.env });

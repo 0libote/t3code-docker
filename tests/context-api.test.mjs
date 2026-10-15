@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 
-test("global instruction API validates writes and leaves existing provider files untouched", { timeout: 15000 }, async (t) => {
+test("global instruction API discovers existing files and changes them only on explicit provider saves", { timeout: 15000 }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "t3-context-api-"));
   const home = path.join(root, "home"), codex = path.join(home, ".codex"), config = path.join(home, ".config");
   await fs.mkdir(codex, { recursive: true });
@@ -53,6 +53,39 @@ test("global instruction API validates writes and leaves existing provider files
   assert.equal(result.reconcile.linked.length, 2);
   for (const target of [".claude/CLAUDE.md", ".config/opencode/AGENTS.md"]) assert.equal(await fs.readFile(path.join(home, target), "utf8"), "# Shared instructions\n");
   assert.equal(await fs.readFile(path.join(codex, "AGENTS.md"), "utf8"), "# User-owned Codex instructions");
+  const status = await (await fetch(base + '/status', { headers: { 'x-t3-setup-key': 'fixture-key' } })).json();
+  assert.deepEqual(status.context.providers.map((file) => file.provider), ['codex']);
+  assert.ok(!('content' in status.context.providers[0]));
+  // Existing instructions load into their own editor and save to that file.
+  const readProvider = (provider) => fetch(base + '/context/agents-md?provider=' + provider, { headers: { 'x-t3-setup-key': 'fixture-key' } });
+  assert.equal((await fetch(base + '/context/agents-md?provider=codex')).status, 401);
+  let providerRead = await (await readProvider('codex')).json();
+  assert.equal(providerRead.content, '# User-owned Codex instructions');
+  assert.equal((await api({ provider: 'codex', content: '# Edited Codex', revision: providerRead.revision })).status, 200);
+  assert.equal(await fs.readFile(path.join(codex, 'AGENTS.md'), 'utf8'), '# Edited Codex');
+  assert.equal((await api({ provider: 'codex', content: '# Stale draft', revision: providerRead.revision })).status, 409);
+  assert.equal((await api({ provider: '../escape', content: '# Draft', revision: 'fake' })).status, 400);
+  assert.equal((await readProvider('../escape')).status, 400);
+  assert.equal((await api({ provider: 'codex', content: '# No revision' })).status, 409);
+  assert.equal((await api({ provider: 'codex', content: '' })).status, 400);
+  assert.equal((await api({ provider: 'codex', content: '# Cross-site' }, { 'sec-fetch-site': 'cross-site' })).status, 403);
+
+  // Existing user symlinks are followed on explicit saves, preserving the link.
+  const linked = path.join(home, '.claude', 'CLAUDE.md');
+  await fs.unlink(linked);
+  const source = path.join(root, 'user-claude.md');
+  await fs.writeFile(source, '# Existing Claude');
+  await fs.symlink(path.relative(path.dirname(linked), source), linked);
+  providerRead = await (await readProvider('claude')).json();
+  assert.equal(providerRead.content, '# Existing Claude');
+  assert.equal((await api({ provider: 'claude', content: '# Edited Claude', revision: providerRead.revision })).status, 200);
+  assert.ok((await fs.lstat(linked)).isSymbolicLink());
+  assert.equal(await fs.readFile(source, 'utf8'), '# Edited Claude');
+  // A provider request cannot use an arbitrary path supplied by the client.
+  providerRead = await (await readProvider('codex')).json();
+  assert.equal((await api({ provider: 'codex', path: source, content: '# Codex only', revision: providerRead.revision })).status, 200);
+  assert.equal(await fs.readFile(source, 'utf8'), '# Edited Claude');
   for (const content of ["", "x".repeat(65537)]) assert.equal((await api({ content })).status, 400);
   assert.equal((await (await api()).json()).content, "# Shared instructions\n");
+
 });

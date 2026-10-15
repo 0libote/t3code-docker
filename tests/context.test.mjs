@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
-import { agentsMdTargets, agentsMdPathFor, validateAgentsMd, readAgentsMd, writeAgentsMd, reconcileAgentsMd, contextStatus } from "../docker/setup/context.mjs";
+import { agentsMdTargets, agentsMdPathFor, validateAgentsMd, readAgentsMd, writeAgentsMd, reconcileAgentsMd, contextStatus, readProviderAgentsMd, writeProviderAgentsMd } from "../docker/setup/context.mjs";
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(tmpdir(), "t3-context-"));
@@ -44,7 +44,8 @@ test("saving twice updates existing provider links without replacing them", asyn
   assert.equal((await fs.stat(agentsMdPathFor(f.baseDir))).mode & 0o777, 0o600);
   await assert.rejects(fs.stat(path.join(f.home, ".claude/AGENTS.md")), { code: "ENOENT" });
   const status = await contextStatus(fs, f);
-  assert.deepEqual(Object.keys(status), ["agentsMd"]);
+  assert.deepEqual(Object.keys(status), ["agentsMd", "providers"]);
+  assert.deepEqual(status.providers, []);
   assert.equal(status.agentsMd.bytes, 9);
   assert.ok(!("content" in status.agentsMd));
 });
@@ -119,4 +120,101 @@ test("Context offers only global instructions and never adds attention", () => {
   const items = M.paletteItems(status, null, ui, Date.now()).filter((i) => i.group === "Context");
   assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.label === "Edit global AGENTS.md…"));
   assert.ok(items.every((i) => !/skill|setup|project/i.test(i.label)));
+});
+
+test("existing provider files appear in Context and edits preserve their permissions and separation", async (t) => {
+  const f = await fixture(t);
+  for (const target of agentsMdTargets({}, f.home)) {
+    await fs.mkdir(path.dirname(target.path), { recursive: true });
+    await fs.writeFile(target.path, `# Existing ${target.provider}`, { mode: 0o664 });
+    await fs.chmod(target.path, 0o664);
+  }
+  const before = await contextStatus(fs, f);
+  assert.equal(before.agentsMd.present, false);
+  assert.deepEqual(before.providers.map((p) => p.provider), ["claude", "codex", "opencode"]);
+  assert.ok(before.providers.every((p) => !('content' in p)));
+  for (const target of agentsMdTargets({}, f.home)) {
+    const read = await readProviderAgentsMd(fs, target.provider, f);
+    assert.equal(read.content, `# Existing ${target.provider}`);
+    const saved = await writeProviderAgentsMd(fs, target.provider, `# Edited ${target.provider}`, read.revision, f);
+    assert.equal(saved.ok, true);
+    assert.equal(await fs.readFile(target.path, "utf8"), `# Edited ${target.provider}`);
+    assert.equal((await fs.stat(target.path)).mode & 0o777, 0o664);
+  }
+  assert.equal((await readAgentsMd(fs, f.baseDir)).present, false);
+});
+
+test("editing an existing provider symlink writes through its chain, including with custom config paths", async (t) => {
+  const f = await fixture(t);
+  const options = { home: f.home, env: { CODEX_HOME: path.join(f.root, 'custom-codex'), CLAUDE_CONFIG_DIR: path.join(f.root, 'custom-claude'), XDG_CONFIG_HOME: path.join(f.root, 'custom-config') } };
+  const shared = path.join(f.root, "user-shared.md");
+  const middle = path.join(f.root, "middle.md");
+  await fs.writeFile(shared, "# Existing user instructions");
+  await fs.symlink(path.basename(shared), middle);
+  for (const target of agentsMdTargets(options.env, f.home)) {
+    await fs.mkdir(path.dirname(target.path), { recursive: true });
+    await fs.symlink(path.relative(path.dirname(target.path), middle), target.path);
+  }
+  await writeAgentsMd(fs, f.baseDir, "# Managed shared file");
+  assert.equal((await reconcileAgentsMd(fs, f.baseDir, options)).skipped.length, 3);
+  for (const target of agentsMdTargets(options.env, f.home)) {
+    const link = await fs.readlink(target.path);
+    const read = await readProviderAgentsMd(fs, target.provider, options);
+    assert.equal(read.resolvedPath, shared);
+    assert.equal((await writeProviderAgentsMd(fs, target.provider, `# Edited ${target.provider}`, read.revision, options)).ok, true);
+    assert.equal(await fs.readlink(target.path), link);
+    assert.equal(await fs.readlink(middle), path.basename(shared));
+    assert.equal(await fs.readFile(shared, "utf8"), `# Edited ${target.provider}`);
+    assert.equal((await readAgentsMd(fs, f.baseDir)).content, "# Managed shared file");
+  }
+});
+
+test("provider edits reject external changes, link retargeting and simultaneous saves from the same revision", async (t) => {
+  const f = await fixture(t);
+  const target = agentsMdTargets({}, f.home)[0].path;
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, "# Original");
+  let read = await readProviderAgentsMd(fs, 'claude', f);
+  await fs.writeFile(target, "# Changed outside Context");
+  assert.equal((await writeProviderAgentsMd(fs, 'claude', '# Draft', read.revision, f)).code, 'conflict');
+  assert.equal(await fs.readFile(target, 'utf8'), '# Changed outside Context');
+  read = await readProviderAgentsMd(fs, 'claude', f);
+  const saves = await Promise.all(['# A', '# B'].map((content) => writeProviderAgentsMd(fs, 'claude', content, read.revision, f)));
+  assert.equal(saves.filter((save) => save.ok).length, 1);
+  assert.equal(saves.filter((save) => save.code === 'conflict').length, 1);
+  const other = path.join(f.root, 'other.md');
+  await fs.writeFile(other, await fs.readFile(target));
+  read = await readProviderAgentsMd(fs, 'claude', f);
+  await fs.unlink(target);
+  await fs.symlink(other, target);
+  assert.equal((await writeProviderAgentsMd(fs, 'claude', '# Draft', read.revision, f)).code, 'conflict');
+});
+
+test("unknown, absent, dangling and directory provider targets cannot be overwritten", async (t) => {
+  const f = await fixture(t);
+  assert.equal((await readProviderAgentsMd(fs, '../escape', f)).ok, false);
+  assert.equal((await writeProviderAgentsMd(fs, '../escape', '# Draft', 'fake', f)).ok, false);
+  assert.equal((await readProviderAgentsMd(fs, 'codex', f)).code, 'missing');
+  const target = agentsMdTargets({}, f.home).find((p) => p.provider === 'codex').path;
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  const missing = path.join(f.root, 'missing.md');
+  await fs.symlink(missing, target);
+  assert.match((await contextStatus(fs, f)).providers[0].error, /no longer exists/);
+  assert.equal((await writeProviderAgentsMd(fs, 'codex', '# Draft', 'fake', f)).ok, false);
+  assert.equal(await fs.readlink(target), missing);
+  await assert.rejects(fs.stat(missing), { code: 'ENOENT' });
+  await fs.unlink(target);
+  await fs.mkdir(target);
+  assert.equal((await writeProviderAgentsMd(fs, 'codex', '# Draft', 'fake', f)).ok, false);
+  assert.deepEqual(await fs.readdir(target), []);
+});
+
+test("provider view rows and palette expose each discovered file without adding attention", () => {
+  const status = { context: { providers: [{ provider: 'claude', path: '/custom/CLAUDE.md', bytes: 12 }] } };
+  const row = M.contextProviderRows(status)[0];
+  assert.equal(row.name, 'Claude Code instructions');
+  assert.equal(row.status.text, '/custom/CLAUDE.md');
+  assert.equal(row.action.cmd, 'context.provider.edit');
+  assert.equal(row.attention, false);
+  assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.cmd.cmd === 'context.provider.edit' && i.cmd.id === 'claude'));
 });

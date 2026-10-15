@@ -1217,13 +1217,13 @@
 
   // -------------------------------------------------------------- context --
   // Metadata is polled; the editor loads instruction text on demand.
-  const contextEditor = { loading: false, layer: null, content: '', saving: false, error: null };
+  const contextEditor = { loading: false, layer: null, content: '', saving: false, error: null, provider: null, revision: null, path: '', readError: false };
 
   const contextPage = (s) => html`
     ${pageNotices('context')}
     ${section('cx-agentsmd', 'Instructions', html`<div class="tc-group">
-      <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}</div>
-      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Shared with Claude Code, Codex and OpenCode. Existing instruction files are kept. Start a new agent session after saving.</span></div>
+      <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map((row) => resourceRow(row))}</div>
+      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>The shared file applies where an agent has no instructions yet. Existing files can be edited individually below it. Start a new agent session after saving.</span></div>
     </div>`)}
     ${M.contextView(s).error ? notice('danger', 'circle-alert', 'Could not read instructions', M.contextView(s).error) : ''}`;
 
@@ -1244,24 +1244,28 @@
     return file.text();
   };
 
-  const openContextEditor = async (trigger) => {
+  const openContextEditor = async (trigger, provider = null) => {
     if (contextEditor.layer) return;
-    Object.assign(contextEditor, { content: '', loading: true, saving: false, error: null });
+    Object.assign(contextEditor, { content: '', loading: true, saving: false, error: null, provider, revision: null, path: '', readError: false });
+    const providerName = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[provider];
+    const title = provider ? providerName + ' instructions' : 'Global AGENTS.md';
+    const filename = provider === 'claude' ? 'CLAUDE.md' : 'AGENTS.md';
     contextEditor.layer = Kit.open({
       kind: 'center',
       panel: { tag: 'div', class: 'tc-sheet tc-context-sheet ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'cx-title' },
       returnTo: trigger,
       backdrop: 'ignore',
       render: () => html`
-        <div class="tc-sheet-head"><span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span><div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="cx-title">Global AGENTS.md</h2><span class="tc-small tc-muted">Shared with supported agents on save</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
+        <div class="tc-sheet-head"><span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span><div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="cx-title">${title}</h2><span class="tc-small tc-muted">${provider ? 'Edit existing ' + filename : 'Shared with supported agents on save'}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
         <div class="tc-sheet-body">
           ${contextEditor.error ? notice('danger', 'circle-alert', 'Could not load or save instructions', contextEditor.error) : ''}
-          <div class="tc-context-filetools"><button class="tc-btn tc-btn--sm" type="button" data-sheet="upload"${contextEditor.loading || contextEditor.saving ? raw(' disabled') : ''}>Upload .md</button><button class="tc-btn tc-btn--sm" type="button" data-sheet="download"${contextEditor.loading ? raw(' disabled') : ''}>${icon('download')}Download .md</button><input id="cx-file" data-key="cx-file" type="file" accept=".md,text/markdown" aria-label="Upload instructions Markdown" hidden></div>
+          ${provider && contextEditor.path ? html`<span class="tc-hint tc-context-path">${contextEditor.path}</span>` : ''}
+          <div class="tc-context-filetools"><button class="tc-btn tc-btn--sm" type="button" data-sheet="upload"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>Upload .md</button><button class="tc-btn tc-btn--sm" type="button" data-sheet="download"${contextEditor.loading ? raw(' disabled') : ''}>${icon('download')}Download .md</button><input id="cx-file" data-key="cx-file" type="file" accept=".md,text/markdown" aria-label="Upload instructions Markdown" hidden></div>
           <label class="tc-label" for="cx-input">${contextEditor.loading ? 'Loading instructions…' : 'Markdown'}</label>
-          <textarea class="tc-input tc-input--area" id="cx-input" data-key="cx-input"${contextEditor.loading || contextEditor.saving ? raw(' disabled') : ''} rows="14" spellcheck="false" placeholder="# Instructions&#10;&#10;- Short sentences. Bullets over paragraphs.">${contextEditor.content}</textarea>
-          <span class="tc-hint">Upload replaces this draft. Save applies it to supported agents. Download includes unsaved edits.</span>
+          <textarea class="tc-input tc-input--area" id="cx-input" data-key="cx-input"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''} rows="14" spellcheck="false" placeholder="# Instructions&#10;&#10;- Short sentences. Bullets over paragraphs.">${contextEditor.content}</textarea>
+          <span class="tc-hint">Upload replaces this draft. ${provider ? 'Save updates this existing file, including for any other agents using it. Symlinks stay in place.' : 'Save applies it where an agent has no existing instruction file.'} Download includes unsaved edits.</span>
         </div>
-        <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn" type="button" data-sheet="copy">${icon('copy')}Copy</button><button class="tc-btn tc-btn--primary" type="button" data-sheet="save"${contextEditor.loading || contextEditor.saving ? raw(' disabled') : ''}>${contextEditor.saving ? 'Saving…' : 'Save'}</button></div>`,
+        <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn" type="button" data-sheet="copy">${icon('copy')}Copy</button><button class="tc-btn tc-btn--primary" type="button" data-sheet="save"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${contextEditor.saving ? 'Saving…' : 'Save'}</button></div>`,
       focus: '#cx-input',
       onClose: () => { contextEditor.layer = null; },
     });
@@ -1296,30 +1300,37 @@
       const what = action.getAttribute('data-sheet');
       if (what === 'close') contextEditor.layer.close('cancel');
       else if (what === 'upload') panel.querySelector('#cx-file').click();
-      else if (what === 'download') downloadMarkdown('AGENTS.md', contextEditor.content);
-      else if (what === 'copy') Kit.copy(contextEditor.content, action, 'AGENTS.md copied');
+      else if (what === 'download') downloadMarkdown(filename, contextEditor.content);
+      else if (what === 'copy') Kit.copy(contextEditor.content, action, filename + ' copied');
       else if (what === 'save') {
-        if (contextEditor.loading || contextEditor.saving) return;
+        if (contextEditor.loading || contextEditor.saving || contextEditor.readError) return;
         contextEditor.saving = true;
         contextEditor.error = null;
         contextEditor.layer.render();
-        const save = await api('/context/agents-md', { body: { content: contextEditor.content } });
+        const body = { content: contextEditor.content };
+        if (provider) Object.assign(body, { provider, revision: contextEditor.revision });
+        const save = await api('/context/agents-md', { body });
         if (contextEditor.layer !== layer) return;
         contextEditor.saving = false;
         if (!save.ok) { contextEditor.error = save.error; contextEditor.layer.render(); return; }
         contextEditor.layer.close('saved');
         const skipped = save.data?.reconcile?.skipped || [];
-        Kit.toast('Saved global AGENTS.md', skipped.length ? { tone: 'warn', detail: skipped.map((t) => t.provider + ': ' + t.reason).join('; ') } : undefined);
+        Kit.toast(provider ? 'Saved ' + providerName + ' instructions' : 'Saved global AGENTS.md', skipped.length ? { tone: 'warn', detail: skipped.map((t) => t.provider + ': ' + t.reason).join('; ') } : undefined);
         loadStatus();
       }
     });
     // Load current content.
-    const res = await api('/context/agents-md');
+    const res = await api('/context/agents-md' + (provider ? '?provider=' + encodeURIComponent(provider) : ''));
     if (contextEditor.layer !== layer) return;
     contextEditor.loading = false;
-    if (res.ok && res.data.content) contextEditor.content = res.data.content;
-    else if (!res.ok && res.data && res.data.content === null) contextEditor.content = '';
-    else if (!res.ok) contextEditor.error = res.error;
+    if (res.ok) {
+      contextEditor.content = res.data.content || '';
+      contextEditor.revision = res.data.revision || null;
+      contextEditor.path = res.data.resolvedPath || res.data.path || '';
+    } else {
+      contextEditor.error = res.error;
+      contextEditor.readError = true;
+    }
     contextEditor.layer.render();
     const area = panel.querySelector('#cx-input');
     if (area) { area.value = contextEditor.content; area.focus(); }
@@ -2903,6 +2914,7 @@
   const rowFor = (target, id) => (target === 'harness' ? M.agentRows(state.status, ui, now())
     : target === 'package' ? M.packageRows(state.status, ui, now())
     : target === 'context-agentsmd' ? [M.contextAgentsMdRow(state.status)]
+    : target === 'context-provider' ? M.contextProviderRows(state.status)
       : [...M.toolchainRows(state.status, ui, now()), ...M.sourceControlRows(state.status, ui, now())]).find((r) => r.id === id);
 
   const deviceRename = { layer: null, device: null, label: '', initial: '', saving: false, error: null, invalid: false };
@@ -3161,6 +3173,7 @@
     'agents.filter': (a) => { state.agentFilter = a.value; render(); },
 
     'context.edit': (a, el) => openContextEditor(el),
+    'context.provider.edit': (a, el) => openContextEditor(el, a.id),
 
     'port.publish': (a) => publishPort(Number(a.id)),
     'port.stop': (a) => stopPort(Number(a.id)),

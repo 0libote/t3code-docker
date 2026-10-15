@@ -1503,6 +1503,7 @@ const T3Model = (() => {
     for (const l of linkRows(s.pairings, null, now)) add('Devices', 'Revoke link ' + l.name + '…', 'trash-2', { cmd: 'link.revoke', id: l.id });
 
     add('Context', 'Edit global AGENTS.md…', 'pencil', { cmd: 'context.edit' });
+    for (const row of contextProviderRows(s)) add('Context', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id });
     add('Actions', 'Create pairing link', 'link', { cmd: 'pair.start' }, { shortcut: 'P' });
     const agentUpdates = agentRows(s, ui, now).filter((a) => a.updateAvailable).length;
     if (agentUpdates) add('Actions', 'Update all agents', 'circle-arrow-up', { cmd: 'harness.updateAll' }, { meta: { text: plural(agentUpdates, 'update') }, attention: true });
@@ -1658,6 +1659,18 @@ const T3Model = (() => {
     };
   };
 
+  const contextProviderRows = (status) => ((status?.context?.providers) || []).map((file) => ({
+    id: file.provider,
+    key: 'agentsmd:' + file.provider,
+    target: 'context-provider',
+    name: ({ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[file.provider] || file.provider) + ' instructions',
+    description: '', mono: 'AG', hue: '--id-toolchain', version: null, state: 'ok',
+    status: { text: file.error || file.path },
+    badge: file.error ? { tone: 'warn', text: 'Unavailable' } : { text: 'Existing file' },
+    action: { cmd: 'context.provider.edit', label: 'Edit', icon: 'pencil' },
+    menu: [], attention: false,
+  }));
+
   return {
     AGENTS, TOOLCHAINS, SOURCE_CONTROL, DONE, WORKING, FAILED,
     compareVersions, isNewer,
@@ -1668,7 +1681,7 @@ const T3Model = (() => {
     deviceRows, linkRows, deviceKind, deviceName,
     readiness, readySummary, needsYou, activity, setupBanner,
     publicUrlSource, hereOffer, connectView,
-    contextView, contextAgentsMdRow,
+    contextView, contextAgentsMdRow, contextProviderRows,
     navBadges, attentionCount, summaries, runtimeView,
     paletteItems, searchPalette,
     redactedDiagnostics, storageView,

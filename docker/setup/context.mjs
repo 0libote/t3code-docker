@@ -1,8 +1,8 @@
 // Shared global instructions for the setup console. All filesystem operations
 // take explicit paths so tests can use disposable homes. Provider-owned files
-// and links are preserved; only missing instruction targets are linked.
+// and links are preserved; existing files change only on an explicit save.
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 export function contextDirFor(baseDir) {
   return path.join(baseDir, "setup", "context");
@@ -47,6 +47,7 @@ async function writeFileAtomic(fs, file, text, mode = 0o600) {
   const tmp = `${file}.tmp.${process.pid}.${randomBytes(6).toString("hex")}`;
   try {
     await fs.writeFile(tmp, text, { encoding: "utf8", mode });
+    await fs.chmod(tmp, mode);
     await fs.rename(tmp, file);
   } finally {
     await fs.rm(tmp, { force: true });
@@ -108,8 +109,63 @@ export async function reconcileAgentsMd(fs, baseDir, { home = "/home/t3", env = 
   return { ok: true, linked, skipped, error: null };
 }
 
+/** Read a known provider's existing file, following its symlinks. */
+export async function readProviderAgentsMd(fs, provider, { home = "/home/t3", env = {} } = {}) {
+  const target = agentsMdTargets(env, home).find((entry) => entry.provider === provider);
+  if (!target) return { ok: false, code: "invalid", error: "Unknown instruction provider" };
+  try {
+    const resolvedPath = await fs.realpath(target.path);
+    const stat = await fs.stat(resolvedPath);
+    if (!stat.isFile()) return { ok: false, code: "invalid", error: "Instructions must be a regular file" };
+    const content = await fs.readFile(resolvedPath, "utf8");
+    const revision = createHash("sha256").update(resolvedPath).update("\0").update(content).digest("hex");
+    return { ok: true, ...target, resolvedPath, content, revision, bytes: Buffer.byteLength(content), mode: stat.mode & 0o777 };
+  } catch (error) {
+    return { ok: false, ...target, code: error?.code === "ENOENT" ? "missing" : "unavailable", error: error?.code === "ENOENT" ? "The instruction file or its linked target no longer exists" : String(error?.message ?? error) };
+  }
+}
+
+// Serialize saves to the same target so two editors cannot both overwrite the
+// revision they opened. Provider links can point at the same external file.
+const providerWrites = new Map();
+export async function writeProviderAgentsMd(fs, provider, content, revision, options = {}) {
+  const validation = validateAgentsMd(content);
+  if (!validation.ok) return validation;
+  const initial = await readProviderAgentsMd(fs, provider, options);
+  if (!initial.ok) return initial;
+  const key = initial.resolvedPath;
+  const previous = providerWrites.get(key) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(async () => {
+    const read = await readProviderAgentsMd(fs, provider, options);
+    if (!read.ok) return read;
+    if (!revision || read.revision !== revision) {
+      return { ok: false, code: "conflict", error: "Instructions changed since you opened them. Download your draft, then reopen the editor to load the current file." };
+    }
+    // Rename the resolved file, leaving the provider's symlink chain intact.
+    await writeFileAtomic(fs, read.resolvedPath, String(content), read.mode);
+    return { ok: true, provider, path: read.path, bytes: validation.bytes };
+  });
+  providerWrites.set(key, current);
+  try { return await current; }
+  finally { if (providerWrites.get(key) === current) providerWrites.delete(key); }
+}
+
 /** Local metadata only: instruction text is fetched when the editor opens. */
-export async function contextStatus(fs, { baseDir } = {}) {
+export async function contextStatus(fs, { baseDir, home = "/home/t3", env = {} } = {}) {
   const read = await readAgentsMd(fs, baseDir);
-  return { agentsMd: { present: read.present, bytes: read.bytes, updatedAt: read.updatedAt ?? null, error: read.error } };
+  const providers = [];
+  for (const target of agentsMdTargets(env, home)) {
+    try {
+      await fs.lstat(target.path);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      providers.push({ ...target, error: String(error?.message ?? error) });
+      continue;
+    }
+    const file = await readProviderAgentsMd(fs, target.provider, { home, env });
+    // Shared links are edited via the single global row, avoiding duplicates.
+    if (file.ok && file.resolvedPath === path.resolve(agentsMdPathFor(baseDir))) continue;
+    providers.push({ ...target, bytes: file.bytes ?? 0, error: file.error ?? null });
+  }
+  return { agentsMd: { present: read.present, bytes: read.bytes, updatedAt: read.updatedAt ?? null, error: read.error }, providers };
 }
