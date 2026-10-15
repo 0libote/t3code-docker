@@ -24,6 +24,7 @@ export const CONSOLE_SCRIPTS = [
   "design/ui.js",
   "client/model.js",
   "client/kit.js",
+  "client/storage.js",
   "app.js",
 ];
 export const UNLOCK_SCRIPTS = ["client/base.js", "design/ui.js", "client/unlock.js"];

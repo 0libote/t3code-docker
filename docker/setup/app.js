@@ -125,6 +125,7 @@
       : (M.TOOLCHAINS[id] || M.SOURCE_CONTROL[id] || {}).name || (toolchain(id) || {}).name || id;
   // Where each kind of row's operations live in the API.
   const LIFECYCLE_PATH = { harness: 'harnesses', toolchain: 'toolchains', package: 'packages' };
+  const storageUI = T3StorageUI.create({ api, getStatus: () => state.status, reload: () => loadStatus(), render: () => render() });
 
   /** Whether this browser came in on its T3 Code session rather than the key, so Lock would end nothing. */
   const viaT3 = (s) => Boolean(s && s.viewer && s.viewer.via === 't3');
@@ -148,6 +149,8 @@
   let portsLoading = null;
 
   const busyNow = (s) => Boolean(s && (
+    storageUI.isBusy()
+    ||
     M.runtimeView(s)?.busy
     || ui.runtimeChecking
     || (s.setup && s.setup.state === 'running')
@@ -190,6 +193,7 @@
         state.statusError = null;
         settleOperations(res.data);
         settleRuntime(res.data);
+        storageUI.observe(res.data.storage);
         trackPairing(res.data);
         loadProvidersOnce();
         tellAttention();
@@ -651,6 +655,10 @@
     const [page] = pages;
     return html`
       ${pageNotices('overview')}
+      ${s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? notice(s.storage.disk.usedPercent >= 90 ? 'danger' : 'warn', 'server',
+        s.storage.disk.usedPercent >= 90 ? 'Disk space is nearly full' : 'Disk space is running low',
+        M.formatBytes(s.storage.disk.availableBytes) + ' available on the home filesystem. Review storage before it fills up.',
+        html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="storage.goto">Manage storage</button>`) : ''}
       ${r.ready ? readyLine(s) : readinessGroup(r)}
       ${needs.length ? section('needs-title', 'Needs you', html`<div class="tc-group"><div class="tc-list">${needs.map(attentionRow)}</div></div>`,
         pages.size === 1 ? { actions: linkButton('#' + page, NEEDS_PAGES[page]) } : undefined) : ''}
@@ -1120,6 +1128,7 @@
         ${Number.isFinite(server.uptimeSeconds) ? readout('Uptime', M.duration(server.uptimeSeconds)) : ''}
       </div></div>`, { actions: s.t3 && s.t3.pid ? html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="t3.restart" ${M.runtimeView(s)?.busy ? 'disabled' : ''}>${icon('refresh-cw')}Restart T3 Code</button>` : null })}
       ${runtimeCard(s)}
+      ${section('ev-storage', 'Storage', storageUI.content(), { actions: storageUI.actions() })}
       ${section('ev-access', 'Access', html`<div class="tc-group"><dl class="tc-kv">
         <dt>Public URL</dt><dd>${s.publicUrl ? html`<span class="tc-mono tc-mono--body tc-truncate">${s.publicUrl}</span><span class="tc-kv-aside">${M.publicUrlSource(s)}</span><span class="tc-spacer"></span>${s.publicUrlSource === 'env' ? '' : html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="url.edit">Change</button>`}${copyButton(s.publicUrl, 'Copy public URL', { iconOnly: true })}`
           : html`<span class="tc-kv-fill">${dot('warn')}<span>Not set. Pairing links need it.</span></span>${urlButtons(s, 'tc-btn--xs', 'tc-choice')}`}</dd>
@@ -1132,8 +1141,9 @@
         <dt>Setup console</dt><dd><span class="tc-mono tc-mono--body">${consolePath}</span><span class="tc-kv-aside">${BASE ? 'on the same hostname · ' : ''}port ${s.setupPort || 3774}</span></dd>
         <dt>Pairing links last</dt><dd><span class="tc-mono tc-mono--body">${paths.pairTtl || '30d'}</span><span class="tc-kv-aside">T3_PAIR_TTL · a paired session lasts 30 days</span></dd>
       </dl></div>`)}
-      ${section('ev-storage', 'Storage', html`<div class="tc-group"><div class="tc-list">
-        <div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('server')}</span><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">State</span><code>${paths.volume || '—'}</code></div><span class="tc-status">${[kindText(paths.volumeKind), 'threads, credentials, agents and toolchains', Number.isFinite(paths.volumeBytes) ? M.formatBytes(paths.volumeBytes) : null].filter(Boolean).join(' · ')}</span></div>${kindBadge(paths.volumeKind)}</div>
+      ${section('ev-mounts', 'Persistent locations', html`<div class="tc-group"><div class="tc-list">
+        <div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('server')}</span><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Home</span><code>${paths.volume || '—'}</code></div><span class="tc-status">${[paths.volumeKind === 'anonymous' ? 'Anonymous volume · reuse it when recreating the container' : kindText(paths.volumeKind), 'agents, toolchains and caches', Number.isFinite(paths.volumeBytes) ? M.formatBytes(paths.volumeBytes) : null].filter(Boolean).join(' · ')}</span></div>${kindBadge(paths.volumeKind)}</div>
+        <div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('server')}</span><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">T3 state</span><code>${paths.state || '—'}</code></div><span class="tc-status">${[paths.stateKind === 'anonymous' ? 'Anonymous volume · reuse it when recreating the container' : kindText(paths.stateKind), 'conversations, sign-ins and settings'].filter(Boolean).join(' · ')}</span></div>${kindBadge(paths.stateKind)}</div>
         <div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('terminal')}</span><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Workspace</span><code>${paths.workspace || '—'}</code></div><span class="tc-status">${[kindText(paths.workspaceKind) || 'Your projects', Number.isFinite(paths.workspaceProjects) ? M.plural(paths.workspaceProjects, 'project') + ' registered on start' : null].filter(Boolean).join(' · ')}</span></div>${kindBadge(paths.workspaceKind)}</div>
       </div></div>`)}
       ${s.browser ? section('ev-browser', 'Agent browser', html`<div class="tc-group"><dl class="tc-kv">
@@ -2853,6 +2863,12 @@
   };
 
   const COMMANDS = {
+    'storage.clean': (a) => storageUI.clean(a.id),
+    'storage.refresh': () => storageUI.refresh(),
+    'storage.preferences': () => storageUI.preferences(),
+    'storage.versions': () => storageUI.reviewVersions(),
+    'storage.details': () => storageUI.toggle(),
+    'storage.goto': () => { go('environment'); requestAnimationFrame(() => $('ev-storage')?.scrollIntoView({ block: 'start', behavior: Kit.REDUCED.matches ? 'auto' : 'smooth' })); },
     refresh: () => { loadStatus(); loadPorts(); },
     goto: (a) => go(a.route),
     copy: (a, el) => Kit.copy(a.text, el, a.toast),

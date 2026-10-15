@@ -288,6 +288,15 @@ fi
 printf '  %s\n' \
   "Observed at this start only; the next container can mount something else."
 
+head_ "Storage"
+storage_cli="${T3_STORAGE_CLI:-/opt/t3-harness/storage/cli.mjs}"
+if [ -r "$storage_cli" ]; then
+  "${T3_INFRA_NODE:-/usr/local/bin/node}" "$storage_cli" status || warn storage "usage could not be read"
+else
+  warn storage "storage service is not installed in this image"
+fi
+printf '  %s\n' "Manage caches in Setup → Environment → Storage, or run t3-storage --help."
+
 head_ "Browser"
 if command -v chromium >/dev/null 2>&1; then
   ok chromium "$(chromium --version 2>/dev/null | head -1)"

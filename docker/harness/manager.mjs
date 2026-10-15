@@ -27,6 +27,7 @@ import {
   parseDevicePrompt, parseHost, parseToken, signOutArgs, teaLoginFor, tokenSignIn,
 } from "./source-control.mjs";
 import * as state from "./state.mjs";
+import { applyRetention, planRetention } from "./retention.mjs";
 import { compareVersions, meetsMinimum } from "./version.mjs";
 
 // An exact release: digits, a dot, then version characters. Floating selectors
@@ -79,6 +80,7 @@ export function createHarnessManager(options = {}) {
     // holder is detected from its pid and start time straight away.
     lockStaleMs: options.lockStaleMs ?? 60 * 60 * 1000,
     authCacheTtlMs: options.authCacheTtlMs ?? 10_000,
+    retentionProcesses: options.retentionProcesses,
     // A source control CLI's check asks its server, and the setup page polls
     // it every 15 seconds. Signing in or out here, or anywhere that writes the
     // CLI's credential files, is seen at once (the files are part of the
@@ -316,10 +318,23 @@ export function createHarnessManager(options = {}) {
       if (patch === REMOVE_RECORD) {
         await state.removeEntry(ctx, section, id);
       } else {
+        if (patch.version && previous.version && patch.version !== previous.version) patch.previousVersion = previous.version;
         await state.updateEntry(ctx, section, id, {
           ...patch,
           operation: { kind, state: "ok", startedAt: null, finishedAt: ctx.now(), error: null, ...(op.result ?? {}) },
         });
+        if (["install", "update"].includes(kind) && patch.version) {
+          // Activation and verification are already complete. Storage cleanup
+          // is best effort and must never turn that success into a rollback.
+          try {
+            const plan = await planRetention(ctx, { only: { section, id, record: { ...previous, ...patch } } });
+            let warning = plan.warning;
+            if (plan.enabled && plan.removableCount) {
+              warning = (await applyRetention(ctx, plan, { signal, onProgress })).warning;
+            }
+            await state.updateEntry(ctx, section, id, { retention: { checkedAt: ctx.now(), warning: warning || null } });
+          } catch { /* a later Storage review can retry cleanup */ }
+        }
       }
       outcome = { ok: true, code: "ok", changed: true, ...(op.result ?? {}) };
     } catch (error) {
@@ -1414,6 +1429,24 @@ export function createHarnessManager(options = {}) {
   }
 
   return {
+    retention: {
+      preview: () => planRetention(ctx),
+      async prune({ onStarted, onProgress, beforeRemove, token, signal, dryRun = false } = {}) {
+        if (dryRun) return { ok: true, dryRun: true, ...(await planRetention(ctx)) };
+        const held = await lock.acquireLock(ctx, { id: "storage", operation: "retain" });
+        if (!held.acquired) return { ok: false, code: "busy", error: "An installation or cleanup is running. Try again when it finishes." };
+        try {
+          const plan = await planRetention(ctx);
+          if (plan.warning) return { ok: false, code: "unavailable", error: plan.warning };
+          if (token !== undefined && token !== plan.token) return { ok: false, code: "stale-preview", error: "Tool versions changed since this review. Review older versions again before trimming." };
+          await beforeRemove?.();
+          try { onStarted?.(); } catch { /* listener */ }
+          const result = await applyRetention(ctx, plan, { onProgress, signal });
+          return { ok: !result.failed.length, code: result.failed.length ? "partial" : "ok", ...result };
+        } catch { return { ok: false, code: "failed", error: "Older versions could not be trimmed. Try again." }; }
+        finally { await held.release(); }
+      },
+    },
     status,
     resolve,
     install,

@@ -47,6 +47,18 @@ export async function listTools(ctx) {
   }
 }
 
+/** Only versions unused by mise's tracked project configs and tool stubs.
+ * Failure is distinct from an empty list: cleanup must never guess. */
+export async function listPrunable(ctx) {
+  const result = await ctx.run(miseArgs(ctx, ["ls", "--prunable", "--json"]), {
+    env: readEnv(ctx.env), cwd: ctx.home, timeoutMs: Math.min(ctx.timeouts.mise, 15_000),
+  });
+  if (result.error || result.code !== 0) throw new Error("Project version requirements could not be checked. Older versions were kept.");
+  const parsed = JSON.parse(result.stdout.trim() || "{}");
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Project version requirements could not be read. Older versions were kept.");
+  return parsed;
+}
+
 /**
  * Resolve the latest version mise offers for a tool. This is the only place a
  * floating selection is turned into an exact one; the result is recorded, not

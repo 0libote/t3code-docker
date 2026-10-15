@@ -8,6 +8,12 @@ services:
       target: ${T3_BUILD_TARGET:-browser}
     container_name: t3code
     restart: unless-stopped
+    # Bound daemon-managed logs; an image cannot set its container's logging.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     hostname: ${T3_HOSTNAME:-t3code}
     environment:
       # Public address clients reach this server on, which pairing links point
@@ -72,6 +78,11 @@ services:
     image: caddy:2-alpine
     container_name: t3code-caddy
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - t3code
     environment:

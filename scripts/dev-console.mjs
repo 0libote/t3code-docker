@@ -49,6 +49,7 @@ if (!existsSync(T3_BINARY)) {
 }
 if (flag("--fresh")) rmSync(HOME, { recursive: true, force: true });
 mkdirSync(join(HOME, "workspace"), { recursive: true });
+mkdirSync(join(HOME, "home"), { recursive: true });
 
 // ---------------------------------------------------------------- children --
 const children = new Set();
@@ -68,7 +69,16 @@ const start = (name, command, args, env) => {
   return child;
 };
 
-const T3_ENV = { T3CODE_HOME: join(HOME, "t3"), T3CODE_PORT: String(T3_PORT), T3CODE_HOST: "127.0.0.1",
+const T3_ENV = { T3CODE_HOME: join(HOME, "home/.t3"), T3CODE_PORT: String(T3_PORT), T3CODE_HOST: "127.0.0.1",
+  // Cleanup controls must only see disposable development data. Inheriting
+  // the caller's HOME/MISE_* used to let this scratch console manage real tools.
+  HOME: join(HOME, "home"), T3_WORKSPACE: join(HOME, "workspace"),
+  MISE_CONFIG_DIR: join(HOME, "home/.config/mise"),
+  MISE_DATA_DIR: join(HOME, "home/.local/share/mise"),
+  MISE_STATE_DIR: join(HOME, "home/.local/state/mise"),
+  MISE_CACHE_DIR: join(HOME, "home/.cache/mise"),
+  GOCACHE: join(HOME, "home/.cache/go-build"),
+  npm_config_cache: join(HOME, "home/.npm"),
   T3_RUN_DIR: join(HOME, "run"), T3_INFRA_BINARY: T3_BINARY,
   T3_RUNTIME_MODULE: join(ROOT, "docker/runtime/manager.mjs"), T3_RUNTIME_RESOLVER: join(ROOT, "docker/runtime/resolve.mjs"),
   T3_INFRA_LAUNCHER: join(ROOT, "docker/bin/t3-admin"), T3_SETUP_BRIDGE: BRIDGE };
