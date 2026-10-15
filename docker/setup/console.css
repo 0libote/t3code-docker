@@ -541,6 +541,7 @@ html.tc-locked { overflow: hidden; }
 .tc-context-sheet .tc-input--area { box-sizing: border-box; width: 100%; min-height: min(42dvh, 420px); resize: vertical; font-family: var(--font-mono); line-height: 1.6; }
 .tc-context-filetools { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .tc-context-path { overflow-wrap: anywhere; }
+.tc-context-provider .tc-seg { margin-top: var(--space-2); width: fit-content; max-width: 100%; }
 @media (max-width: 1023.98px) {
   .tc-layer--center > .tc-context-sheet { width: 100%; max-height: 88dvh; animation: tc-rise-sheet 300ms cubic-bezier(0.32, 0.72, 0, 1); }
   .tc-context-sheet .tc-input--area { min-height: 32dvh; }

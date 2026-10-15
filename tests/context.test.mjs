@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
-import { agentsMdTargets, agentsMdPathFor, validateAgentsMd, readAgentsMd, writeAgentsMd, reconcileAgentsMd, contextStatus, readProviderAgentsMd, writeProviderAgentsMd } from "../docker/setup/context.mjs";
+import { agentsMdTargets, agentsMdPathFor, validateAgentsMd, readAgentsMd, writeAgentsMd, reconcileAgentsMd, contextStatus, readProviderAgentsMd, writeProviderAgentsMd, providerInstructionState, setProviderInstructionMode } from "../docker/setup/context.mjs";
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(tmpdir(), "t3-context-"));
@@ -45,7 +45,7 @@ test("saving twice updates existing provider links without replacing them", asyn
   await assert.rejects(fs.stat(path.join(f.home, ".claude/AGENTS.md")), { code: "ENOENT" });
   const status = await contextStatus(fs, f);
   assert.deepEqual(Object.keys(status), ["agentsMd", "providers"]);
-  assert.deepEqual(status.providers, []);
+  assert.deepEqual(status.providers.map((entry) => entry.mode), ['shared', 'shared', 'shared']);
   assert.equal(status.agentsMd.bytes, 9);
   assert.ok(!("content" in status.agentsMd));
 });
@@ -199,7 +199,7 @@ test("unknown, absent, dangling and directory provider targets cannot be overwri
   await fs.mkdir(path.dirname(target), { recursive: true });
   const missing = path.join(f.root, 'missing.md');
   await fs.symlink(missing, target);
-  assert.match((await contextStatus(fs, f)).providers[0].error, /no longer exists/);
+  assert.match((await contextStatus(fs, f)).providers.find((p) => p.provider === 'codex').error, /no longer exists/);
   assert.equal((await writeProviderAgentsMd(fs, 'codex', '# Draft', 'fake', f)).ok, false);
   assert.equal(await fs.readlink(target), missing);
   await assert.rejects(fs.stat(missing), { code: 'ENOENT' });
@@ -210,7 +210,7 @@ test("unknown, absent, dangling and directory provider targets cannot be overwri
 });
 
 test("provider view rows and palette expose each discovered file without adding attention", () => {
-  const status = { context: { providers: [{ provider: 'claude', path: '/custom/CLAUDE.md', bytes: 12 }] } };
+  const status = { context: { providers: [{ provider: 'claude', path: '/custom/CLAUDE.md', bytes: 12, mode: 'separate' }] } };
   const row = M.contextProviderRows(status)[0];
   assert.equal(row.name, 'Claude Code instructions');
   assert.equal(row.status.text, '/custom/CLAUDE.md');
@@ -250,4 +250,88 @@ test("shared and provider saves to the same managed file use one revision queue"
   ]);
   assert.equal(saves.filter((result) => result.ok).length, 1);
   assert.equal(saves.filter((result) => result.code === 'conflict').length, 1);
+});
+
+test("providers can use shared instructions or detach an independent copy", async (t) => {
+  const f = await fixture(t);
+  await writeAgentsMd(fs, f.baseDir, '# Shared v1');
+  for (const target of agentsMdTargets({}, f.home)) {
+    let state = await providerInstructionState(fs, f.baseDir, target.provider, f);
+    assert.equal(state.mode, null);
+    assert.equal((await setProviderInstructionMode(fs, f.baseDir, target.provider, 'shared', state.sourceRevision, f)).ok, true);
+    assert.equal(await fs.readFile(target.path, 'utf8'), '# Shared v1');
+    state = await providerInstructionState(fs, f.baseDir, target.provider, f);
+    assert.equal(state.mode, 'shared');
+    assert.equal((await setProviderInstructionMode(fs, f.baseDir, target.provider, 'separate', state.sourceRevision, f)).ok, true);
+    assert.equal((await fs.lstat(target.path)).isSymbolicLink(), false);
+    assert.equal(await fs.readFile(target.path, 'utf8'), '# Shared v1');
+  }
+  await writeAgentsMd(fs, f.baseDir, '# Shared v2', (await readAgentsMd(fs, f.baseDir)).revision);
+  await reconcileAgentsMd(fs, f.baseDir, f);
+  assert.deepEqual((await contextStatus(fs, f)).providers.map((p) => p.mode), ['separate', 'separate', 'separate']);
+  for (const target of agentsMdTargets({}, f.home)) assert.equal(await fs.readFile(target.path, 'utf8'), '# Shared v1');
+});
+
+test("switching to shared backs up separate files and restores their permissions and relative symlinks", async (t) => {
+  const f = await fixture(t);
+  await writeAgentsMd(fs, f.baseDir, '# Shared');
+  const original = path.join(f.root, 'original.md');
+  await fs.writeFile(original, '# User symlink target');
+  for (const [i, target] of agentsMdTargets({}, f.home).entries()) {
+    await fs.mkdir(path.dirname(target.path), { recursive: true });
+    const link = path.relative(path.dirname(target.path), original);
+    if (i === 0) await fs.symlink(link, target.path);
+    else { await fs.writeFile(target.path, '# Separate ' + target.provider); await fs.chmod(target.path, 0o640); }
+    const state = await providerInstructionState(fs, f.baseDir, target.provider, f);
+    assert.equal((await setProviderInstructionMode(fs, f.baseDir, target.provider, 'shared', state.sourceRevision, f)).ok, true);
+    assert.equal(await fs.readFile(target.path, 'utf8'), '# Shared');
+    const backup = target.path + '.t3-context-backup';
+    if (i === 0) assert.equal(await fs.readlink(backup), link);
+    else assert.equal(await fs.readFile(backup, 'utf8'), '# Separate ' + target.provider);
+    const shared = await providerInstructionState(fs, f.baseDir, target.provider, f);
+    assert.equal((await setProviderInstructionMode(fs, f.baseDir, target.provider, 'separate', shared.sourceRevision, f)).ok, true);
+    if (i === 0) assert.equal(await fs.readlink(target.path), link);
+    else {
+      assert.equal(await fs.readFile(target.path, 'utf8'), '# Separate ' + target.provider);
+      assert.equal((await fs.stat(target.path)).mode & 0o777, 0o640);
+    }
+    await assert.rejects(fs.lstat(backup), { code: 'ENOENT' });
+  }
+  assert.equal(await fs.readFile(original, 'utf8'), '# User symlink target');
+});
+
+test("mode changes reject stale selections and existing backups and roll back failed switches", async (t) => {
+  const f = await fixture(t);
+  await writeAgentsMd(fs, f.baseDir, '# Shared');
+  const target = agentsMdTargets({}, f.home)[0];
+  await fs.mkdir(path.dirname(target.path), { recursive: true });
+  await fs.writeFile(target.path, '# Separate');
+  let state = await providerInstructionState(fs, f.baseDir, target.provider, f);
+  await fs.writeFile(target.path, '# New separate');
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, target.provider, 'shared', state.sourceRevision, f)).code, 'conflict');
+  state = await providerInstructionState(fs, f.baseDir, target.provider, f);
+  const backup = target.path + '.t3-context-backup';
+  await fs.writeFile(backup, '# Existing backup');
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, target.provider, 'shared', state.sourceRevision, f)).code, 'conflict');
+  assert.equal(await fs.readFile(backup, 'utf8'), '# Existing backup');
+  assert.equal(await fs.readFile(target.path, 'utf8'), '# New separate');
+  await fs.unlink(backup);
+  const broken = { ...fs, rename: async (from, to) => {
+    if (from.includes('.tmp.')) throw new Error('switch rename failed');
+    return fs.rename(from, to);
+  } };
+  await assert.rejects(setProviderInstructionMode(broken, f.baseDir, target.provider, 'shared', state.sourceRevision, f), /switch rename failed/);
+  assert.equal(await fs.readFile(target.path, 'utf8'), '# New separate');
+  await assert.rejects(fs.lstat(backup), { code: 'ENOENT' });
+  assert.deepEqual(await fs.readdir(path.dirname(target.path)), ['CLAUDE.md']);
+});
+
+test("separate mode can start before a shared file exists; unknown modes cannot change files", async (t) => {
+  const f = await fixture(t);
+  const state = await providerInstructionState(fs, f.baseDir, 'codex', f);
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, 'codex', 'shared', state.sourceRevision, f)).ok, false);
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, '../escape', 'shared', state.sourceRevision, f)).ok, false);
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, 'codex', 'other', state.sourceRevision, f)).ok, false);
+  assert.equal((await setProviderInstructionMode(fs, f.baseDir, 'codex', 'separate', state.sourceRevision, f)).ok, true);
+  assert.match((await readProviderAgentsMd(fs, 'codex', f)).content, /codex instructions/);
 });

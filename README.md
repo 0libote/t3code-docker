@@ -221,12 +221,12 @@ styles from anywhere else, which helps over a slow tunnel.
 
 ### Global agent instructions
 
-**Setup → Context** edits one global `AGENTS.md`, with Markdown upload and
-download. Saving links it into Claude Code, Codex and OpenCode's native global
-instruction paths. Existing provider files appear as separate editable rows;
-their contents load on open and change only on an explicit save. Editing a
-linked file preserves its symlinks and permissions. Saving shared instructions
-leaves existing provider files in place. Start a new agent session to load changes.
+**Setup → Context** edits one shared global `AGENTS.md`, with Markdown upload
+and download. Claude Code, Codex and OpenCode can each use **Shared** global
+instructions or a **Separate** file. Switching to Shared backs up an existing
+file; switching back restores it, or creates an independent copy of the shared
+instructions. Separate files can be edited in place, preserving symlinks and
+permissions. Start a new agent session to load changes.
 See [Context management](docs/context-management.md) for paths and verification.
 
 ### Storage management

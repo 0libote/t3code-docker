@@ -2536,8 +2536,11 @@ const server = createServer(async (req, res) => {
         const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
         const fs = await contextFs();
         if (input.provider !== undefined) {
-          const result = await Context.writeProviderAgentsMd(fs, input.provider, input.content, input.revision, { home: CONTEXT_HOME, env: process.env });
-          if (result.ok) recordEvent("context.saved", `Saved ${input.provider} global instructions`);
+          const options = { home: CONTEXT_HOME, env: process.env };
+          const result = input.mode !== undefined
+            ? await Context.setProviderInstructionMode(fs, STATE_DIR, input.provider, input.mode, input.sourceRevision, options)
+            : await Context.writeProviderAgentsMd(fs, input.provider, input.content, input.revision, options);
+          if (result.ok) recordEvent("context.saved", input.mode ? `${input.provider} uses ${input.mode} instructions` : `Saved ${input.provider} global instructions`);
           return sendJson(res, result.ok ? 200 : result.code === "conflict" ? 409 : 400, result);
         }
         const result = await Context.writeAgentsMd(fs, STATE_DIR, input.content, input.revision);

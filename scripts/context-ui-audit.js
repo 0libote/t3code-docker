@@ -15,11 +15,13 @@ const assert = require('node:assert/strict');
  for (const [width, height, embedded] of [[360, 720], [390, 844], [820, 900], [1280, 900], [1198, 878, true]]) {
  const page = await browser.newPage({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce'});
  await page.addInitScript(mode => localStorage.setItem('t3-console-theme', mode), theme);
+ const providerModes = {claude:'separate',codex:'separate',opencode:'separate'};
  const errors=[];page.on('pageerror', e=>errors.push(e.message));
  await page.route('**/status', async route => {
    const response = await route.fetch();
    const status = await response.json();
-   status.context.providers = ['claude', 'codex', 'opencode'].map(provider => ({provider, path:'/home/t3/a-very-long-existing-configuration-directory-for-' + provider + '/AGENTS.md', bytes:12}));
+   status.context.agentsMd = {present:true,bytes:12};
+   status.context.providers = ['claude', 'codex', 'opencode'].map(provider => ({provider, mode:providerModes[provider],sourceRevision:provider+'-'+providerModes[provider],path:'/home/t3/a-very-long-existing-configuration-directory-for-' + provider + '/AGENTS.md', bytes:12}));
    await route.fulfill({json:status});
  });
  await page.goto(base);
@@ -47,16 +49,24 @@ const assert = require('node:assert/strict');
  };
 
  let instructionReads = 0;
+ let releaseOldRead, oldReadStarted, oldReadFinished;
+ const oldGate = new Promise(resolve => { releaseOldRead = resolve; });
+ const started = new Promise(resolve => { oldReadStarted = resolve; });
+ const finished = new Promise(resolve => { oldReadFinished = resolve; });
  await page.route('**/context/agents-md', async route => {
    const first = instructionReads++ === 0;
-   await new Promise(resolve => setTimeout(resolve, first ? 1000 : 100));
-   await route.fulfill({json:{ok:true,content:first ? '# Old response' : '# Current instructions', revision:'shared-revision'}});
+   if (first) { oldReadStarted(); await oldGate; }
+   await route.fulfill({json:{ok:true,content:first ? '# Old response' : '# Current instructions',revision:'shared-revision'}});
+   if (first) oldReadFinished();
  });
  await page.locator('[data-cmd="context.edit"]').click();
+ await started;
  assert.equal(await page.locator('[data-sheet="save"]').isDisabled(),true);
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  await page.locator('[data-cmd="context.edit"]').click();
- await page.waitForTimeout(1200);
+ await page.waitForFunction(() => document.querySelector('#cx-input')?.value === '# Current instructions');
+ releaseOldRead();
+ await finished;
  assert.equal(await page.locator('#cx-input').inputValue(),'# Current instructions');
  await checkCentered();
  await page.locator('#cx-file').setInputFiles({name:'AGENTS.md',mimeType:'text/markdown',buffer:Buffer.from('# Uploaded instructions')});
@@ -66,15 +76,21 @@ const assert = require('node:assert/strict');
  await page.locator('#cx-file').setInputFiles({name:'too-large.md',mimeType:'text/markdown',buffer:Buffer.alloc(65 * 1024, 'x')});
  await page.getByText('File too large (64 KB max).', {exact:true}).waitFor();
  assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
+ let releaseFailedSave, saveStarted;
+ const saveGate = new Promise(resolve => { releaseFailedSave = resolve; });
+ const saving = new Promise(resolve => { saveStarted = resolve; });
  await page.route('**/context/agents-md', async route => {
    if (route.request().method() === 'GET') { await route.fulfill({json:{ok:true,content:'# Current instructions',revision:'shared-revision'}}); return; }
    assert.equal(route.request().postDataJSON().revision,'shared-revision');
    assert.equal(route.request().postDataJSON().content,'# Unsaved draft');
-   await new Promise(resolve => setTimeout(resolve, 400));
+   saveStarted();
+   await saveGate;
    await route.fulfill({status:409,json:{ok:false,error:'Shared instructions changed since opening'}});
  });
  await page.getByRole('button',{name:'Save',exact:true}).click();
+ await saving;
  assert.equal(await page.locator('#cx-input').isDisabled(),true);
+ releaseFailedSave();
  await page.getByText('Shared instructions changed since opening',{exact:true}).waitFor();
  assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
@@ -86,14 +102,22 @@ const assert = require('node:assert/strict');
  let expectedProvider = null;
  let conflict = false;
  let providerSaves = 0;
+ let modeSaves = 0;
+ let failMode = false;
  await page.route('**/context/agents-md', async route => {
-   assert.equal(route.request().method(),'POST');
+   if (route.request().method() === 'GET') { await route.fulfill({json:{ok:true,content:'# Shared fixture',revision:'shared-revision'}}); return; }
    const body = route.request().postDataJSON();
+   if (body.mode) {
+     assert.equal(body.sourceRevision,body.provider+'-'+providerModes[body.provider]);
+     modeSaves++;
+     if (!failMode) providerModes[body.provider]=body.mode;
+     await route.fulfill({status:failMode ? 409 : 200,json:failMode ? {ok:false,error:'Source changed while switching'} : {ok:true}});
+     return;
+   }
    assert.equal(body.provider,expectedProvider);
    assert.equal(body.revision,expectedProvider + '-revision');
    assert.equal(body.content,'# Edited ' + expectedProvider);
    providerSaves++;
-   await new Promise(resolve => setTimeout(resolve,100));
    await route.fulfill({status:conflict ? 409 : 200,json:conflict ? {ok:false,error:'Instructions changed since you opened them.'} : {ok:true}});
  });
  assert.equal(await page.locator('[data-cmd="context.provider.edit"]').count(),3);
@@ -116,6 +140,31 @@ const assert = require('node:assert/strict');
  }
  assert.equal(providerSaves,4);
  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
+ // Per-provider source selection is explicit and updates after a successful save.
+ const sharedButton = page.locator('[data-cmd="context.provider.mode"][data-id="codex"][data-mode="shared"]');
+ const separateButton = page.locator('[data-cmd="context.provider.mode"][data-id="codex"][data-mode="separate"]');
+ await sharedButton.click();
+ await page.getByRole('alertdialog').waitFor();
+ await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ assert.equal(modeSaves,0);
+ assert.equal(await separateButton.getAttribute('aria-pressed'),'true');
+ await sharedButton.click();
+ await page.getByRole('button',{name:'Use shared',exact:true}).click();
+ await page.waitForFunction(() => document.querySelector('[data-cmd="context.provider.mode"][data-id="codex"][data-mode="shared"]')?.getAttribute('aria-pressed') === 'true');
+ await page.locator('[data-cmd="context.provider.edit"][data-id="codex"]').click();
+ await page.getByRole('heading',{name:'Global AGENTS.md',exact:true}).waitFor();
+ await page.waitForFunction(() => document.querySelector('#cx-input')?.value === '# Shared fixture');
+ await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ await separateButton.click();
+ await page.waitForFunction(() => document.querySelector('#cx-input')?.value === '# Existing codex');
+ assert.equal(await separateButton.getAttribute('aria-pressed'),'true');
+ await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ failMode = true;
+ await sharedButton.click();
+ await page.getByRole('button',{name:'Use shared',exact:true}).click();
+ await page.getByText('Source changed while switching',{exact:true}).waitFor();
+ assert.equal(await separateButton.getAttribute('aria-pressed'),'true');
+ assert.equal(modeSaves,3);
  // Failed reads cannot turn into a save of blank content.
  await page.route('**/context/agents-md?provider=*', route => route.fulfill({status:400,json:{ok:false,error:'Instruction file unavailable'}}));
  await page.locator('[data-cmd="context.provider.edit"][data-id="claude"]').click();

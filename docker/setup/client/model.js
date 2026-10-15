@@ -1503,7 +1503,7 @@ const T3Model = (() => {
     for (const l of linkRows(s.pairings, null, now)) add('Devices', 'Revoke link ' + l.name + '…', 'trash-2', { cmd: 'link.revoke', id: l.id });
 
     add('Context', 'Edit global AGENTS.md…', 'pencil', { cmd: 'context.edit' });
-    for (const row of contextProviderRows(s)) add('Context', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id });
+    for (const row of contextProviderRows(s).filter((row) => row.mode)) add('Context', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id });
     add('Actions', 'Create pairing link', 'link', { cmd: 'pair.start' }, { shortcut: 'P' });
     const agentUpdates = agentRows(s, ui, now).filter((a) => a.updateAvailable).length;
     if (agentUpdates) add('Actions', 'Update all agents', 'circle-arrow-up', { cmd: 'harness.updateAll' }, { meta: { text: plural(agentUpdates, 'update') }, attention: true });
@@ -1665,8 +1665,9 @@ const T3Model = (() => {
     target: 'context-provider',
     name: ({ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[file.provider] || file.provider) + ' instructions',
     description: '', mono: 'AG', hue: '--id-toolchain', version: null, state: 'ok',
-    status: { text: file.error || file.path },
-    badge: file.error ? { tone: 'warn', text: 'Unavailable' } : { text: 'Existing file' },
+    status: { text: file.error || (file.mode === 'shared' ? 'Uses the shared global instructions' : file.mode === 'separate' ? file.path : 'Choose shared or separate instructions') },
+    badge: file.error ? { tone: 'warn', text: 'Unavailable' } : file.mode ? { text: file.mode === 'shared' ? 'Shared' : 'Separate' } : null,
+    mode: file.mode || null, sourceRevision: file.sourceRevision, error: file.error || null,
     action: { cmd: 'context.provider.edit', label: 'Edit', icon: 'pencil' },
     menu: [], attention: false,
   }));

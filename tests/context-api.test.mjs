@@ -54,7 +54,7 @@ test("global instruction API discovers existing files and changes them only on e
   for (const target of [".claude/CLAUDE.md", ".config/opencode/AGENTS.md"]) assert.equal(await fs.readFile(path.join(home, target), "utf8"), "# Shared instructions\n");
   assert.equal(await fs.readFile(path.join(codex, "AGENTS.md"), "utf8"), "# User-owned Codex instructions");
   const status = await (await fetch(base + '/status', { headers: { 'x-t3-setup-key': 'fixture-key' } })).json();
-  assert.deepEqual(status.context.providers.map((file) => file.provider), ['codex']);
+  assert.deepEqual(status.context.providers.filter((file) => file.mode === 'separate').map((file) => file.provider), ['codex']);
   assert.ok(!('content' in status.context.providers[0]));
   // Existing instructions load into their own editor and save to that file.
   const readProvider = (provider) => fetch(base + '/context/agents-md?provider=' + provider, { headers: { 'x-t3-setup-key': 'fixture-key' } });
@@ -85,6 +85,21 @@ test("global instruction API discovers existing files and changes them only on e
   providerRead = await (await readProvider('codex')).json();
   assert.equal((await api({ provider: 'codex', path: source, content: '# Codex only', revision: providerRead.revision })).status, 200);
   assert.equal(await fs.readFile(source, 'utf8'), '# Edited Claude');
+  // Source switching is authenticated, revision-checked and preserves separate files.
+  const context = async () => (await (await fetch(base + '/status', { headers: { 'x-t3-setup-key': 'fixture-key' } })).json()).context;
+  let codexState = (await context()).providers.find((file) => file.provider === 'codex');
+  assert.equal(codexState.mode, 'separate');
+  assert.equal((await api({ provider:'codex', mode:'shared', sourceRevision:codexState.sourceRevision }, { 'sec-fetch-site':'cross-site' })).status,403);
+  assert.equal((await api({ provider:'codex', mode:'shared', sourceRevision:codexState.sourceRevision })).status,200);
+  assert.ok((await fs.lstat(path.join(codex,'AGENTS.md'))).isSymbolicLink());
+  assert.equal(await fs.readFile(path.join(codex,'AGENTS.md.t3-context-backup'),'utf8'),'# Codex only');
+  assert.equal((await api({ provider:'codex', mode:'separate', sourceRevision:codexState.sourceRevision })).status,409);
+  codexState = (await context()).providers.find((file) => file.provider === 'codex');
+  assert.equal(codexState.mode,'shared');
+  assert.equal((await api({ provider:'codex', mode:'separate', sourceRevision:codexState.sourceRevision })).status,200);
+  assert.equal(await fs.readFile(path.join(codex,'AGENTS.md'),'utf8'),'# Codex only');
+  assert.equal((await fs.lstat(path.join(codex,'AGENTS.md'))).isSymbolicLink(),false);
+  assert.equal((await api({ provider:'codex', mode:'unknown', sourceRevision:codexState.sourceRevision })).status,400);
   // Stale shared editors receive the same conflict response as provider editors.
   const firstShared = await (await api()).json();
   const secondShared = await (await api()).json();

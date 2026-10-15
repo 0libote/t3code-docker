@@ -573,7 +573,7 @@ context_editor_works() {
   docker cp scripts/context-ui-audit.js "$NAME:/tmp/context-ui-audit.js" >/dev/null 2>&1 || return 1
   docker exec -e CHROME_PATH=/usr/bin/chromium \
     -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
-    "$NAME" node /tmp/context-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY"
+    "$NAME" node /tmp/context-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
 }
 check "the Context editor retains drafts and handles loading and failed saves" context_editor_works
 

@@ -1218,12 +1218,25 @@
   // -------------------------------------------------------------- context --
   // Metadata is polled; the editor loads instruction text on demand.
   const contextEditor = { loading: false, layer: null, content: '', saving: false, error: null, provider: null, revision: null, path: '', readError: false };
+  const contextSwitching = new Set();
+  const contextProviderRow = (row) => html`
+    <div class="tc-row tc-context-provider" data-key="row-${row.key}">
+      ${tile(row)}
+      <div class="tc-row-main">
+        <div class="tc-row-title"><span class="tc-row-name">${row.name}</span>${badge(row.badge)}</div>
+        ${statusLine(row.status)}
+        <div class="tc-seg" role="group" aria-label="${row.name} source">
+          ${[['shared', 'Shared'], ['separate', 'Separate']].map(([mode, label]) => html`<button type="button" data-cmd="context.provider.mode" data-id="${row.id}" data-mode="${mode}" aria-pressed="${String(row.mode === mode)}"${contextSwitching.has(row.id) || row.error || (mode === 'shared' && !M.contextView(state.status).present) ? raw(' disabled') : ''}>${label}</button>`)}
+        </div>
+      </div>
+      <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="context.provider.edit" data-id="${row.id}"${!row.mode || row.error || contextSwitching.has(row.id) ? raw(' disabled') : ''}>${icon('pencil')}Edit</button></div>
+    </div>`;
 
   const contextPage = (s) => html`
     ${pageNotices('context')}
     ${section('cx-agentsmd', 'Instructions', html`<div class="tc-group">
-      <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map((row) => resourceRow(row))}</div>
-      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>The shared file applies where an agent has no instructions yet. Existing files can be edited individually below it. Start a new agent session after saving.</span></div>
+      <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map(contextProviderRow)}</div>
+      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Choose Shared to use the global file, or Separate for that provider's own instructions. Separate restores its previous file when available, otherwise starts with a copy of the global file. Start a new agent session after saving.</span></div>
     </div>`)}
     ${M.contextView(s).error ? notice('danger', 'circle-alert', 'Could not read instructions', M.contextView(s).error) : ''}`;
 
@@ -1263,7 +1276,7 @@
           <div class="tc-context-filetools"><button class="tc-btn tc-btn--sm" type="button" data-sheet="upload"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>Upload .md</button><button class="tc-btn tc-btn--sm" type="button" data-sheet="download"${contextEditor.loading ? raw(' disabled') : ''}>${icon('download')}Download .md</button><input id="cx-file" data-key="cx-file" type="file" accept=".md,text/markdown" aria-label="Upload instructions Markdown" hidden></div>
           <label class="tc-label" for="cx-input">${contextEditor.loading ? 'Loading instructions…' : 'Markdown'}</label>
           <textarea class="tc-input tc-input--area" id="cx-input" data-key="cx-input"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''} rows="14" spellcheck="false" placeholder="# Instructions&#10;&#10;- Short sentences. Bullets over paragraphs.">${contextEditor.content}</textarea>
-          <span class="tc-hint">Upload replaces this draft. ${provider ? 'Save updates this existing file, including for any other agents using it. Symlinks stay in place.' : 'Save applies it where an agent has no existing instruction file.'} Download includes unsaved edits.</span>
+          <span class="tc-hint">Upload replaces this draft. ${provider ? 'Save updates this existing file, including for any other agents using it. Symlinks stay in place.' : 'Save updates every provider using Shared. Separate files are kept.'} Download includes unsaved edits.</span>
         </div>
         <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn" type="button" data-sheet="copy">${icon('copy')}Copy</button><button class="tc-btn tc-btn--primary" type="button" data-sheet="save"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${contextEditor.saving ? 'Saving…' : 'Save'}</button></div>`,
       focus: '#cx-input',
@@ -3173,7 +3186,34 @@
     'agents.filter': (a) => { state.agentFilter = a.value; render(); },
 
     'context.edit': (a, el) => openContextEditor(el),
-    'context.provider.edit': (a, el) => openContextEditor(el, a.id),
+    'context.provider.edit': (a, el) => {
+      const row = M.contextProviderRows(state.status).find((entry) => entry.id === a.id);
+      if (row?.mode) openContextEditor(el, row.mode === 'shared' ? null : a.id);
+    },
+    'context.provider.mode': async (a, el) => {
+      const row = M.contextProviderRows(state.status).find((entry) => entry.id === a.id);
+      if (!row || row.mode === a.mode || contextSwitching.has(a.id)) return;
+      contextSwitching.add(a.id);
+      render();
+      try {
+        if (a.mode === 'shared' && row.mode === 'separate') {
+          const confirmed = await Kit.confirm({
+            title: 'Use shared instructions for ' + row.name.replace(' instructions', '') + '?',
+            body: 'Your separate file will be backed up and restored if you switch back to Separate. Its current contents will not be merged into the shared file.',
+            confirm: 'Use shared', tone: 'primary',
+          });
+          if (!confirmed) return;
+        }
+        const result = await api('/context/agents-md', { body: { provider: a.id, mode: a.mode, sourceRevision: row.sourceRevision } });
+        if (!result.ok) { Kit.toast('Could not switch instructions', { tone: 'danger', detail: result.error }); return; }
+        Kit.toast(a.mode === 'shared' ? 'Using shared instructions' : 'Using separate instructions');
+        await loadStatus();
+        if (a.mode === 'separate') openContextEditor(el, a.id);
+      } finally {
+        contextSwitching.delete(a.id);
+        render();
+      }
+    },
 
     'port.publish': (a) => publishPort(Number(a.id)),
     'port.stop': (a) => stopPort(Number(a.id)),

@@ -163,22 +163,85 @@ export async function writeProviderAgentsMd(fs, provider, content, revision, opt
   });
 }
 
+/** The native file itself records whether a provider uses shared or separate instructions. */
+export async function providerInstructionState(fs, baseDir, provider, options = {}) {
+  const target = agentsMdTargets(options.env, options.home).find((entry) => entry.provider === provider);
+  if (!target) return { ok: false, code: "invalid", error: "Unknown instruction provider" };
+  let entry;
+  try { entry = await fs.lstat(target.path); }
+  catch (error) {
+    if (error?.code === "ENOENT") return { ok: true, ...target, mode: null, sourceRevision: revisionFor(target.path, "missing"), error: null };
+    return { ok: false, ...target, error: String(error?.message ?? error) };
+  }
+  const read = await readProviderAgentsMd(fs, provider, options);
+  if (!read.ok) return { ...read, mode: null };
+  const sharedPath = await fs.realpath(agentsMdPathFor(baseDir)).catch(() => path.resolve(agentsMdPathFor(baseDir)));
+  const link = entry.isSymbolicLink() ? await fs.readlink(target.path) : "regular";
+  return {
+    ok: true, ...target, mode: read.resolvedPath === sharedPath ? "shared" : "separate",
+    sourceRevision: revisionFor(target.path, link + "\0" + read.revision),
+    resolvedPath: read.resolvedPath, bytes: read.bytes, error: null,
+  };
+}
+
+/** Explicit mode changes preserve the separate file next to its native path. */
+export async function setProviderInstructionMode(fs, baseDir, provider, mode, sourceRevision, options = {}) {
+  if (!["shared", "separate"].includes(mode)) return { ok: false, code: "invalid", error: "Choose shared or separate instructions" };
+  const initial = await providerInstructionState(fs, baseDir, provider, options);
+  if (!initial.ok) return initial;
+  return withInstructionWrite(initial.resolvedPath || initial.path, async () => {
+    const state = await providerInstructionState(fs, baseDir, provider, options);
+    if (!state.ok) return state;
+    if (!sourceRevision || state.sourceRevision !== sourceRevision) return changedInstructions();
+    if (state.mode === mode) return { ok: true, provider, mode };
+    const shared = await readAgentsMd(fs, baseDir);
+    if (shared.error) return { ok: false, error: shared.error };
+    const backup = state.path + ".t3-context-backup";
+    const temporary = state.path + ".tmp." + randomBytes(6).toString("hex");
+    if (mode === "shared") {
+      if (!shared.present) return { ok: false, error: "Save shared global instructions first" };
+      let backedUp = false;
+      try {
+        await fs.mkdir(path.dirname(state.path), { recursive: true });
+        // Stage the new link before moving anything owned by the user.
+        await fs.symlink(path.resolve(shared.path), temporary);
+        if (state.mode === "separate") {
+          try {
+            await fs.lstat(backup);
+            return { ok: false, code: "conflict", error: "A previous instruction backup already exists: " + backup };
+          } catch (error) { if (error?.code !== "ENOENT") throw error; }
+          await fs.rename(state.path, backup);
+          backedUp = true;
+        }
+        try { await fs.rename(temporary, state.path); }
+        catch (error) {
+          if (backedUp) await fs.rename(backup, state.path);
+          throw error;
+        }
+      } finally { await fs.rm(temporary, { force: true }); }
+    } else {
+      let restore = false;
+      try { await fs.lstat(backup); restore = true; }
+      catch (error) { if (error?.code !== "ENOENT") throw error; }
+      if (restore) {
+        // Renaming restores even relative symlinks verbatim at their original location.
+        await fs.rename(backup, state.path);
+      } else {
+        const content = shared.content || "# " + provider + " instructions\n";
+        await writeFileAtomic(fs, state.path, content);
+      }
+    }
+    return { ok: true, provider, mode };
+  });
+}
+
 /** Local metadata only: instruction text is fetched when the editor opens. */
 export async function contextStatus(fs, { baseDir, home = "/home/t3", env = {} } = {}) {
   const read = await readAgentsMd(fs, baseDir);
   const providers = [];
   for (const target of agentsMdTargets(env, home)) {
-    try {
-      await fs.lstat(target.path);
-    } catch (error) {
-      if (error?.code === "ENOENT") continue;
-      providers.push({ ...target, error: String(error?.message ?? error) });
-      continue;
-    }
-    const file = await readProviderAgentsMd(fs, target.provider, { home, env });
-    // Shared links are edited via the single global row, avoiding duplicates.
-    if (file.ok && file.resolvedPath === path.resolve(agentsMdPathFor(baseDir))) continue;
-    providers.push({ ...target, bytes: file.bytes ?? 0, error: file.error ?? null });
+    const state = await providerInstructionState(fs, baseDir, target.provider, { home, env });
+    providers.push({ ...target, mode: state.mode, sourceRevision: state.sourceRevision, bytes: state.bytes ?? 0, error: state.error ?? null });
   }
   return { agentsMd: { present: read.present, bytes: read.bytes, updatedAt: read.updatedAt ?? null, error: read.error }, providers };
 }
