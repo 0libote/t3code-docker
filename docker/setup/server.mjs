@@ -29,6 +29,7 @@ import { createT3Api } from "./t3-api.mjs";
 import { createAntigravity } from "./antigravity.mjs";
 import { createT3Sessions } from "./t3-session.mjs";
 import { createDeviceLabels } from "./device-labels.mjs";
+import * as Context from "./context.mjs";
 import { clientAddress } from "./client-address.mjs";
 import { newKey, readKeyFile, writeKeyFile } from "./setup-key.mjs";
 import { connectState, jsonFrom, parseLinkOutput } from "./connect.mjs";
@@ -494,6 +495,17 @@ const loadStorage = () => {
   return storagePromise;
 };
 
+// --- global instructions --------------------------------------------------
+const CONTEXT_HOME = process.env.HOME || "/home/t3";
+const contextFs = async () => (await import("node:fs/promises"));
+const contextStatusSafe = async () => {
+  try {
+    return await Context.contextStatus(await contextFs(), { baseDir: STATE_DIR });
+  } catch (error) {
+    return { agentsMd: { present: false, bytes: 0, updatedAt: null, error: String(error?.message ?? error).slice(0, 200) } };
+  }
+};
+
 // The browser image's agent browser, as built: the versions are build args the
 // Dockerfile bakes into the environment. Absent on the core image.
 const BROWSER = (() => {
@@ -886,6 +898,10 @@ const status = async () => {
     releaseAgeMs,
     // Every other tool in the global mise config, added here or with `mise use -g`.
     packages: withLatest("package", packageRows),
+    // Global instruction metadata; the editor fetches contents on demand.
+    context: await attempt("context", () => contextStatusSafe(), {
+      agentsMd: { present: false, bytes: 0, updatedAt: null, error: "unavailable" },
+    }),
     // The background install of everything T3_PREINSTALL names, on a first
     // start: what it planned, where it is, and what failed (retried on the
     // next start, or from the row's own Install button).
@@ -2139,7 +2155,8 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/source-control/signin", "/source-control/signout",
   "/providers", "/updates/check",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
-  "/packages/registry", "/packages/versions", "/packages/info"];
+  "/packages/registry", "/packages/versions", "/packages/info",
+  "/context/agents-md"];
 
 const storageHttpStatus = (result) => result.ok ? 200
   : ["busy", "stale-preview"].includes(result.code) ? 409
@@ -2496,6 +2513,28 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    // --- global instructions ----------------------------------------------
+    if (req.method === "GET" && route === "/context/agents-md") {
+      try {
+        const read = await Context.readAgentsMd(await contextFs(), STATE_DIR);
+        return sendJson(res, read.error ? 500 : 200, { ok: !read.error, ...read });
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, error: String(error?.message ?? error).slice(0, 300) });
+      }
+    }
+    if (req.method === "POST" && route === "/context/agents-md") {
+      try {
+        const input = JSON.parse((await readBody(req)) || "{}");
+        const fs = await contextFs();
+        const result = await Context.writeAgentsMd(fs, STATE_DIR, input.content);
+        if (!result.ok) return sendJson(res, 400, { ok: false, code: "invalid", error: result.error });
+        const reconciled = await Context.reconcileAgentsMd(fs, STATE_DIR, { home: CONTEXT_HOME, env: process.env });
+        recordEvent("context.saved", "Saved global AGENTS.md");
+        return sendJson(res, 200, { ok: true, ...result, reconcile: reconciled });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error?.message ?? error).slice(0, 300) });
+      }
+    }
 
     if (req.method === "GET" && route === "/providers") {
       const snap = await providersSnapshot();

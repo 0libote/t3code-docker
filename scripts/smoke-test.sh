@@ -566,6 +566,23 @@ PY
   printf '%s' "$restored" | jq -e '.ok and .label == null and .session.client.label == "Rename test browser" and (.session | has("setupLabel") | not)' >/dev/null
 }
 check "a paired browser can rename its label and restore it without losing access" paired_device_labels
+
+# Context writes and editor behavior, against this disposable smoke container.
+context_editor_works() {
+  [ "$HAS_BROWSER" -eq 1 ] || return 0
+  docker cp scripts/context-ui-audit.js "$NAME:/tmp/context-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium \
+    -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/context-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY"
+}
+check "the Context editor retains drafts and handles loading and failed saves" context_editor_works
+
+context_instructions_work() {
+  docker cp scripts/context-api-audit.mjs "$NAME:/tmp/context-api-audit.mjs" >/dev/null 2>&1 || return 1
+  docker exec "$NAME" node /tmp/context-api-audit.mjs "http://127.0.0.1:3774/" "$SETUP_KEY"
+}
+check "Context authenticates saves and reports provider links" context_instructions_work
+
 hello_says_only_what_it_may() {
   local stranger member
   stranger="$(docker exec "$NAME" curl -fsS --max-time 25 http://127.0.0.1:3774/__setup/hello)" || return 1

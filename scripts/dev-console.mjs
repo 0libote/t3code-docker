@@ -72,6 +72,8 @@ const start = (name, command, args, env) => {
 const T3_ENV = { T3CODE_HOME: join(HOME, "home/.t3"), T3CODE_PORT: String(T3_PORT), T3CODE_HOST: "127.0.0.1",
   // Cleanup controls must only see disposable development data. Inheriting
   // the caller's HOME/MISE_* used to let this scratch console manage real tools.
+  CODEX_HOME: join(HOME, "home/.codex"), CLAUDE_CONFIG_DIR: join(HOME, "home/.claude"),
+  XDG_CONFIG_HOME: join(HOME, "home/.config"),
   HOME: join(HOME, "home"), T3_WORKSPACE: join(HOME, "workspace"),
   MISE_CONFIG_DIR: join(HOME, "home/.config/mise"),
   MISE_DATA_DIR: join(HOME, "home/.local/share/mise"),

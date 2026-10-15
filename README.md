@@ -179,7 +179,7 @@ signed in. A key set with `T3_SETUP_KEY` can only be changed there.
 running, a [public URL](#the-public-url) set, a device paired, and the agents signed in, with a
 button for the next step. When all four are done, the list collapses to a
 single **Ready** line and recent activity is shown instead. On a desktop the
-pages are in a sidebar (Overview, Devices, Agents, Toolchains, Ports,
+pages are in a sidebar (Overview, Devices, Agents, Context, Toolchains, Ports,
 Environment); on a phone they're in a tab bar, and everything fits a 390 px
 screen.
 
@@ -218,6 +218,14 @@ The page is a single self-contained document. It loads no fonts, scripts or
 styles from anywhere else, which helps over a slow tunnel.
 
 `T3_SETUP_ENABLED=0` turns the setup page off.
+
+### Global agent instructions
+
+**Setup → Context** edits one global `AGENTS.md`, with Markdown upload and
+download. Saving links it into Claude Code, Codex and OpenCode's native global
+instruction paths. Existing provider files and user-owned links are left in
+place and reported when saving. Start a new agent session to load changes.
+See [Context management](docs/context-management.md) for paths and verification.
 
 ### Storage management
 
