@@ -34,7 +34,7 @@ test("saving twice updates existing provider links without replacing them", asyn
   assert.equal((await readAgentsMd(fs, f.baseDir)).present, false);
   await writeAgentsMd(fs, f.baseDir, "# First\n");
   assert.equal((await reconcileAgentsMd(fs, f.baseDir, f)).linked.length, 3);
-  await writeAgentsMd(fs, f.baseDir, "# Second\n");
+  await writeAgentsMd(fs, f.baseDir, "# Second\n", (await readAgentsMd(fs, f.baseDir)).revision);
   const again = await reconcileAgentsMd(fs, f.baseDir, f);
   assert.ok(again.linked.every((target) => target.state === "exists"));
   for (const target of agentsMdTargets({}, f.home)) {
@@ -94,7 +94,7 @@ test("a failed atomic rename preserves instructions and cleans up its temporary 
   const f = await fixture(t);
   await writeAgentsMd(fs, f.baseDir, "# Original");
   const broken = { ...fs, rename: async () => { throw new Error("rename failed"); } };
-  await assert.rejects(writeAgentsMd(broken, f.baseDir, "# Replacement"), /rename failed/);
+  await assert.rejects(writeAgentsMd(broken, f.baseDir, "# Replacement", (await readAgentsMd(fs, f.baseDir)).revision), /rename failed/);
   assert.equal((await readAgentsMd(fs, f.baseDir)).content, "# Original");
   assert.deepEqual(await fs.readdir(path.dirname(agentsMdPathFor(f.baseDir))), ["AGENTS.md"]);
 });
@@ -217,4 +217,37 @@ test("provider view rows and palette expose each discovered file without adding 
   assert.equal(row.action.cmd, 'context.provider.edit');
   assert.equal(row.attention, false);
   assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.cmd.cmd === 'context.provider.edit' && i.cmd.id === 'claude'));
+});
+
+test("shared instructions reject stale editors and concurrent initial creation", async (t) => {
+  const f = await fixture(t);
+  const empty = await readAgentsMd(fs, f.baseDir);
+  assert.equal(empty.revision, null);
+  const created = await Promise.all(['# A', '# B'].map((content) => writeAgentsMd(fs, f.baseDir, content, empty.revision)));
+  assert.equal(created.filter((result) => result.ok).length, 1);
+  assert.equal(created.filter((result) => result.code === 'conflict').length, 1);
+  const current = await readAgentsMd(fs, f.baseDir);
+  assert.equal((await writeAgentsMd(fs, f.baseDir, '# Without reading')).code, 'conflict');
+  const updated = await Promise.all(['# C', '# D'].map((content) => writeAgentsMd(fs, f.baseDir, content, current.revision)));
+  assert.equal(updated.filter((result) => result.ok).length, 1);
+  assert.equal(updated.filter((result) => result.code === 'conflict').length, 1);
+  const changed = await readAgentsMd(fs, f.baseDir);
+  await fs.writeFile(agentsMdPathFor(f.baseDir), '# Changed externally');
+  assert.equal((await writeAgentsMd(fs, f.baseDir, '# Stale editor', changed.revision)).code, 'conflict');
+  assert.equal((await readAgentsMd(fs, f.baseDir)).content, '# Changed externally');
+});
+
+test("shared and provider saves to the same managed file use one revision queue", async (t) => {
+  const f = await fixture(t);
+  await writeAgentsMd(fs, f.baseDir, '# Original');
+  await reconcileAgentsMd(fs, f.baseDir, f);
+  const shared = await readAgentsMd(fs, f.baseDir);
+  const provider = await readProviderAgentsMd(fs, 'codex', f);
+  assert.equal(shared.revision, provider.revision);
+  const saves = await Promise.all([
+    writeAgentsMd(fs, f.baseDir, '# Shared editor', shared.revision),
+    writeProviderAgentsMd(fs, 'codex', '# Provider editor', provider.revision, f),
+  ]);
+  assert.equal(saves.filter((result) => result.ok).length, 1);
+  assert.equal(saves.filter((result) => result.code === 'conflict').length, 1);
 });

@@ -50,7 +50,7 @@ const assert = require('node:assert/strict');
  await page.route('**/context/agents-md', async route => {
    const first = instructionReads++ === 0;
    await new Promise(resolve => setTimeout(resolve, first ? 1000 : 100));
-   await route.fulfill({json:{ok:true,content:first ? '# Old response' : '# Current instructions'}});
+   await route.fulfill({json:{ok:true,content:first ? '# Old response' : '# Current instructions', revision:'shared-revision'}});
  });
  await page.locator('[data-cmd="context.edit"]').click();
  assert.equal(await page.locator('[data-sheet="save"]').isDisabled(),true);
@@ -67,13 +67,15 @@ const assert = require('node:assert/strict');
  await page.getByText('File too large (64 KB max).', {exact:true}).waitFor();
  assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
  await page.route('**/context/agents-md', async route => {
-   if (route.request().method() === 'GET') { await route.fulfill({json:{ok:true,content:'# Current instructions'}}); return; }
+   if (route.request().method() === 'GET') { await route.fulfill({json:{ok:true,content:'# Current instructions',revision:'shared-revision'}}); return; }
+   assert.equal(route.request().postDataJSON().revision,'shared-revision');
+   assert.equal(route.request().postDataJSON().content,'# Unsaved draft');
    await new Promise(resolve => setTimeout(resolve, 400));
-   await route.fulfill({status:400,json:{ok:false,error:'Save failed in fixture'}});
+   await route.fulfill({status:409,json:{ok:false,error:'Shared instructions changed since opening'}});
  });
  await page.getByRole('button',{name:'Save',exact:true}).click();
  assert.equal(await page.locator('#cx-input').isDisabled(),true);
- await page.getByText('Save failed in fixture',{exact:true}).waitFor();
+ await page.getByText('Shared instructions changed since opening',{exact:true}).waitFor();
  assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  // All existing provider files are discoverable, editable and saved explicitly.

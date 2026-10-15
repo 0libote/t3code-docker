@@ -54,29 +54,50 @@ async function writeFileAtomic(fs, file, text, mode = 0o600) {
   }
 }
 
+const revisionFor = (file, content) => content === null ? null
+  : createHash("sha256").update(path.resolve(file)).update("\0").update(content).digest("hex");
+const changedInstructions = () => ({ ok: false, code: "conflict", error: "Instructions changed since you opened them. Download your draft, then reopen the editor to load the current file." });
+
+// Shared and provider editors can point at the same file. Keep their revision
+// checks and atomic writes in one queue per resolved target.
+const instructionWrites = new Map();
+async function withInstructionWrite(file, work) {
+  const key = path.resolve(file);
+  const previous = instructionWrites.get(key) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(work);
+  instructionWrites.set(key, current);
+  try { return await current; }
+  finally { if (instructionWrites.get(key) === current) instructionWrites.delete(key); }
+}
+
 export async function readAgentsMd(fs, baseDir) {
   const file = agentsMdPathFor(baseDir);
   const { text, error } = await readFileSafe(fs, file);
-  if (error) return { present: false, path: file, content: null, bytes: 0, error };
-  if (text === null) return { present: false, path: file, content: null, bytes: 0, error: null };
+  if (error) return { present: false, path: file, content: null, revision: null, bytes: 0, error };
+  if (text === null) return { present: false, path: file, content: null, revision: null, bytes: 0, error: null };
   let updatedAt = null;
   try {
     updatedAt = (await fs.stat(file)).mtimeMs ?? null;
   } catch { /* ignore */ }
-  return { present: true, path: file, content: text, bytes: Buffer.byteLength(text, "utf8"), updatedAt, error: null };
+  return { present: true, path: file, content: text, revision: revisionFor(file, text), bytes: Buffer.byteLength(text, "utf8"), updatedAt, error: null };
 }
 
-export async function writeAgentsMd(fs, baseDir, content) {
+export async function writeAgentsMd(fs, baseDir, content, revision = null) {
   const v = validateAgentsMd(content);
   if (!v.ok) return { ok: false, error: v.error };
   const file = agentsMdPathFor(baseDir);
-  try {
-    if ((await fs.lstat(file)).isSymbolicLink()) return { ok: false, error: "Global AGENTS.md is a symlink; edit its target directly." };
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  await writeFileAtomic(fs, file, String(content));
-  return { ok: true, path: file, bytes: v.bytes };
+  return withInstructionWrite(file, async () => {
+    const read = await readAgentsMd(fs, baseDir);
+    if (read.error) return { ok: false, error: read.error };
+    if (read.revision !== revision) return changedInstructions();
+    try {
+      if ((await fs.lstat(file)).isSymbolicLink()) return { ok: false, error: "Global AGENTS.md is a symlink; edit its target directly." };
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    await writeFileAtomic(fs, file, String(content));
+    return { ok: true, path: file, bytes: v.bytes, revision: revisionFor(file, String(content)) };
+  });
 }
 
 /** Link missing targets without replacing existing files or user symlinks. */
@@ -118,36 +139,28 @@ export async function readProviderAgentsMd(fs, provider, { home = "/home/t3", en
     const stat = await fs.stat(resolvedPath);
     if (!stat.isFile()) return { ok: false, code: "invalid", error: "Instructions must be a regular file" };
     const content = await fs.readFile(resolvedPath, "utf8");
-    const revision = createHash("sha256").update(resolvedPath).update("\0").update(content).digest("hex");
+    const revision = revisionFor(resolvedPath, content);
     return { ok: true, ...target, resolvedPath, content, revision, bytes: Buffer.byteLength(content), mode: stat.mode & 0o777 };
   } catch (error) {
     return { ok: false, ...target, code: error?.code === "ENOENT" ? "missing" : "unavailable", error: error?.code === "ENOENT" ? "The instruction file or its linked target no longer exists" : String(error?.message ?? error) };
   }
 }
 
-// Serialize saves to the same target so two editors cannot both overwrite the
-// revision they opened. Provider links can point at the same external file.
-const providerWrites = new Map();
 export async function writeProviderAgentsMd(fs, provider, content, revision, options = {}) {
   const validation = validateAgentsMd(content);
   if (!validation.ok) return validation;
   const initial = await readProviderAgentsMd(fs, provider, options);
   if (!initial.ok) return initial;
-  const key = initial.resolvedPath;
-  const previous = providerWrites.get(key) ?? Promise.resolve();
-  const current = previous.catch(() => {}).then(async () => {
+  return withInstructionWrite(initial.resolvedPath, async () => {
     const read = await readProviderAgentsMd(fs, provider, options);
     if (!read.ok) return read;
     if (!revision || read.revision !== revision) {
-      return { ok: false, code: "conflict", error: "Instructions changed since you opened them. Download your draft, then reopen the editor to load the current file." };
+      return changedInstructions();
     }
     // Rename the resolved file, leaving the provider's symlink chain intact.
     await writeFileAtomic(fs, read.resolvedPath, String(content), read.mode);
     return { ok: true, provider, path: read.path, bytes: validation.bytes };
   });
-  providerWrites.set(key, current);
-  try { return await current; }
-  finally { if (providerWrites.get(key) === current) providerWrites.delete(key); }
 }
 
 /** Local metadata only: instruction text is fetched when the editor opens. */

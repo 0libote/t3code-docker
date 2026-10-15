@@ -1613,11 +1613,13 @@ const cookieFrom = (req) =>
       .filter((pair) => pair.length === 2),
   )[COOKIE];
 
-const readBody = async (req) => {
+const readBody = async (req, maxBytes = 64 * 1024) => {
   const chunks = [];
+  let bytes = 0;
   for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > maxBytes) throw new Error("body too large");
     chunks.push(chunk);
-    if (chunks.reduce((n, c) => n + c.length, 0) > 64 * 1024) throw new Error("body too large");
   }
   return Buffer.concat(chunks).toString("utf8");
 };
@@ -2529,15 +2531,17 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && route === "/context/agents-md") {
       try {
-        const input = JSON.parse((await readBody(req)) || "{}");
+        // A 64 KiB Markdown file can expand sixfold as JSON (e.g. \u0001).
+        // Allow encoding overhead here; decoded instruction size is validated below.
+        const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
         const fs = await contextFs();
         if (input.provider !== undefined) {
           const result = await Context.writeProviderAgentsMd(fs, input.provider, input.content, input.revision, { home: CONTEXT_HOME, env: process.env });
           if (result.ok) recordEvent("context.saved", `Saved ${input.provider} global instructions`);
           return sendJson(res, result.ok ? 200 : result.code === "conflict" ? 409 : 400, result);
         }
-        const result = await Context.writeAgentsMd(fs, STATE_DIR, input.content);
-        if (!result.ok) return sendJson(res, 400, { ok: false, code: "invalid", error: result.error });
+        const result = await Context.writeAgentsMd(fs, STATE_DIR, input.content, input.revision);
+        if (!result.ok) return sendJson(res, result.code === "conflict" ? 409 : 400, { ...result, code: result.code || "invalid" });
         const reconciled = await Context.reconcileAgentsMd(fs, STATE_DIR, { home: CONTEXT_HOME, env: process.env });
         recordEvent("context.saved", "Saved global AGENTS.md");
         return sendJson(res, 200, { ok: true, ...result, reconcile: reconciled });

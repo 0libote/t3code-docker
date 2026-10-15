@@ -22,8 +22,8 @@ saving the shared file.
 
 Provider edits follow symlinks to the real file and preserve the link chain and
 file permissions. Any other agent using that same file sees the edit too.
-Changed contents or a retargeted link cause a conflict instead of overwriting
-work made since the editor opened. The draft stays available to download;
+Both shared and provider editors reject changed contents instead of overwriting
+work made since the editor opened; provider editors also detect a retargeted link. The draft stays available to download;
 close and reopen the editor to load the current version before saving again.
 Missing targets, dangling links, directories and read failures cannot be saved
 over. Provider IDs select fixed native paths, so callers cannot supply an
@@ -47,7 +47,9 @@ translation are deferred to separate proposals.
 
 `node --test tests/*.test.mjs` checks file writes, existing-file discovery and
 editing, symlink and permission preservation, conflicting saves, view-model
-behavior, and the authenticated HTTP boundary. The Context API and
+behavior, and the authenticated HTTP boundary. The 64 KiB Markdown limit is
+checked after JSON decoding, with a separate bounded allowance for encoding
+overhead. Files containing escaped characters can use the full content limit. The Context API and
 UI audits run against a disposable console, never a user's agent home:
 
 ```sh

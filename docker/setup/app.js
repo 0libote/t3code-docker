@@ -1307,8 +1307,8 @@
         contextEditor.saving = true;
         contextEditor.error = null;
         contextEditor.layer.render();
-        const body = { content: contextEditor.content };
-        if (provider) Object.assign(body, { provider, revision: contextEditor.revision });
+        const body = { content: contextEditor.content, revision: contextEditor.revision };
+        if (provider) body.provider = provider;
         const save = await api('/context/agents-md', { body });
         if (contextEditor.layer !== layer) return;
         contextEditor.saving = false;

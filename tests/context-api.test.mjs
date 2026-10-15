@@ -85,7 +85,34 @@ test("global instruction API discovers existing files and changes them only on e
   providerRead = await (await readProvider('codex')).json();
   assert.equal((await api({ provider: 'codex', path: source, content: '# Codex only', revision: providerRead.revision })).status, 200);
   assert.equal(await fs.readFile(source, 'utf8'), '# Edited Claude');
-  for (const content of ["", "x".repeat(65537)]) assert.equal((await api({ content })).status, 400);
-  assert.equal((await (await api()).json()).content, "# Shared instructions\n");
+  // Stale shared editors receive the same conflict response as provider editors.
+  const firstShared = await (await api()).json();
+  const secondShared = await (await api()).json();
+  assert.equal((await api({ content: '# New shared content', revision: firstShared.revision })).status, 200);
+  assert.equal((await api({ content: '# Stale shared content', revision: secondShared.revision })).status, 409);
+  assert.equal((await (await api()).json()).content, '# New shared content');
 
+  // JSON escaping and metadata must not reduce the 64 KiB Markdown allowance.
+  const boundaryFiles = [
+    'x'.repeat(65536),
+    '# Line breaks\n' + '\n'.repeat(65522),
+    '# Escaped bytes\n' + '\u0001'.repeat(65520),
+    'é'.repeat(32768),
+  ];
+  for (const content of boundaryFiles) {
+    assert.equal(Buffer.byteLength(content), 65536);
+    const read = await (await api()).json();
+    const saved = await api({ content, revision: read.revision });
+    assert.equal(saved.status, 200, JSON.stringify(await saved.json()));
+    assert.equal((await (await api()).json()).content, content);
+    const codexRead = await (await readProvider('codex')).json();
+    assert.equal((await api({ provider: 'codex', content, revision: codexRead.revision })).status, 200);
+    assert.equal(await fs.readFile(path.join(codex, 'AGENTS.md'), 'utf8'), content);
+  }
+  const final = await (await api()).json();
+  for (const content of ['', 'x'.repeat(65537), 'é'.repeat(32769)]) {
+    assert.equal((await api({ content, revision: final.revision })).status, 400);
+  }
+  assert.equal((await api({ content: '# Small', revision: final.revision, padding: 'x'.repeat(400000) })).status, 400);
+  assert.equal((await (await api()).json()).content, final.content);
 });
