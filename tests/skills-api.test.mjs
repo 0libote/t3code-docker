@@ -38,6 +38,7 @@ test("skill endpoints require authentication and only read discovered installati
   }
   assert.ok(ready, logs);
   const get = (route) => fetch(base + route, { headers: { "x-t3-setup-key": "skills-fixture-key" } });
+  const post = (route, body, headers = {}) => fetch(base + route, { method: "POST", headers: { "x-t3-setup-key": "skills-fixture-key", "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   assert.equal((await fetch(base + "/context/skills?provider=claude")).status, 401);
   assert.equal((await fetch(base + "/context/skills/read?provider=claude&id=" + "a".repeat(32))).status, 401);
   assert.equal((await get("/context/skills?provider=__proto__")).status, 400);
@@ -58,6 +59,26 @@ test("skill endpoints require authentication and only read discovered installati
   assert.equal((await get(readPath)).status, 409);
   assert.equal(await fs.readFile(other, "utf8"), "Not a skill");
   await fs.unlink(file); assert.equal((await get(readPath)).status, 404);
+  const draft = "---\nname: local-new\ndescription: A local skill\n---\nUse the project conventions.\n";
+  assert.equal((await fetch(base + "/context/skills/create", { method: "POST" })).status, 401);
+  assert.equal((await post("/context/skills/create", { provider: "claude", slug: "local-new", content: draft }, { "sec-fetch-site": "cross-site" })).status, 403);
+  assert.equal((await post("/context/skills/create", { provider: "claude", slug: "../escape", content: draft })).status, 400);
+  assert.equal((await post("/context/skills/create", { provider: "claude", slug: "local-new", content: draft })).status, 200);
+  assert.equal((await post("/context/skills/create", { provider: "claude", slug: "local-new", content: draft })).status, 409);
+  const added = (await (await get("/context/skills?provider=claude")).json()).skills.find((skill) => skill.name === "local-new");
+  const detailPath = "/context/skills/read?provider=claude&id=" + added.id;
+  let detail = await (await get(detailPath)).json();
+  assert.equal(detail.canEdit, true); assert.ok(detail.revision); assert.ok(detail.removalRevision);
+  const prefix = "---\nname: local-new\ndescription: A local skill\n---\n";
+  const boundary = prefix + "\u0001".repeat(65536 - Buffer.byteLength(prefix));
+  assert.equal((await post("/context/skills/save", { provider: "claude", id: added.id, revision: detail.revision, content: boundary })).status, 200);
+  assert.equal((await (await get(detailPath)).json()).content, boundary);
+  assert.equal((await post("/context/skills/save", { provider: "claude", id: added.id, revision: detail.revision, content: draft })).status, 409);
+  detail = await (await get(detailPath)).json();
+  assert.equal((await post("/context/skills/remove", { provider: "claude", id: added.id, revision: detail.revision })).status, 409);
+  assert.equal((await post("/context/skills/remove", { provider: "claude", id: added.id, revision: detail.revision, removalRevision: detail.removalRevision })).status, 200);
+  assert.equal((await get(detailPath)).status, 404);
+  assert.equal((await post("/context/skills/create", null)).status, 400);
   const html = await (await fetch(base)).text();
   assert.ok(!html.includes(markdown), "skill contents are never inlined into the page");
 });

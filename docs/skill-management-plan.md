@@ -2,9 +2,10 @@
 
 Research and proposal, 2026-10-16. Repository inspected at `6129b0f`.
 This document records the researched implementation plan. The first inventory
-slice is now implemented on `feat/context-skills-inventory`: read-only known-root
-discovery for all six providers, native Codex inventory/state, and Context's
-Markdown viewer. Editing, removal and activation controls remain planned.
+and local-file slices are implemented on `feat/context-skills-inventory`:
+known-root discovery for all six providers, native Codex inventory/state,
+Markdown viewing and add/edit/remove in Claude/Codex/OpenCode's own user skill
+folders. Shared storage and native activation controls remain planned.
 
 ## Recommendation
 

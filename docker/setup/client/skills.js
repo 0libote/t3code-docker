@@ -1,4 +1,4 @@
-// On-demand, read-only skill inventory. Status polling never starts a scan.
+// On-demand inventory and explicit local file management. Polling never scans skills.
 const T3SkillsUI = (() => {
   'use strict';
   const { html, raw, icon } = Kit;
@@ -7,7 +7,7 @@ const T3SkillsUI = (() => {
     : skill.native && skill.state === 'enabled' ? { text: 'Enabled', tone: 'ok' }
       : skill.native && skill.state === 'disabled' ? { text: 'Disabled', tone: '' }
         : { text: 'Unverified', tone: '' };
-  const create = ({ api, getStatus, render }) => {
+  const create = ({ api, getStatus, render, readMarkdown, downloadMarkdown }) => {
     let provider = null, inventory = null, loading = false, error = null, generation = 0, viewer = null;
     const chooseDefault = () => {
       const installed = (getStatus()?.harnesses || []).filter((row) => row.installed).map((row) => row.id);
@@ -26,7 +26,7 @@ const T3SkillsUI = (() => {
       render();
     };
     const content = () => html`<div class="tc-group tc-skills">
-      <div class="tc-skill-toolbar"><label class="tc-label" for="skill-provider">Provider</label><select class="tc-input" id="skill-provider">${providers.map(([id, name]) => html`<option value="${id}"${(provider || chooseDefault()) === id ? raw(' selected') : ''}>${name}</option>`)}</select><span class="tc-hint">Global skills · read-only preview</span></div>
+      <div class="tc-skill-toolbar"><label class="tc-label" for="skill-provider">Provider</label><select class="tc-input" id="skill-provider">${providers.map(([id, name]) => html`<option value="${id}"${(provider || chooseDefault()) === id ? raw(' selected') : ''}>${name}</option>`)}</select><span class="tc-hint">Global skills</span></div>
       <div aria-live="polite" aria-busy="${String(loading)}">
         ${loading ? html`<p class="tc-skill-message tc-muted"><span class="tc-spinner" aria-hidden="true"></span>Reading skills…</p>` : ''}
         ${error ? html`<p class="tc-skill-message tc-danger" role="alert">Could not read skills: ${error}</p>` : ''}
@@ -39,7 +39,7 @@ const T3SkillsUI = (() => {
             return html`<div class="tc-row tc-skill-row" data-key="skill-${skill.id}"><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">${skill.name}</span><span class="tc-badge${status.tone ? ' tc-badge--' + status.tone : ''}">${status.text}</span></div>
               ${skill.description ? html`<p class="tc-small tc-muted tc-skill-description">${skill.description}</p>` : ''}
               <span class="tc-hint">${skill.source}${skill.metadataError ? ' · Metadata needs attention' : ''}</span></div>
-              <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.view" data-id="${skill.id}" aria-label="View ${skill.name}">${icon('book-open')}View</button></div></div>`;
+              <div class="tc-row-actions">${skill.canEdit ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.edit" data-id="${skill.id}" aria-label="Edit ${skill.name}">${icon('pencil')}Edit</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.view" data-id="${skill.id}" aria-label="View ${skill.name}">${icon('book-open')}View</button></div></div>`;
           })}</div>
           ${!inventory.skills?.length ? html`<p class="tc-skill-message tc-muted">${inventory.warnings?.length ? 'No skill entries could be shown. Review the scan messages above.' : 'No skills found in the checked global locations.'}</p>` : ''}
           ${inventory.roots?.length ? html`<details class="tc-skill-locations" data-key="skill-locations"><summary>Checked global folders</summary>${inventory.roots.map((root) => html`<code>${root.path}</code>`)}</details>` : ''}
@@ -47,42 +47,87 @@ const T3SkillsUI = (() => {
       </div>
       <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Refresh after changing skills outside the console. Project and session settings can change what an agent can use. Custom provider environments may use different locations.</span></div>
     </div>`;
-    const actions = () => html`<button class="tc-btn tc-btn--sm tc-btn--ghost" type="button" data-cmd="skills.refresh"${loading ? raw(' disabled') : ''}>${icon('refresh-cw')}Refresh skills</button>`;
-    const view = async (id) => {
-      const row = inventory?.skills?.find((skill) => skill.id === id);
-      if (!row) return;
+    const actions = () => html`${inventory?.canCreate ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.add">${icon('plus')}Add skill</button>` : ''}<button class="tc-btn tc-btn--sm tc-btn--ghost" type="button" data-cmd="skills.refresh"${loading ? raw(' disabled') : ''}>${icon('refresh-cw')}Refresh skills</button>`;
+    const open = async (id, editing = false, creating = false) => {
+      const row = creating ? { name: 'Add skill', source: 'Provider', canEdit: true } : inventory?.skills?.find((skill) => skill.id === id);
+      if (!row || (editing && !creating && !row.canEdit)) return;
+      if (viewer?.saving) return;
       viewer?.layer.close('replace');
-      const current = { provider, row, loading: true, data: null, error: null, layer: null };
+      const template = (slug) => '---\nname: ' + JSON.stringify(slug || 'my-skill') + '\ndescription: Describe when to use this skill.\n---\n\nWrite the skill instructions here.\n';
+      const current = { provider, row, loading: !creating, data: null, error: null, layer: null, editing, creating, saving: false, slug: '', draft: creating ? template('') : '', generated: true };
+      const fileName = () => (creating ? current.slug : row.name).replace(/[^a-z0-9-]/gi, '-').slice(0, 64) || 'skill';
+      const download = () => downloadMarkdown(fileName() + '.md', current.draft);
+      const disabled = (condition) => condition ? raw(' disabled') : '';
       viewer = current;
       current.layer = Kit.open({ kind: 'center', panel: { class: 'tc-sheet tc-context-sheet tc-skill-sheet ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'skill-view-title' }, focus: '[data-skill-close]',
+        backdrop: 'ignore', onEscape: () => { if (!current.saving) current.layer.close('escape'); },
         onClose: () => { if (viewer === current) viewer = null; },
-        render: () => html`<div class="tc-sheet-head"><div class="tc-sheet-head-text"><h3 class="tc-sheet-title" id="skill-view-title">${row.name}</h3><span class="tc-small tc-muted">${providers.find(([key]) => key === current.provider)?.[1]} · ${row.source}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-skill-close aria-label="Close">${icon('x')}</button></div>
+        render: () => html`<div class="tc-sheet-head"><div class="tc-sheet-head-text"><h3 class="tc-sheet-title" id="skill-view-title">${row.name}</h3><span class="tc-small tc-muted">${providers.find(([key]) => key === current.provider)?.[1]} · ${row.source}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-skill-close aria-label="Close"${disabled(current.saving)}>${icon('x')}</button></div>
           <div class="tc-sheet-body">
-            <div class="tc-skill-meta"><span class="tc-hint">Location</span><code>${current.data?.path || row.path}</code>${(current.data?.resolvedPath || row.resolvedPath) && (current.data?.resolvedPath || row.resolvedPath) !== row.path ? html`<span class="tc-hint">Linked target</span><code>${current.data?.resolvedPath || row.resolvedPath}</code>` : ''}</div>
-            <p class="tc-hint">${stateOf(row).text}${row.invocation === 'manual' ? ' · Manual invocation requested by the skill' : row.invocation === 'model-only' ? ' · User invocation disabled in frontmatter' : ''}. ${row.native ? 'Listed by Codex in the managed setup environment.' : 'File found on disk; provider availability is unverified.'}</p>
+            ${creating ? html`<label class="tc-label" for="skill-slug">Folder name</label><input class="tc-input" id="skill-slug" data-key="skill-slug" value="${current.slug}" placeholder="my-skill" maxlength="64" autocapitalize="none" spellcheck="false"${disabled(current.saving)}><p class="tc-hint">Use lowercase letters, numbers and hyphens. The frontmatter name must match.</p>` : html`<div class="tc-skill-meta"><span class="tc-hint">Location</span><code>${current.data?.path || row.path}</code>${(current.data?.resolvedPath || row.resolvedPath) && (current.data?.resolvedPath || row.resolvedPath) !== row.path ? html`<span class="tc-hint">Linked target</span><code>${current.data?.resolvedPath || row.resolvedPath}</code>` : ''}</div>
+            <p class="tc-hint">${stateOf(row).text}${row.invocation === 'manual' ? ' · Manual invocation requested by the skill' : row.invocation === 'model-only' ? ' · User invocation disabled in frontmatter' : ''}. ${row.native ? 'Listed by Codex in the managed setup environment.' : 'File found on disk; provider availability is unverified.'}</p>`}
             ${row.metadataError ? html`<p class="tc-hint tc-warning">${row.metadataError}</p>` : ''}
-            ${current.loading ? html`<p class="tc-muted" role="status">Reading Markdown…</p>` : current.error ? html`<p class="tc-danger" role="alert">${current.error}</p>` : html`<label class="tc-label" for="skill-content">Markdown · ${current.data.bytes} bytes</label><textarea id="skill-content" class="tc-input tc-input--area" readonly spellcheck="false" rows="14">${current.data.content}</textarea>`}
-          </div><div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-skill-close>Close</button><button class="tc-btn" type="button" data-skill-copy${current.data ? '' : raw(' disabled')}>${icon('copy')}Copy Markdown</button><button class="tc-btn" type="button" data-skill-download${current.data ? '' : raw(' disabled')}>${icon('download')}Download .md</button></div>`,
+            ${current.error ? html`<p class="tc-danger" role="alert">${current.error}</p>` : ''}
+            ${current.loading ? html`<p class="tc-muted" role="status">Reading Markdown…</p>` : current.data || creating ? html`
+              ${current.editing ? html`<div class="tc-context-filetools"><button class="tc-btn tc-btn--sm" type="button" data-skill-upload${disabled(current.saving)}>Upload .md</button><input id="skill-file" type="file" accept=".md,text/markdown" hidden></div>` : ''}
+              <label class="tc-label" for="skill-content">Markdown${current.data && !current.editing ? ' · ' + current.data.bytes + ' bytes' : ''}</label><textarea id="skill-content" data-key="skill-content" class="tc-input tc-input--area"${current.editing ? '' : raw(' readonly')}${disabled(current.saving)} spellcheck="false" rows="14">${current.draft}</textarea>
+              ${current.editing ? html`<p class="tc-hint">Save updates this Markdown file for any providers using it. Supporting files and symlinks stay in place. Download includes unsaved edits.</p>` : (current.data?.readOnlyReason || current.data?.removalError) ? html`<p class="tc-hint">${current.data.readOnlyReason || current.data.removalError}</p>` : ''}
+            ` : ''}
+          </div><div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-skill-close${disabled(current.saving)}>Close</button><button class="tc-btn" type="button" data-skill-copy${disabled(!current.data && !creating)}>${icon('copy')}Copy Markdown</button><button class="tc-btn" type="button" data-skill-download${disabled(!current.data && !creating)}>${icon('download')}Download .md</button>
+          ${current.editing ? html`<button class="tc-btn tc-btn--primary" type="button" data-skill-save${disabled(current.loading || current.saving || (!creating && !current.data) || (creating && !current.slug))}>${current.saving ? 'Saving…' : creating ? 'Add skill' : 'Save'}</button>` : html`${current.data?.canRemove ? html`<button class="tc-btn tc-btn--danger" type="button" data-skill-remove${disabled(current.saving)}>Remove…</button>` : ''}${current.data?.canEdit ? html`<button class="tc-btn tc-btn--primary" type="button" data-skill-edit>Edit Markdown</button>` : ''}`}</div>`,
       });
-      current.layer.panel.addEventListener('click', (event) => {
+      current.layer.panel.addEventListener('input', (event) => {
+        if (event.target.id === 'skill-content') { current.draft = event.target.value; current.generated = false; }
+        if (event.target.id === 'skill-slug') {
+          current.slug = event.target.value;
+          if (current.generated) { current.draft = template(current.slug); current.layer.panel.querySelector('#skill-content').value = current.draft; }
+          current.layer.panel.querySelector('[data-skill-save]').disabled = !current.slug;
+        }
+      });
+      current.layer.panel.addEventListener('change', async (event) => {
+        if (event.target.id !== 'skill-file' || !event.target.files?.[0]) return;
+        const file = event.target.files[0]; event.target.value = ''; current.loading = true; current.error = null; current.layer.render();
+        try { const text = await readMarkdown(file); if (viewer !== current) return; current.draft = text; current.generated = false; }
+        catch (error) { if (viewer !== current) return; current.error = error.message; }
+        current.loading = false; current.layer.render();
+      });
+      current.layer.panel.addEventListener('click', async (event) => {
         const button = event.target.closest('button');
         if (!button || button.disabled) return;
         if (button.hasAttribute('data-skill-close')) current.layer.close('close');
-        else if (button.hasAttribute('data-skill-copy') && current.data) Kit.copy(current.data.content, button, 'Skill Markdown copied');
-        else if (button.hasAttribute('data-skill-download') && current.data) {
-          const url = URL.createObjectURL(new Blob([current.data.content], { type: 'text/markdown;charset=utf-8' }));
-          const link = document.createElement('a'); link.href = url; link.download = (row.name.replace(/[^a-z0-9-]/gi, '-').slice(0, 64) || 'skill') + '.md';
-          link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
+        else if (button.hasAttribute('data-skill-copy')) Kit.copy(current.draft, button, 'Skill Markdown copied');
+        else if (button.hasAttribute('data-skill-download')) download();
+        else if (button.hasAttribute('data-skill-upload')) current.layer.panel.querySelector('#skill-file').click();
+        else if (button.hasAttribute('data-skill-edit')) { current.editing = true; current.layer.render(); current.layer.panel.querySelector('#skill-content').focus(); }
+        else if (button.hasAttribute('data-skill-save') || button.hasAttribute('data-skill-remove')) {
+          const removing = button.hasAttribute('data-skill-remove');
+          if (current.saving || current.loading) return;
+          if (removing) {
+            const yes = await Kit.confirm({ title: 'Remove ' + row.name + '?', body: current.data.removalKind === 'directory' ? 'Removes this local skill folder and its supporting files. Other providers using this folder will lose it too.' : current.data.removalLinkedTarget ? 'Removes this installation entry. Linked target files are kept.' : 'Removes this skill Markdown file. Other files in the folder stay in place.', consequences: [{ icon: 'trash-2', text: current.data.removalPath }], confirm: 'Remove skill', tone: 'danger' });
+            if (!yes || viewer !== current || current.saving) return;
+          }
+          current.saving = true; current.error = null; current.layer.render();
+          const response = await api('/context/skills/' + (removing ? 'remove' : creating ? 'create' : 'save'), { body: { provider: current.provider, id, slug: current.slug, content: current.draft, revision: current.data?.revision, removalRevision: current.data?.removalRevision } });
+          current.saving = false;
+          if (!response.ok) {
+            if (viewer === current) { current.error = response.error; current.layer.render(); }
+            else Kit.toast('Skill change failed', { tone: 'danger', detail: response.error, action: { label: 'Download draft', run: download } });
+            return;
+          }
+          if (viewer === current) current.layer.close('saved');
+          Kit.toast(removing ? 'Removed local skill installation' : 'Saved skill');
+          await load(true);
         }
       });
+      if (creating) return;
       const response = await api('/context/skills/read?provider=' + encodeURIComponent(current.provider) + '&id=' + encodeURIComponent(id));
       if (viewer !== current) return;
       current.loading = false;
-      if (response.ok) current.data = response.data;
+      if (response.ok) { current.data = response.data; current.draft = response.data.content; current.editing = editing && Boolean(response.data.canEdit); }
       else current.error = response.error;
       current.layer.render();
     };
-    return { content, actions, view,
+    return { content, actions, view: (id, editing = false) => open(id, editing), add: () => { if (inventory?.canCreate) return open(null, true, true); },
       activate: () => { if (!inventory && !loading && !error) load(); },
       refresh: () => load(true),
       select: (id) => {

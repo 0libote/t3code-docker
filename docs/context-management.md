@@ -66,8 +66,8 @@ translation are deferred to separate proposals.
 
 ## Global skill inventory
 
-The **Skills** section is a read-only first step toward
-[skill management](skill-management-plan.md). Select Claude Code, Codex,
+The **Skills** section provides inventory and local file management from the
+[skill management plan](skill-management-plan.md). Select Claude Code, Codex,
 OpenCode, Cursor, Grok Build or Muse Code to inspect known global skill folders.
 Nested `SKILL.md` files, compatibility directories, shared files and broken
 links remain distinct installations. OpenCode's flat global Markdown files
@@ -101,11 +101,43 @@ rescans after external changes. Concurrent requests share a lookup and results
 are cached for 15 seconds; regular `/status` polling does not scan skills.
 Bodies load separately through authenticated, discovered-installation IDs.
 Details refuse a link retargeted after discovery. No skill files, provider
-settings or persistence mappings are changed by this first implementation;
-native Codex startup may maintain its own system-skill cache as usual.
+settings or persistence mappings change during inventory reads. Native Codex
+startup may maintain its own system-skill cache as usual.
 
-Add/edit/remove and native activation controls are the next implementation
-slices. Shared-root persistence must be addressed before those writes ship.
+### Add, edit and remove local skills
+
+Claude Code, Codex and OpenCode's own user skill folders support **Add skill**,
+**Edit** and **Remove**. Add accepts a portable folder name and raw Markdown,
+including upload/paste. The frontmatter name must match the new folder name.
+Existing installation names are never overwritten; new files use mode `0600`.
+These native directories already participate in the image's agent-home
+persistence when `T3_PERSIST_AGENT_CREDENTIALS` is enabled. Custom locations need
+their own persistent mounts.
+
+Editing changes only `SKILL.md`, preserves its existing permissions and follows
+user file/directory symlinks. Supporting scripts and references stay in place.
+Providers using that same target see the change too. Read responses include a
+revision covering content, target identity and permissions; saves reject stale
+revisions, missing targets and retargeted links. A failed save retains the draft
+for download. Save uses a temporary file and atomic rename, with serialization
+per resolved target. An external writer can still race between the final check
+and rename; this is not a filesystem transaction with other applications.
+
+Removal requires confirmation and both a file revision and a bounded supporting
+tree fingerprint. A changed supporting file invalidates the confirmation.
+Ordinary skill folders are moved aside, verified again and removed, including
+their supporting files. Directory/file link removal preserves the linked target.
+Root-level Markdown removal removes only that file. A skill containing a nested
+installation cannot be recursively removed from the console. Changes during the
+move trigger rollback; if the original path is occupied, or removal fails, the
+error identifies the preserved entry for manual recovery.
+
+System, plugin, package-tracked, compatibility and shared `.agents` installations
+remain read-only here. A provider root linked to shared or plugin storage also
+cannot create skills. The global skills CLI lock is read only to recognize
+package ownership; the console does not edit its lock or create a T3 manifest.
+Oversized/unreadable locks conservatively disable local changes. Shared-root
+persistence and native activation controls remain planned work.
 
 ## Validation
 
@@ -130,6 +162,10 @@ image with Playwright under `/opt/t3/node_modules`, set
 fixtures and never change installed skills. Unit/HTTP tests cover bounded
 discovery, native protocol failure, duplicate names, YAML metadata, cache and
 refresh behavior, authentication, unknown IDs, deleted files and retargeted links.
+Local file checks cover add/edit/remove, stale/concurrent saves, permission and
+symlink preservation, supporting-file conflicts, package ownership, failed
+publication and interrupted-removal rollback. Browser checks cover Markdown
+upload, draft recovery, save progress, explicit removal confirmation and errors.
 
 The inventory adapter was also checked with Codex 0.163.0 in a disposable home:
 a native disabled fixture remained listed, its raw content could be read, and

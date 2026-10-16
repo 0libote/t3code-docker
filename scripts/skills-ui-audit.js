@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Read-only skill UI regression checks against a disposable setup console.
+// Skill inventory and local file UI regression checks against a disposable console.
 // NODE_PATH=/opt/t3/node_modules node scripts/skills-ui-audit.js http://127.0.0.1:23860/__setup/ skills-preview
 // Browser responses below are fixtures; no skill/configuration files are changed.
 let chromium;
@@ -22,13 +22,31 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   const errors = []; page.on('pageerror', (error) => errors.push(error.message));
   let inventoryRequests = 0, gateInventory = false, releaseInventory, oldInventoryStarted;
   let gateRead = false, releaseRead, oldReadStarted, readError = false, inventoryError = false;
+  let saveError = true, gateSave = false, releaseSave, saveStarted;
+  const mutations = [];
   const skill = (provider, id, name) => ({ id, name, description: 'A description that is long enough to wrap comfortably on a phone. '.repeat(4),
    path: '/fixture/a-long-global-configuration-directory/skills/' + name + '/SKILL.md',
    resolvedPath: '/fixture/shared-source/skills/' + name + '/SKILL.md', source: 'Shared .agents',
-   native: provider === 'codex', state: id === firstId ? 'enabled' : 'disabled', bytes: body.length });
+   native: provider === 'codex', state: id === firstId ? 'enabled' : 'disabled', bytes: body.length,
+   canEdit: true, canRemove: true, revision: 'fixture-revision', removalRevision: 'fixture-removal', removalKind: 'directory', removalPath: '/fixture/local/review' });
   await page.route('**/context/skills**', async (route) => {
-   assert.equal(route.request().method(), 'GET', 'the inventory never mutates a skill');
    const url = new URL(route.request().url()), provider = url.searchParams.get('provider');
+   if (route.request().method() === 'POST') {
+    const input = route.request().postDataJSON(); mutations.push({ path: url.pathname, input });
+    if (url.pathname.endsWith('/save')) {
+     assert.equal(input.id, firstId); assert.equal(input.revision, 'fixture-revision');
+     if (gateSave) { gateSave = false; saveStarted(); await new Promise((resolve) => { releaseSave = resolve; }); }
+     await route.fulfill(saveError ? { status: 409, json: { ok: false, error: 'The skill changed outside the console.' } } : { json: { ok: true } });
+    } else if (url.pathname.endsWith('/remove')) {
+     assert.equal(input.revision, 'fixture-revision'); assert.equal(input.removalRevision, 'fixture-removal');
+     await route.fulfill({ json: { ok: true } });
+    } else {
+     assert.ok(url.pathname.endsWith('/create')); assert.equal(input.slug, 'added-skill');
+     await route.fulfill({ json: { ok: true } });
+    }
+    return;
+   }
+   assert.equal(route.request().method(), 'GET');
    if (url.pathname.endsWith('/read')) {
     const delayed = gateRead;
     if (delayed) { gateRead = false; oldReadStarted(); await new Promise((resolve) => { releaseRead = resolve; }); }
@@ -41,7 +59,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
     gateInventory = false; oldInventoryStarted(); await new Promise((resolve) => { releaseInventory = resolve; });
    }
    await route.fulfill(inventoryError ? { status: 500, json: { ok: false, error: 'Fixture inventory unavailable' } }
-    : { json: { ok: true, provider, skills: [skill(provider, firstId, 'review'), skill(provider, secondId, 'manual-review')],
+    : { json: { ok: true, provider, canCreate: true, skills: [skill(provider, firstId, 'review'), skill(provider, secondId, 'manual-review')],
      coverage: provider === 'codex' ? 'native' : 'files', warnings: [], coverageText: provider + ' global skill inventory' } });
   });
   await page.goto(base);
@@ -94,6 +112,41 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   const download = await downloadReady;
   assert.equal(download.suggestedFilename(), 'review.md');
   assert.equal(fs.readFileSync(await download.path(), 'utf8'), body);
+  await page.locator('[data-skill-edit]').click();
+  assert.equal(await page.locator('#skill-content').evaluate((element) => element.readOnly), false);
+  const draft = body + '\nAn unsaved change.\n';
+  await page.locator('#skill-content').fill(draft);
+  await page.locator('[data-skill-save]').click();
+  await page.getByText('The skill changed outside the console.', { exact: true }).waitFor();
+  assert.equal(await page.locator('#skill-content').inputValue(), draft);
+  const draftReady = page.waitForEvent('download'); await page.locator('[data-skill-download]').click();
+  assert.equal(fs.readFileSync(await (await draftReady).path(), 'utf8'), draft);
+  saveError = false; gateSave = true;
+  const saving = new Promise((resolve) => { saveStarted = resolve; });
+  await page.locator('[data-skill-save]').click(); await saving;
+  assert.equal(await page.locator('[data-skill-save]').isDisabled(), true);
+  assert.equal(await page.locator('[data-skill-close]').first().isDisabled(), true);
+  await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').count(), 1);
+  releaseSave(); await page.getByRole('dialog').waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'View review', exact: true }).click();
+  await page.locator('[data-skill-remove]').waitFor();
+  const removalsBefore = mutations.filter((item) => item.path.endsWith('/remove')).length;
+  await page.locator('[data-skill-remove]').click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.equal(mutations.filter((item) => item.path.endsWith('/remove')).length, removalsBefore);
+  await page.locator('[data-skill-remove]').click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove skill', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Add skill', exact: true }).click();
+  await page.locator('#skill-slug').fill('added-skill');
+  assert.ok((await page.locator('#skill-content').inputValue()).includes('added-skill'));
+  const imported = '---\nname: added-skill\ndescription: Imported Markdown\n---\nKeep this text exactly.\n';
+  await page.locator('#skill-file').setInputFiles({ name: 'SKILL.md', mimeType: 'text/markdown', buffer: Buffer.from(imported) });
+  await page.waitForFunction((text) => document.querySelector('#skill-content')?.value === text, imported);
+  await page.locator('[data-skill-save]').click(); await page.getByRole('dialog').waitFor({ state: 'detached' });
+  assert.equal(mutations.find((item) => item.path.endsWith('/create')).input.content, imported);
+  await page.getByRole('button', { name: 'View review', exact: true }).click();
+  await page.locator('#skill-content').waitFor();
   await page.locator('[data-skill-close]').first().click();
   readError = true;
   await page.getByRole('button', { name: 'View review', exact: true }).click();
@@ -111,7 +164,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   await page.locator('.tc-skill-row').first().waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
-  console.log('PASS Skill inventory:', theme, width + 'x' + height, embedded ? 'embedded' : 'standalone');
+  console.log('PASS Skill inventory and file controls:', theme, width + 'x' + height, embedded ? 'embedded-query fallback' : 'standalone');
   await page.close();
  }
  }

@@ -1,10 +1,11 @@
-// Global skill inventory only. No installs, configuration writes or skill execution.
+// Global skill inventory and explicit local file management. No skill execution.
 import path from "node:path";
 import * as fs from "node:fs/promises";
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseDocument, isMap, isScalar } from "./vendor/yaml.mjs";
 import { listCodexSkills } from "./skills/codex.mjs";
+import { createSkillFileManager, skillRevision } from "./skills/files.mjs";
 
 const PROVIDERS = Object.freeze({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok Build", muse: "Muse Code" });
 const DEFAULT_LIMITS = { entries: 2048, skills: 256, depth: 8, bytes: 4 * 1024 * 1024, fileBytes: 64 * 1024, milliseconds: 3000 };
@@ -52,7 +53,7 @@ export async function readSkillFile(file, maxBytes = DEFAULT_LIMITS.fileBytes, i
       bytes += read.bytesRead;
     }
     if (bytes > maxBytes) throw problem("too_large", "This skill exceeds the 64 KiB viewer limit.");
-    return { content: buffer.toString("utf8", 0, bytes), bytes };
+    return { content: buffer.toString("utf8", 0, bytes), bytes, mode: stat.mode & 0o777, stamp: [stat.dev, stat.ino, stat.mtimeMs, stat.size].join(":") };
   } finally { await handle.close(); }
 }
 
@@ -170,7 +171,8 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
         if (native.errors.length) scanned.warnings.push("Codex reported " + native.errors.length + " skill discovery error(s).");
       } catch (error) { coverage = "files"; nativeError = summaryError(error); }
     }
-    return { ok: true, provider, providers: skillProviders(), skills: scanned.skills.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
+    const policy = await fileManager.policyFor(provider);
+    return { ok: true, provider, canCreate: policy.canCreate, providers: skillProviders(), skills: scanned.skills.map((row) => ({ ...row, ...policy.capabilities(row) })).sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
       roots: scanned.roots, coverage, nativeError, warnings: scanned.warnings, scannedAt: Date.now(),
       coverageText: coverage === "native" ? "Managed Codex inventory in the setup environment, with known local folders included. Project skills are excluded."
         : "Known global skill folders only. Provider availability, plugins and additional configured locations are not verified.",
@@ -194,7 +196,11 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
     try { resolved = await io.realpath(row.path); }
     catch { throw problem("missing", "The skill file or its linked target no longer exists."); }
     if (resolved !== row.resolvedPath) throw problem("conflict", "This skill link changed. Refresh the list before opening it.");
-    return { ok: true, ...row, ...await readSkillFile(resolved, limits?.fileBytes ?? DEFAULT_LIMITS.fileBytes, io) };
+    const file = await readSkillFile(resolved, limits?.fileBytes ?? DEFAULT_LIMITS.fileBytes, io);
+    const policy = await fileManager.policyFor(provider);
+    const detail = { ok: true, ...row, ...policy.capabilities(row), ...file, revision: skillRevision(row, file) };
+    return { ...detail, ...await fileManager.removal(provider, detail) };
   };
-  return { list, read };
+  const fileManager = createSkillFileManager({ home, env, io, rootsFor: (provider) => skillRoots(provider, { home, env }), metadata: skillMetadata, read, invalidate: () => cache.clear() });
+  return { list, read, create: fileManager.create, save: fileManager.save, remove: fileManager.remove };
 }

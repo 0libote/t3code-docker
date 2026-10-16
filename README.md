@@ -227,9 +227,10 @@ instructions, a **Separate** file, or **None**. Switching to Shared backs up an 
 file; switching back restores it, or creates an independent copy of the shared
 instructions. Separate files can be edited in place, preserving symlinks and
 permissions. Start a new agent session to load changes.
-The **Skills** section lists global skills by provider, with a read-only Markdown
-viewer, download and refresh. Managed Codex reports native enabled/disabled
-state; other providers show known local files with unverified availability.
+The **Skills** section lists global skills by provider, with Markdown viewing,
+download and refresh. Claude Code, Codex and OpenCode's own user folders also
+support adding, editing and removing local skills. Managed Codex reports native
+enabled/disabled state; other providers show known files with unverified availability.
 See [Context management](docs/context-management.md) for paths and verification.
 
 ### Storage management

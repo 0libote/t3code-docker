@@ -126,7 +126,8 @@
   // Where each kind of row's operations live in the API.
   const LIFECYCLE_PATH = { harness: 'harnesses', toolchain: 'toolchains', package: 'packages' };
   const storageUI = T3StorageUI.create({ api, getStatus: () => state.status, reload: () => loadStatus(), render: () => render() });
-  const skillsUI = T3SkillsUI.create({ api, getStatus: () => state.status, render: () => render() });
+  const skillsUI = T3SkillsUI.create({ api, getStatus: () => state.status, render: () => render(),
+    readMarkdown: (file) => readMarkdownFile(file, 64 * 1024), downloadMarkdown: (...args) => downloadMarkdown(...args) });
 
   /** Whether this browser came in on its T3 Code session rather than the key, so Lock would end nothing. */
   const viaT3 = (s) => Boolean(s && s.viewer && s.viewer.via === 't3');
@@ -3034,6 +3035,8 @@
     'storage.details': () => storageUI.toggle(),
     'skills.refresh': () => skillsUI.refresh(),
     'skills.view': (a) => skillsUI.view(a.id),
+    'skills.add': () => skillsUI.add(),
+    'skills.edit': (a) => skillsUI.view(a.id, true),
     'storage.goto': () => { go('environment'); requestAnimationFrame(() => $('ev-storage')?.scrollIntoView({ block: 'start', behavior: Kit.REDUCED.matches ? 'auto' : 'smooth' })); },
     refresh: () => { loadStatus(); loadPorts(); },
     goto: (a) => go(a.route),
