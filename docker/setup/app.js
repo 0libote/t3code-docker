@@ -409,6 +409,113 @@
     for (const row of due) await callLifecycle(row.target, 'update', row.id);
   };
 
+  // ---------------------------------------------------------- auto-update --
+  // Smart auto-update: one dialog for providers and T3 Code, opened from the
+  // Agents page and from the T3 Code updates card. Toggles enable each kind;
+  // the numbers below appear once enabled. Check cadence defaults to 3 hours,
+  // installs wait for 30 minutes without activity.
+  const openAutoUpdate = (trigger) => {
+    const view = M.autoUpdateView(state.status, now());
+    const draft = JSON.parse(JSON.stringify(view.policy));
+    let saving = false;
+    const layer = Kit.open({
+      kind: 'center',
+      panel: { class: 'tc-dialog tc-storage-settings', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'auto-update-title' },
+      returnTo: trigger || null,
+      focus: '[data-auto-cancel]',
+      render: () => html`
+        <form id="auto-update-form" novalidate>
+          <div class="tc-dialog-body">
+            <h2 class="tc-dialog-title" id="auto-update-title">Automatic updates</h2>
+            <p class="tc-dialog-desc">Check often, install only when nobody is around. Nothing restarts or swaps while you are active.</p>
+            <div class="tc-storage-setting">
+              <div><label class="tc-row-name" id="auto-prov-label">Provider auto-update</label>
+                <p class="tc-hint" id="auto-prov-help">Agents${draft.providers.includeToolchains ? ", toolchains and added tools" : ""} update by themselves after idle time.</p></div>
+              <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="auto-prov-label" aria-describedby="auto-prov-help" aria-checked="${String(draft.providers.enabled)}" data-auto-switch="providers.enabled"></button></span>
+            </div>
+            <div class="tc-storage-budgets">
+              <div class="tc-field"><label class="tc-label" for="auto-prov-check">Check every</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="24" step="0.25" id="auto-prov-check" value="${Math.round(draft.providers.checkMinutes / 60 * 100) / 100}" inputmode="decimal"><span>hours</span></div></div>
+              <div class="tc-field"><label class="tc-label" for="auto-prov-idle">Update after idle</label><div class="tc-storage-input"><input class="tc-input" type="number" min="5" max="480" step="5" id="auto-prov-idle" value="${draft.providers.idleMinutes}" inputmode="numeric"><span>min</span></div></div>
+            </div>
+            <div class="tc-storage-setting">
+              <div><label class="tc-row-name" id="auto-tools-label">Also update toolchains</label><p class="tc-hint" id="auto-tools-help">Include toolchains, source-control CLIs and added tools, not just agents.</p></div>
+              <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="auto-tools-label" aria-describedby="auto-tools-help" aria-checked="${String(draft.providers.includeToolchains)}" data-auto-switch="providers.includeToolchains"></button></span>
+            </div>
+            <div class="tc-storage-setting tc-storage-setting--border">
+              <div><label class="tc-row-name" id="auto-t3-label">T3 Code auto-update</label><p class="tc-hint" id="auto-t3-help">Installs the selected channel's release and restarts only T3 Code, after idle time. Never switches Stable ↔ Nightly.</p></div>
+              <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="auto-t3-label" aria-describedby="auto-t3-help" aria-checked="${String(draft.t3.enabled)}" data-auto-switch="t3.enabled"></button></span>
+            </div>
+            <div class="tc-storage-budgets">
+              <div class="tc-field"><label class="tc-label" for="auto-t3-check">Check every</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="24" step="0.25" id="auto-t3-check" value="${Math.round(draft.t3.checkMinutes / 60 * 100) / 100}" inputmode="decimal"><span>hours</span></div></div>
+              <div class="tc-field"><label class="tc-label" for="auto-t3-idle">Update after idle</label><div class="tc-storage-input"><input class="tc-input" type="number" min="5" max="480" step="5" id="auto-t3-idle" value="${draft.t3.idleMinutes}" inputmode="numeric"><span>min</span></div></div>
+            </div>
+            <p class="tc-hint">Idle means no open console, no install or update running, no first-start install, and no T3 Code restart. Updates queue one at a time; a failed update keeps the previous version and retries on the next pass. ${view.lastActivityText}. ${view.busy ? "Busy now: " + view.busy + "." : ""}</p>
+            <p class="tc-hint tc-hint--err" id="auto-update-error" role="alert" hidden></p>
+          </div>
+          <div class="tc-dialog-foot"><button class="tc-btn tc-btn--ghost" type="button" data-auto-cancel>Cancel</button><button class="tc-btn tc-btn--primary" type="submit" data-auto-save>Save</button></div>
+        </form>`,
+    });
+    const panel = layer.panel;
+    const message = (text) => { const el = panel.querySelector('#auto-update-error'); if (el) { el.textContent = text; el.hidden = !text; } };
+    const get = (path) => path.split('.').reduce((o, k) => o?.[k], draft);
+    const set = (path, value) => { const [a, b] = path.split('.'); draft[a][b] = value; };
+    panel.addEventListener('click', (event) => {
+      if (event.target.closest('[data-auto-cancel]') && !saving) layer.close('cancel');
+      const toggle = event.target.closest('[data-auto-switch]');
+      if (toggle && !saving) {
+        const key = toggle.dataset.autoSwitch;
+        set(key, !get(key));
+        toggle.setAttribute('aria-checked', String(get(key)));
+      }
+    });
+    panel.querySelector('form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (saving) return;
+      const hours = (sel, defMin) => {
+        const el = panel.querySelector(sel);
+        const v = Number(el.value);
+        el.removeAttribute('aria-invalid');
+        if (!el.value.trim() || !Number.isFinite(v) || v < 0.25 || v > 24) { el.setAttribute('aria-invalid', 'true'); message('Check cadence must be between 0.25 and 24 hours.'); el.focus(); return null; }
+        return Math.round(v * 60);
+      };
+      const mins = (sel) => {
+        const el = panel.querySelector(sel);
+        const v = Number(el.value);
+        el.removeAttribute('aria-invalid');
+        if (!el.value.trim() || !Number.isFinite(v) || v < 5 || v > 480) { el.setAttribute('aria-invalid', 'true'); message('Idle time must be between 5 and 480 minutes.'); el.focus(); return null; }
+        return Math.round(v);
+      };
+      const pc = hours('#auto-prov-check'); if (pc === null) return;
+      const pi = mins('#auto-prov-idle'); if (pi === null) return;
+      const tc = hours('#auto-t3-check'); if (tc === null) return;
+      const ti = mins('#auto-t3-idle'); if (ti === null) return;
+      draft.providers.checkMinutes = pc; draft.providers.idleMinutes = pi;
+      draft.t3.checkMinutes = tc; draft.t3.idleMinutes = ti;
+      saving = true; message('');
+      panel.querySelectorAll('button, input').forEach((el) => { el.disabled = true; });
+      const save = panel.querySelector('[data-auto-save]'); if (save) save.textContent = 'Saving…';
+      const result = await api('/auto-update/policy', { body: draft });
+      saving = false;
+      if (layer.closed) { await loadStatus(); return; }
+      if (!result.ok) {
+        message(result.error || 'Could not save auto-update preferences.');
+        panel.querySelectorAll('button, input').forEach((el) => { el.disabled = false; });
+        if (save) save.textContent = 'Save';
+        return;
+      }
+      layer.close('saved');
+      Kit.toast('Auto-update preferences saved', { detail: (draft.providers.enabled ? 'Providers on. ' : 'Providers off. ') + (draft.t3.enabled ? 'T3 Code on.' : 'T3 Code off.') });
+      await loadStatus();
+    });
+  };
+
+  const checkProviderUpdates = async () => {
+    const res = await api('/updates/check', { body: {} });
+    if (!res.ok) { Kit.toast('Could not check for updates', { tone: 'danger', detail: res.error }); return; }
+    Kit.toast('Checking for updates', { tone: 'info', detail: 'Rows show any newer release within a minute.' });
+    setTimeout(loadStatus, 8000);
+  };
+
   // ------------------------------------------------------------- markup --
   // An agent shows its own mark; anything without one, its monogram.
   const tile = (row, size) => row.mark && T3C.agentMarks[row.mark]
@@ -887,8 +994,20 @@
     const needs = rows.filter((r) => r.attention || r.updateAvailable);
     const shown = state.agentFilter === 'attention' ? needs : rows;
     const filter = html`<div class="tc-seg" role="group" aria-label="Show">${[['all', 'All'], ['attention', 'Needs you']].map(([value, label]) => html`<button type="button" aria-pressed="${String(state.agentFilter === value)}" data-cmd="agents.filter" data-value="${value}">${label}${value === 'attention' && needs.length ? html` <span class="tc-num">${needs.length}</span>` : ''}</button>`)}</div>`;
+    const auto = M.autoUpdateView(s, n);
+    const due = rows.filter((r) => r.updateAvailable);
     return html`
       ${pageNotices('agents')}
+      ${section('ag-updates', 'Updates', html`<div class="tc-group"><div class="tc-list"><div class="tc-row tc-row--compact tc-row--plain" data-key="provider-updates">
+        <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('refresh-cw')}</span>
+        <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Provider updates</span>${auto.policy.providers.enabled ? html`<span class="tc-badge tc-badge--ok">Auto</span>` : ''}${due.length ? html`<span class="tc-badge tc-badge--warn">${due.length} available</span>` : html`<span class="tc-badge">Up to date</span>`}</div>
+          <span class="tc-status tc-status--prose">${auto.providerCheck} · ${auto.providersLine}</span></div>
+        <div class="tc-row-actions tc-row-actions--wrap">
+          <button class="tc-btn tc-btn--sm" type="button" data-cmd="updates.check">${icon('refresh-cw')}Check for updates</button>
+          ${due.length ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="harness.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}
+          <button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings">${icon('settings-2')}Auto-update</button>
+        </div>
+      </div></div></div>`)}
       ${section('ag-title', 'Agents', html`<div class="tc-group">
         ${shown.length ? html`<div class="tc-list">${shown.map((row) => resourceRow(row))}</div>`
           : rows.length ? html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-title">Nothing needs you</span><span class="tc-empty-desc">Every installed agent is signed in and current.</span></div>`
@@ -1111,6 +1230,8 @@
     const busy = view.busy || checking;
     const channelName = view.channel === 'nightly' ? 'Nightly' : 'Stable';
     const targetVersion = view.busy && view.operation.version ? view.operation.version : view.available ? view.latest : null;
+    const auto = M.autoUpdateView(s, now());
+    const autoLabel = auto.policy.t3.enabled ? 'Auto-update on' : 'Auto-update';
     return section('ev-updates', 'T3 Code updates', html`<div class="tc-card tc-runtime-card">
       <div class="tc-runtime-channel"><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Release channel</span></div>
         <p class="tc-status tc-status--prose">${view.channel === 'nightly' ? 'Early access to new features. Nightly builds can be less reliable.' : 'Published stable releases, recommended for everyday work.'}</p></div>
@@ -1125,10 +1246,10 @@
       ${view.separateHistory ? notice(null, 'history', null, 'Switching to an older release can show its earlier thread history. Your newer history is kept on the volume.') : ''}
       ${view.checkError ? notice('warn', 'globe', 'Could not check for updates', 'The last known releases are shown. Check again when the registry is reachable.') : ''}
       ${!view.supported ? notice(null, 'info', null, 'In-place updates need the container’s T3 Code supervisor. Upgrade the container image once to enable them.') : ''}
-      <div class="tc-runtime-foot"><p class="tc-hint">${view.checkedAt ? html`Checked ${M.relTime(view.checkedAt, now())}. ` : ''}You choose when to install. Only T3 Code restarts.</p>
+      <div class="tc-runtime-foot"><p class="tc-hint">${view.checkedAt ? html`Checked ${M.relTime(view.checkedAt, now())}. ` : ''}${auto.policy.t3.enabled ? auto.t3Line + '. ' : 'You choose when to install. '}Only T3 Code restarts.${auto.state.lastT3RunAt ? ' Last auto-update ' + M.relTime(auto.state.lastT3RunAt, now()) + '.' : ''}</p>
         <div class="tc-row-actions tc-row-actions--wrap"><button class="tc-btn tc-btn--sm" type="button" data-cmd="t3.check" ${busy ? 'disabled' : ''}>${icon('refresh-cw')}Check for updates</button>${view.available || view.error ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="t3.update" data-channel="${view.error ? view.operation.channel : view.channel}" ${busy || !view.supported || !view.latest ? 'disabled' : ''}>${icon('circle-arrow-up')}${view.error ? 'Retry update' : 'Update and restart'}</button>` : ''}</div>
       </div>
-    </div>`);
+    </div>`, { actions: html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="auto.settings">${icon('settings-2')}${autoLabel}</button>` });
   };
 
   const environmentPage = (s, n) => {
@@ -1414,7 +1535,9 @@
           : EMBED ? '' : html`<a class="tc-btn tc-btn--sm" href="${t3Url()}" target="_blank" rel="noopener">${icon('external-link')}Open T3 Code</a>`;
       } else if (route === 'agents' || route === 'toolchains') {
         const rows = route === 'agents' ? M.agentRows(s, ui, n) : [...M.toolchainRows(s, ui, n), ...M.packageRows(s, ui, n)];
-        if (rows.some((r) => r.updateAvailable)) actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="${route === 'agents' ? 'harness.updateAll' : 'tools.updateAll'}">${icon('circle-arrow-up')}Update all</button>`;
+        const hasUpdates = rows.some((r) => r.updateAvailable);
+        if (route === 'agents') actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="harness.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="updates.check">${icon('refresh-cw')}Check for updates</button><button class="tc-btn tc-btn--sm" type="button" data-cmd="auto.settings">${icon('settings-2')}Auto-update</button>`;
+        else if (hasUpdates) actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="tools.updateAll">${icon('circle-arrow-up')}Update all</button>`;
       } else if (route === 'sourcecontrol') {
         if (M.managedSourceControlRows(s, ui, n).some((r) => r.updateAvailable)) actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="scm.updateAll">${icon('circle-arrow-up')}Update all</button>`;
       } else if (route === 'ports') {
@@ -3053,6 +3176,7 @@
       Kit.toast(res.ok ? 'Checking for updates' : 'Could not check for updates', res.ok ? { tone: 'info', detail: 'Rows show any newer release within a minute.' } : { tone: 'danger', detail: res.error });
       setTimeout(loadStatus, 8000);
     },
+    'auto.settings': (a, el) => openAutoUpdate(el),
 
     'row.menu': (a, el) => {
       const row = rowFor(a.target, a.id);
