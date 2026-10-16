@@ -714,7 +714,8 @@ native_skill_controls_work() {
   docker cp scripts/skills-policy-smoke.mjs "$NAME:/tmp/skills-policy-smoke.mjs" >/dev/null 2>&1 || return 1
   for id in claude codex opencode; do
     executable="$(status_json | jq -r --arg id "$id" '.harnesses[] | select(.id == $id) | .executable')"
-    [ -n "$executable" ] && [ "$executable" != null ] || return 1
+    [ -n "$executable" ] && [ "$executable" != null ] || { printf 'No managed executable returned for %s\n' "$id"; return 1; }
+    printf 'Checking native skill controls for %s (%s)\n' "$id" "$executable"
     if [ "$id" = codex ]; then script=skills-native-smoke.mjs; else script=skills-policy-smoke.mjs; fi
     if [ "$id" = codex ]; then
       docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node "/tmp/$script" "$executable" || return 1
@@ -723,7 +724,7 @@ native_skill_controls_work() {
     fi
   done
 }
-check "native skill controls work with the installed Claude, Codex and OpenCode" native_skill_controls_work
+check "native skill controls work with the installed Claude, Codex and OpenCode" "native_skill_controls_work >>\"$UI_AUDIT_LOG\" 2>&1"
 
 # T3 learns about each agent through its settings file, as soon as the agent
 # lands. Read it the way T3 does: each points at the agent's launcher, which
@@ -1594,7 +1595,7 @@ docker rm -f "${NAME}-boot" >/dev/null 2>&1 || true
 
 printf '\n%d passed, %d failed\n\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ] && [ -s "$UI_AUDIT_LOG" ]; then
-  printf 'Browser audit output:\n'
+  printf 'Browser/native skill audit output:\n'
   sed 's/^/  /' "$UI_AUDIT_LOG"
   printf '\n'
 fi
