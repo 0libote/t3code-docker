@@ -91,11 +91,12 @@ test("Setup's commands are found in T3's palette the way T3 finds its own", () =
   assert.equal(found("codeberg"), "sourcecontrol");
   assert.equal(found("glab"), "sourcecontrol");
   assert.equal(found("sign in"), "agents,sourcecontrol");
+  assert.equal(found("context").split(",")[0], "context");
   // T3's normalisation: case, accents and spacing do not matter; ">" (T3's commands) still finds them.
   assert.equal(found("  ÓPEN   setup "), "setup");
   assert.equal(found(">open setup"), "setup");
   // Nothing typed, or nothing that answers: none.
-  for (const q of ["", "   ", ">", "settings", "new thread", "setup ports x", "theme"]) assert.equal(found(q), "", q);
+  for (const q of ["", "   ", ">", "settings", "new thread", "setup ports zzz", "theme"]) assert.equal(found(q), "", q);
   for (const item of B.PALETTE_ITEMS) assert.ok(item.route === null || /^[a-z]+$/.test(item.route), item.id);
 });
 

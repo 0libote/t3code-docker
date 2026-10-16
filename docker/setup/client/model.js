@@ -1332,6 +1332,7 @@ const T3Model = (() => {
       overview: null,
       devices: { count: (s.sessions || []).length },
       agents: agentAttention ? { tone: 'warn', count: agentAttention } : { count: agents.filter((a) => a.version && a.state !== 'missing').length },
+      context: null,
       toolchains: toolsFailed ? { tone: 'warn', count: toolsFailed }
         : toolsRunning ? { tone: 'info', count: toolsRunning } : { count: tools.filter((t) => t.version).length },
       sourcecontrol: scmAttention ? { tone: 'warn', count: scmAttention }
@@ -1374,6 +1375,7 @@ const T3Model = (() => {
       overview: { text: hostOf(s.publicUrl) || host || '', mono: true },
       devices: { text: Object.values(s.authLists || {}).some((entry) => !entry.available) ? 'Reading device details' : sessions || links ? [sessions + ' paired', links ? plural(links, 'link') + ' waiting' : null].filter(Boolean).join(' · ') : 'No devices yet' },
       agents: { text: installed.length ? signed + ' of ' + installed.length + ' signed in' : 'None installed yet' },
+      context: { text: contextView(s).present ? 'Global instructions set' : 'Not set yet' },
       toolchains: { text: [tools.filter((t) => t.installed).length + ' of ' + tools.length + ' installed', added ? added + ' added' : null, 'through mise'].filter(Boolean).join(' · ') },
       sourcecontrol: { text: (() => {
         const scm = (s.sourceControl || []).filter((c) => c.installed || c.providedBy);
@@ -1403,6 +1405,7 @@ const T3Model = (() => {
       'package.add': 'install new tool package mise registry', 'package.install': 'add download', 'package.uninstall': 'remove delete',
       'package.update': 'upgrade', 'package.version': 'pin downgrade older release', 'tools.updateAll': 'upgrade',
       'port.publish': 'expose share tunnel open', 'port.stop': 'unpublish unexpose close tunnel', 'port.qr': 'scan phone',
+      'context.edit': 'edit agents instructions',
       'device.revoke': 'remove delete unpair sign out', 'link.revoke': 'remove delete pairing',
       'pair.start': 'new add phone device qr', lock: 'log out logout sign out', theme: 'appearance mode colour color',
       diagnostics: 'debug support report bug', 'updates.check': 'refresh latest new version', 'open.t3': 'launch app',
@@ -1499,6 +1502,11 @@ const T3Model = (() => {
     for (const d of deviceRows(s.sessions, now)) add('Devices', 'Revoke ' + d.name + '…', 'trash-2', { cmd: 'device.revoke', id: d.id }, { meta: { text: d.kind } });
     for (const l of linkRows(s.pairings, null, now)) add('Devices', 'Revoke link ' + l.name + '…', 'trash-2', { cmd: 'link.revoke', id: l.id });
 
+    if (!contextView(s).error) {
+      add('Context', 'Edit global AGENTS.md…', 'pencil', { cmd: 'context.edit' });
+      if (contextView(s).present) add('Context', 'Delete global AGENTS.md…', 'trash-2', { cmd: 'context.delete' });
+    }
+    for (const row of contextProviderRows(s).filter((row) => row.mode && !row.error)) add('Context', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id });
     add('Actions', 'Create pairing link', 'link', { cmd: 'pair.start' }, { shortcut: 'P' });
     const agentUpdates = agentRows(s, ui, now).filter((a) => a.updateAvailable).length;
     if (agentUpdates) add('Actions', 'Update all agents', 'circle-arrow-up', { cmd: 'harness.updateAll' }, { meta: { text: plural(agentUpdates, 'update') }, attention: true });
@@ -1528,12 +1536,12 @@ const T3Model = (() => {
     add('Environment', 'Copy diagnostics', 'copy', { cmd: 'diagnostics' });
 
     const pages = [['Overview', 'overview', 'layout-dashboard', 'O'], ['Devices', 'devices', 'smartphone', 'D'], ['Agents', 'agents', 'bot', 'A'],
-      ['Toolchains', 'toolchains', 'wrench', 'T'], ['Source control', 'sourcecontrol', 'git-pull-request', 'S'], ['Ports', 'ports', 'ethernet-port', 'P'], ['Environment', 'environment', 'settings-2', 'E']];
+      ['Context', 'context', 'book-open', 'C'], ['Toolchains', 'toolchains', 'wrench', 'T'], ['Source control', 'sourcecontrol', 'git-pull-request', 'S'], ['Ports', 'ports', 'ethernet-port', 'P'], ['Environment', 'environment', 'settings-2', 'E']];
     for (const [label, route, icon, key] of pages) add('Go to', label, icon, { cmd: 'goto', route }, { shortcut: 'G ' + key });
     return items;
   };
 
-  const GROUP_ORDER = ['Agents', 'Toolchains', 'Source control', 'Ports', 'Devices', 'Actions', 'Environment', 'Go to', 'Install from mise'];
+  const GROUP_ORDER = ['Agents', 'Context', 'Toolchains', 'Source control', 'Ports', 'Devices', 'Actions', 'Environment', 'Go to', 'Install from mise'];
   // Registry results are capped: the best few, after everything the console itself offers.
   const SEARCH_ONLY_LIMIT = 6;
 
@@ -1628,6 +1636,52 @@ const T3Model = (() => {
     return Object.assign({ generatedAt: new Date().toISOString() }, extra || {}, { status: copy, ports: portCopy });
   };
 
+  // Global instructions are optional, so Context never adds an attention badge.
+  const contextView = (status) => {
+    const file = status?.context?.agentsMd || {};
+    return { present: Boolean(file.present), bytes: file.bytes || 0, error: file.error || null };
+  };
+
+  const contextAgentsMdRow = (status) => {
+    const view = contextView(status);
+    return {
+      id: 'global',
+      key: 'agentsmd:global',
+      target: 'context-agentsmd',
+      name: 'Global AGENTS.md',
+      description: '',
+      mono: 'AG',
+      hue: '--id-toolchain',
+      version: view.present && view.bytes ? view.bytes + ' B' : null,
+      state: view.error ? 'unavailable' : 'ok',
+      status: { text: view.error || (view.present ? 'Shared instructions; linked to agent homes where supported' : 'Not set yet. Edit to add shared instructions.') },
+      badge: view.error ? { tone: 'warn', text: 'Unavailable' } : view.present ? { tone: 'ok', text: 'Set' } : null,
+      action: view.error ? null : { cmd: 'context.edit', label: 'Edit', icon: 'pencil' },
+      menu: view.present && !view.error ? [{ cmd: 'context.delete', label: 'Delete…', icon: 'trash-2', danger: true }] : [],
+      attention: false,
+    };
+  };
+
+  // Only show the agents in use: installed harnesses, plus any provider that
+  // already has instructions (so an uninstalled agent's leftover file can still
+  // be edited or cleared). Without harness facts, show everything as before.
+  const contextProviderRows = (status) => {
+    const providers = status?.context?.providers || [];
+    const harnesses = status?.harnesses;
+    const installed = Array.isArray(harnesses) ? new Set(harnesses.filter((h) => h.installed).map((h) => h.id)) : null;
+    const list = !installed || installed.size === 0 ? providers
+      : providers.filter((file) => installed.has(file.provider) || file.mode || file.error);
+    return list.map((file) => ({
+      id: file.provider,
+      key: 'agentsmd:' + file.provider,
+      name: ({ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[file.provider] || file.provider) + ' instructions',
+      mono: 'AG', hue: '--id-toolchain',
+      status: { text: file.error || (file.mode === 'shared' ? 'Uses the shared global instructions' : file.mode === 'separate' ? file.path : 'No instructions for this agent') },
+      badge: file.error ? { tone: 'warn', text: 'Unavailable' } : file.mode ? { text: file.mode === 'shared' ? 'Shared' : 'Separate' } : { text: 'None' },
+      mode: file.mode || null, sourceRevision: file.sourceRevision, error: file.error || null,
+    }));
+  };
+
   return {
     AGENTS, TOOLCHAINS, SOURCE_CONTROL, DONE, WORKING, FAILED,
     compareVersions, isNewer,
@@ -1638,6 +1692,7 @@ const T3Model = (() => {
     deviceRows, linkRows, deviceKind, deviceName,
     readiness, readySummary, needsYou, activity, setupBanner,
     publicUrlSource, hereOffer, connectView,
+    contextView, contextAgentsMdRow, contextProviderRows,
     navBadges, attentionCount, summaries, runtimeView,
     paletteItems, searchPalette,
     redactedDiagnostics, storageView,

@@ -1197,6 +1197,7 @@
     const scmSigned = scm.filter((c) => c.auth && c.auth.status === 'authenticated').length;
     return html`
       ${section('pm-title', 'More', html`<div class="tc-group">
+        <a class="tc-linkrow" href="#context">${icon('book-open')}Context<span class="tc-linkrow-aside">${M.contextView(s).present ? 'Instructions set' : 'Not set yet'}</span>${icon('chevron-right')}</a>
         <a class="tc-linkrow" href="#toolchains">${icon('wrench')}Toolchains<span class="tc-linkrow-aside">${failedTools ? M.plural(failedTools, 'needs', 'need') + ' you' : tools + ' installed'}</span>${icon('chevron-right')}</a>
         <a class="tc-linkrow" href="#sourcecontrol">${icon('git-pull-request')}Source control<span class="tc-linkrow-aside">${scmAttention ? M.plural(scmAttention, 'needs', 'need') + ' you' : scmSigned + ' signed in'}</span>${icon('chevron-right')}</a>
         <a class="tc-linkrow" href="#environment">${icon('settings-2')}Environment<span class="tc-linkrow-aside tc-truncate">${M.imageLabel(image).version || ''}</span>${icon('chevron-right')}</a>
@@ -1214,12 +1215,146 @@
       </div>`)}`;
   };
 
+  // -------------------------------------------------------------- context --
+  // Metadata is polled; the editor loads instruction text on demand.
+  const contextEditor = { loading: false, layer: null, content: '', saving: false, error: null, provider: null, revision: null, path: '', readError: false };
+  const contextSwitching = new Set();
+  const contextProviderRow = (row) => html`
+    <div class="tc-row tc-context-provider" data-key="row-${row.key}">
+      ${tile(row)}
+      <div class="tc-row-main">
+        <div class="tc-row-title"><span class="tc-row-name">${row.name}</span>${badge(row.badge)}</div>
+        ${statusLine(row.status)}
+        <div class="tc-seg" role="group" aria-label="${row.name} source">
+          ${[['shared', 'Shared'], ['separate', 'Separate'], ['none', 'None']].map(([mode, label]) => html`<button type="button" data-cmd="context.provider.mode" data-id="${row.id}" data-mode="${mode}" aria-pressed="${String((row.mode || 'none') === mode)}"${contextSwitching.has(row.id) || row.error || (mode === 'shared' && !M.contextView(state.status).present) || (mode === 'none' && !row.mode) ? raw(' disabled') : ''}>${label}</button>`)}
+        </div>
+      </div>
+      <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="context.provider.edit" data-id="${row.id}"${!row.mode || row.error || contextSwitching.has(row.id) ? raw(' disabled') : ''}>${icon('pencil')}Edit</button></div>
+    </div>`;
+
+  const contextPage = (s) => html`
+    ${pageNotices('context')}
+    ${section('cx-agentsmd', 'Instructions', html`<div class="tc-group">
+      <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map(contextProviderRow)}</div>
+      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Choose Shared to use the global file, Separate for that provider's own instructions, or None for no instructions. Separate restores its previous file when available, otherwise starts with a copy of the global file. Installed agents and existing instruction files are listed. Start a new agent session after saving.</span></div>
+    </div>`)}
+    ${M.contextView(s).error ? notice('danger', 'circle-alert', 'Could not read instructions', M.contextView(s).error) : ''}`;
+
+  const downloadMarkdown = (filename, content) => {
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/markdown;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const readMarkdownFile = async (file, maxBytes) => {
+    if (!/\.md$/i.test(file.name)) throw new Error('Choose a Markdown (.md) file.');
+    if (file.size > maxBytes) throw new Error('File too large (' + (maxBytes / 1024) + ' KB max).');
+    return file.text();
+  };
+
+  const openContextEditor = async (trigger, provider = null) => {
+    if (contextEditor.layer) return;
+    Object.assign(contextEditor, { content: '', loading: true, saving: false, error: null, provider, revision: null, path: '', readError: false });
+    const providerName = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[provider];
+    const title = provider ? providerName + ' instructions' : 'Global AGENTS.md';
+    const filename = provider === 'claude' ? 'CLAUDE.md' : 'AGENTS.md';
+    contextEditor.layer = Kit.open({
+      kind: 'center',
+      panel: { tag: 'div', class: 'tc-sheet tc-context-sheet ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'cx-title' },
+      returnTo: trigger,
+      backdrop: 'ignore',
+      render: () => html`
+        <div class="tc-sheet-head"><span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span><div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="cx-title">${title}</h2><span class="tc-small tc-muted">${provider ? 'Edit existing ' + filename : 'Shared with supported agents on save'}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
+        <div class="tc-sheet-body">
+          ${contextEditor.error ? notice('danger', 'circle-alert', 'Could not load or save instructions', contextEditor.error) : ''}
+          ${provider && contextEditor.path ? html`<span class="tc-hint tc-context-path">${contextEditor.path}</span>` : ''}
+          <div class="tc-context-filetools"><button class="tc-btn tc-btn--sm" type="button" data-sheet="upload"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>Upload .md</button><button class="tc-btn tc-btn--sm" type="button" data-sheet="download"${contextEditor.loading ? raw(' disabled') : ''}>${icon('download')}Download .md</button><input id="cx-file" data-key="cx-file" type="file" accept=".md,text/markdown" aria-label="Upload instructions Markdown" hidden></div>
+          <label class="tc-label" for="cx-input">${contextEditor.loading ? 'Loading instructions…' : 'Markdown'}</label>
+          <textarea class="tc-input tc-input--area" id="cx-input" data-key="cx-input"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''} rows="14" spellcheck="false" placeholder="# Instructions&#10;&#10;- Short sentences. Bullets over paragraphs.">${contextEditor.content}</textarea>
+          <span class="tc-hint">Upload replaces this draft. ${provider ? 'Save updates this existing file, including for any other agents using it. Symlinks stay in place.' : 'Save updates every provider using Shared. Separate files are kept.'} Download includes unsaved edits.</span>
+        </div>
+        <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn" type="button" data-sheet="copy">${icon('copy')}Copy</button><button class="tc-btn tc-btn--primary" type="button" data-sheet="save"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${contextEditor.saving ? 'Saving…' : 'Save'}</button></div>`,
+      focus: '#cx-input',
+      onClose: () => { contextEditor.layer = null; },
+    });
+    const layer = contextEditor.layer;
+    const panel = layer.panel;
+    panel.addEventListener('change', async (e) => {
+      if (e.target.id !== 'cx-file' || !e.target.files?.[0]) return;
+      const file = e.target.files[0];
+      e.target.value = '';
+      contextEditor.loading = true;
+      contextEditor.error = null;
+      layer.render();
+      try {
+        const content = await readMarkdownFile(file, 64 * 1024);
+        if (contextEditor.layer !== layer) return;
+        contextEditor.content = content;
+      } catch (error) {
+        if (contextEditor.layer !== layer) return;
+        contextEditor.error = error.message;
+      }
+      contextEditor.loading = false;
+      layer.render();
+      const area = panel.querySelector('#cx-input');
+      if (area) { area.value = contextEditor.content; area.focus(); }
+    });
+    panel.addEventListener('input', (e) => {
+      if (e.target.id === 'cx-input') { contextEditor.content = e.target.value; }
+    });
+    panel.addEventListener('click', async (e) => {
+      const action = e.target.closest('[data-sheet]');
+      if (!action) return;
+      const what = action.getAttribute('data-sheet');
+      if (what === 'close') contextEditor.layer.close('cancel');
+      else if (what === 'upload') panel.querySelector('#cx-file').click();
+      else if (what === 'download') downloadMarkdown(filename, contextEditor.content);
+      else if (what === 'copy') Kit.copy(contextEditor.content, action, filename + ' copied');
+      else if (what === 'save') {
+        if (contextEditor.loading || contextEditor.saving || contextEditor.readError) return;
+        contextEditor.saving = true;
+        contextEditor.error = null;
+        contextEditor.layer.render();
+        const body = { content: contextEditor.content, revision: contextEditor.revision };
+        if (provider) body.provider = provider;
+        const save = await api('/context/agents-md', { body });
+        if (contextEditor.layer !== layer) return;
+        contextEditor.saving = false;
+        if (!save.ok) { contextEditor.error = save.error; contextEditor.layer.render(); return; }
+        contextEditor.layer.close('saved');
+        const skipped = (save.data?.reconcile?.skipped || []).filter((target) => !target.preserved);
+        Kit.toast(provider ? 'Saved ' + providerName + ' instructions' : 'Saved global AGENTS.md', skipped.length ? { tone: 'warn', detail: skipped.map((t) => t.provider + ': ' + t.reason).join('; ') } : undefined);
+        loadStatus();
+      }
+    });
+    // Load current content.
+    const res = await api('/context/agents-md' + (provider ? '?provider=' + encodeURIComponent(provider) : ''));
+    if (contextEditor.layer !== layer) return;
+    contextEditor.loading = false;
+    if (res.ok) {
+      contextEditor.content = res.data.content || '';
+      contextEditor.revision = res.data.revision || null;
+      contextEditor.path = res.data.resolvedPath || res.data.path || '';
+    } else {
+      contextEditor.error = res.error;
+      contextEditor.readError = true;
+    }
+    contextEditor.layer.render();
+    const area = panel.querySelector('#cx-input');
+    if (area) { area.value = contextEditor.content; area.focus(); }
+  };
+
   // ---------------------------------------------------------------- shell --
-  const ROUTES = ['overview', 'devices', 'agents', 'toolchains', 'sourcecontrol', 'ports', 'environment', 'more'];
-  const TITLES = { overview: 'Overview', devices: 'Devices', agents: 'Agents', toolchains: 'Toolchains', sourcecontrol: 'Source control', ports: 'Ports', environment: 'Environment', more: 'More' };
-  const PAGES = { overview: overviewPage, devices: devicesPage, agents: agentsPage, toolchains: toolchainsPage, sourcecontrol: sourceControlPage, ports: portsPage, environment: environmentPage, more: morePage };
-  // On a phone, Toolchains, Source control and Environment live under More.
-  const TAB_OF = { toolchains: 'more', sourcecontrol: 'more', environment: 'more' };
+  const ROUTES = ['overview', 'devices', 'agents', 'context', 'toolchains', 'sourcecontrol', 'ports', 'environment', 'more'];
+  const TITLES = { overview: 'Overview', devices: 'Devices', agents: 'Agents', context: 'Context', toolchains: 'Toolchains', sourcecontrol: 'Source control', ports: 'Ports', environment: 'Environment', more: 'More' };
+  const PAGES = { overview: overviewPage, devices: devicesPage, agents: agentsPage, context: contextPage, toolchains: toolchainsPage, sourcecontrol: sourceControlPage, ports: portsPage, environment: environmentPage, more: morePage };
+  // On a phone, Context, Toolchains, Source control and Environment live under More.
+  const TAB_OF = { context: 'more', toolchains: 'more', sourcecontrol: 'more', environment: 'more' };
 
   const navBadge = (b) => {
     if (!b) return { cls: 'tc-nav-count', text: '', hidden: true };
@@ -2791,6 +2926,7 @@
   // ------------------------------------------------------------- commands --
   const rowFor = (target, id) => (target === 'harness' ? M.agentRows(state.status, ui, now())
     : target === 'package' ? M.packageRows(state.status, ui, now())
+    : target === 'context-agentsmd' ? [M.contextAgentsMdRow(state.status)]
       : [...M.toolchainRows(state.status, ui, now()), ...M.sourceControlRows(state.status, ui, now())]).find((r) => r.id === id);
 
   const deviceRename = { layer: null, device: null, label: '', initial: '', saving: false, error: null, invalid: false };
@@ -3048,6 +3184,62 @@
 
     'agents.filter': (a) => { state.agentFilter = a.value; render(); },
 
+    'context.edit': (a, el) => openContextEditor(el),
+    'context.delete': async () => {
+      const view = M.contextView(state.status);
+      if (!view.present) return;
+      const confirmed = await Kit.confirm({
+        title: 'Delete global AGENTS.md?',
+        body: 'Removes the shared instructions file. Providers using Shared will have no instructions until you save new shared instructions or switch them to Separate.',
+        confirm: 'Delete',
+      });
+      if (!confirmed) return;
+      const current = await api('/context/agents-md');
+      if (!current.ok) { Kit.toast('Could not delete instructions', { tone: 'danger', detail: current.error }); return; }
+      const result = await api('/context/agents-md', { body: { delete: true, revision: current.data.revision } });
+      if (!result.ok) { Kit.toast('Could not delete instructions', { tone: 'danger', detail: result.error }); return; }
+      Kit.toast('Deleted global AGENTS.md');
+      await loadStatus();
+    },
+    'context.provider.edit': (a, el) => {
+      const row = M.contextProviderRows(state.status).find((entry) => entry.id === a.id);
+      if (row?.mode) openContextEditor(el, row.mode === 'shared' ? null : a.id);
+    },
+    'context.provider.mode': async (a, el) => {
+      const row = M.contextProviderRows(state.status).find((entry) => entry.id === a.id);
+      if (!row || (row.mode || 'none') === a.mode || contextSwitching.has(a.id)) return;
+      contextSwitching.add(a.id);
+      render();
+      try {
+        if (a.mode === 'shared' && row.mode === 'separate') {
+          const confirmed = await Kit.confirm({
+            title: 'Use shared instructions for ' + row.name.replace(' instructions', '') + '?',
+            body: 'Your separate file will be backed up and restored if you switch back to Separate. Its current contents will not be merged into the shared file.',
+            confirm: 'Use shared', tone: 'primary',
+          });
+          if (!confirmed) return;
+        }
+        if (a.mode === 'none') {
+          const confirmed = await Kit.confirm({
+            title: 'Remove instructions for ' + row.name.replace(' instructions', '') + '?',
+            body: row.mode === 'separate'
+              ? 'Your separate file will be backed up and restored if you switch back to Separate.'
+              : 'The shared link for this provider will be removed. Its separate backup, if any, is kept for a later Separate.',
+            confirm: 'Remove',
+          });
+          if (!confirmed) return;
+        }
+        const result = await api('/context/agents-md', { body: { provider: a.id, mode: a.mode, sourceRevision: row.sourceRevision } });
+        if (!result.ok) { Kit.toast('Could not switch instructions', { tone: 'danger', detail: result.error }); return; }
+        Kit.toast(a.mode === 'shared' ? 'Using shared instructions' : a.mode === 'none' ? 'No instructions for this provider' : 'Using separate instructions');
+        await loadStatus();
+        if (a.mode === 'separate') openContextEditor(el, a.id);
+      } finally {
+        contextSwitching.delete(a.id);
+        render();
+      }
+    },
+
     'port.publish': (a) => publishPort(Number(a.id)),
     'port.stop': (a) => stopPort(Number(a.id)),
     'port.qr': (a) => {
@@ -3114,7 +3306,7 @@
   // ------------------------------------------------------------ shortcuts --
   Kit.bind('mod+k', openPalette);
   Kit.bind('/', openPalette);
-  for (const [key, route] of [['o', 'overview'], ['d', 'devices'], ['a', 'agents'], ['t', 'toolchains'], ['s', 'sourcecontrol'], ['p', 'ports'], ['e', 'environment']]) {
+  for (const [key, route] of [['o', 'overview'], ['d', 'devices'], ['a', 'agents'], ['c', 'context'], ['t', 'toolchains'], ['s', 'sourcecontrol'], ['p', 'ports'], ['e', 'environment']]) {
     Kit.bind('g ' + key, () => { keyboardNav = true; go(route); });
   }
   Kit.bind('p', () => {

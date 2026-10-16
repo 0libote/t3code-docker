@@ -32,6 +32,8 @@
   for (var toolchain in TOOLCHAIN_MARKS) AGENT_MARKS[toolchain] = TOOLCHAIN_MARKS[toolchain];
   var markSeq = 0;
   ICONS.pencil = '<path d="M17 3a2.83 2.83 0 0 1 4 4L7 21H3v-4Z"/><path d="m15 5 4 4"/>';
+  // Context navigation and instruction editor.
+  ICONS['book-open'] = '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>';
 
   function agentMark(name, cls) {
     var mark = AGENT_MARKS[name];

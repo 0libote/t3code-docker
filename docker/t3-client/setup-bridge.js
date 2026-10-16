@@ -67,8 +67,9 @@
   // own: each by what its row shows (its title, and the line under it), a
   // page's title with Setup's name, and its `terms`, a few names it goes by.
   const PALETTE_ITEMS = [
-    { id: 'setup', route: null, title: 'Open setup', meta: 'Agents, toolchains, source control, ports and devices on this server', terms: ['setup console'] },
+    { id: 'setup', route: null, title: 'Open setup', meta: 'Agents, context, toolchains, source control, ports and devices on this server', terms: ['setup console'] },
     { id: 'agents', route: 'agents', title: 'Agents', meta: 'Setup · sign in, install and update', terms: [] },
+    { id: 'context', route: 'context', title: 'Context', meta: 'Setup · Global agent instructions', terms: ['agents.md global instructions'] },
     { id: 'pair', route: 'devices', title: 'Pair a device', meta: 'Setup · Devices', terms: ['devices', 'pairing'] },
     { id: 'toolchains', route: 'toolchains', title: 'Toolchains', meta: 'Setup · Go, Rust, Bun, Deno, uv and any mise tool', terms: [] },
     { id: 'sourcecontrol', route: 'sourcecontrol', title: 'Source control', meta: 'Setup · sign in to GitHub, GitLab, Forgejo, Gitea and Azure DevOps', terms: ['codeberg', 'gh glab fj tea az'] },

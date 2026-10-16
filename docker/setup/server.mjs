@@ -29,6 +29,7 @@ import { createT3Api } from "./t3-api.mjs";
 import { createAntigravity } from "./antigravity.mjs";
 import { createT3Sessions } from "./t3-session.mjs";
 import { createDeviceLabels } from "./device-labels.mjs";
+import * as Context from "./context.mjs";
 import { clientAddress } from "./client-address.mjs";
 import { newKey, readKeyFile, writeKeyFile } from "./setup-key.mjs";
 import { connectState, jsonFrom, parseLinkOutput } from "./connect.mjs";
@@ -494,6 +495,10 @@ const loadStorage = () => {
   return storagePromise;
 };
 
+// --- global instructions --------------------------------------------------
+const CONTEXT_HOME = process.env.HOME || "/home/t3";
+const contextFs = async () => (await import("node:fs/promises"));
+
 // The browser image's agent browser, as built: the versions are build args the
 // Dockerfile bakes into the environment. Absent on the core image.
 const BROWSER = (() => {
@@ -886,6 +891,10 @@ const status = async () => {
     releaseAgeMs,
     // Every other tool in the global mise config, added here or with `mise use -g`.
     packages: withLatest("package", packageRows),
+    // Global instruction metadata; the editor fetches contents on demand.
+    context: await attempt("context", async () => Context.contextStatus(await contextFs(), { baseDir: STATE_DIR, home: CONTEXT_HOME, env: process.env }), {
+      agentsMd: { present: false, bytes: 0, error: "unavailable" },
+    }),
     // The background install of everything T3_PREINSTALL names, on a first
     // start: what it planned, where it is, and what failed (retried on the
     // next start, or from the row's own Install button).
@@ -1597,11 +1606,13 @@ const cookieFrom = (req) =>
       .filter((pair) => pair.length === 2),
   )[COOKIE];
 
-const readBody = async (req) => {
+const readBody = async (req, maxBytes = 64 * 1024) => {
   const chunks = [];
+  let bytes = 0;
   for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > maxBytes) throw new Error("body too large");
     chunks.push(chunk);
-    if (chunks.reduce((n, c) => n + c.length, 0) > 64 * 1024) throw new Error("body too large");
   }
   return Buffer.concat(chunks).toString("utf8");
 };
@@ -2139,7 +2150,8 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/source-control/signin", "/source-control/signout",
   "/providers", "/updates/check",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
-  "/packages/registry", "/packages/versions", "/packages/info"];
+  "/packages/registry", "/packages/versions", "/packages/info",
+  "/context/agents-md"];
 
 const storageHttpStatus = (result) => result.ok ? 200
   : ["busy", "stale-preview"].includes(result.code) ? 409
@@ -2496,6 +2508,61 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    // --- global instructions ----------------------------------------------
+    if (req.method === "GET" && route === "/context/agents-md") {
+      try {
+        const params = new URL(req.url, "http://localhost").searchParams;
+        if (params.has("provider")) {
+          const read = await Context.readProviderAgentsMd(await contextFs(), params.get("provider"), { home: CONTEXT_HOME, env: process.env });
+          return sendJson(res, read.ok ? 200 : read.code === "missing" ? 404 : 400, read);
+        }
+        const read = await Context.readAgentsMd(await contextFs(), STATE_DIR);
+        return sendJson(res, read.error ? read.code === "too_large" ? 400 : 500 : 200, { ok: !read.error, ...read });
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, error: String(error?.message ?? error).slice(0, 300) });
+      }
+    }
+    if (req.method === "POST" && route === "/context/agents-md") {
+      try {
+        // A 64 KiB Markdown file can expand sixfold as JSON (e.g. \u0001).
+        // Allow encoding overhead here; decoded instruction size is validated below.
+        const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
+        const fs = await contextFs();
+        if (input.provider !== undefined) {
+          const options = { home: CONTEXT_HOME, env: process.env };
+          const result = input.mode !== undefined
+            ? await Context.setProviderInstructionMode(fs, STATE_DIR, input.provider, input.mode, input.sourceRevision, options)
+            : await Context.writeProviderAgentsMd(fs, input.provider, input.content, input.revision, options);
+          if (result.ok) recordEvent("context.saved", input.mode ? (input.mode === "none" ? `${input.provider} uses no instructions` : `${input.provider} uses ${input.mode} instructions`) : `Saved ${input.provider} global instructions`);
+          return sendJson(res, result.ok ? 200 : result.code === "conflict" ? 409 : 400, result);
+        }
+        if (input.delete === true) {
+          const result = await Context.deleteAgentsMd(fs, STATE_DIR, input.revision, { home: CONTEXT_HOME, env: process.env });
+          if (!result.ok) return sendJson(res, result.code === "conflict" ? 409 : 400, { ...result, code: result.code || "invalid" });
+          recordEvent("context.saved", "Deleted global AGENTS.md");
+          return sendJson(res, 200, { ok: true, ...result });
+        }
+        const result = await Context.writeAgentsMd(fs, STATE_DIR, input.content, input.revision);
+        if (!result.ok) return sendJson(res, result.code === "conflict" ? 409 : 400, { ...result, code: result.code || "invalid" });
+        let only = null;
+        try {
+          const snap = await harnessCache.snapshotCheap();
+          const installed = (snap.harnesses || []).filter((h) => h.installed).map((h) => h.id);
+          if (installed.length) only = installed;
+        } catch {
+          // Unknown install state links everything, as before.
+        }
+        // Bootstrap missing links only on creation. Subsequent edits must keep
+        // providers explicitly set to None disconnected.
+        const reconciled = result.created
+          ? await Context.reconcileAgentsMd(fs, STATE_DIR, { home: CONTEXT_HOME, env: process.env, only })
+          : { ok: true, linked: [], skipped: [], error: null };
+        recordEvent("context.saved", "Saved global AGENTS.md");
+        return sendJson(res, 200, { ok: true, ...result, reconcile: reconciled });
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, error: String(error?.message ?? error).slice(0, 300) });
+      }
+    }
 
     if (req.method === "GET" && route === "/providers") {
       const snap = await providersSnapshot();
