@@ -155,10 +155,18 @@
     return { own, pass: true };
   };
 
+  /**
+   * Whether Setup starts with the palette highlight. It does when no row of
+   * T3's comes before its group, except in T3's virtualized list, where its
+   * group cannot be placed after the Actions rows inside the scroller: there
+   * an Actions heading among T3's results leaves Enter with T3's first row.
+   */
+  const paletteOwnsFirst = ({ before = 0, virtualActions = false } = {}) => before === 0 && !virtualActions;
+
   if (typeof document === 'undefined') {
     globalThis.T3SetupBridge = {
       PROBE_PATHS, isSettingsPath, embedUrl, readHello, badgeText, entryLabel, fromConsole,
-      PALETTE_ITEMS, paletteMatches, paletteStep,
+      PALETTE_ITEMS, paletteMatches, paletteStep, paletteOwnsFirst,
     };
     return;
   }
@@ -580,7 +588,10 @@
   // T3's active row, as T3 draws it: with a forced background class (bg-accent!).
   // Before its first arrow key after a search it has none, though Enter would
   // still take its first row.
-  const theirActive = (rows) => rows.findIndex((row) => /(^|\s)bg-\S+!(\s|$)/.test(row.className));
+  const theirActive = (rows) => {
+    const active = rows.findIndex((row) => row.hasAttribute('data-active'));
+    return active >= 0 ? active : rows.findIndex((row) => /(^|\s)bg-\S+!(\s|$)/.test(row.className));
+  };
   const ourGroup = () => palette.dialog && palette.dialog.querySelector('[data-t3-setup-palette]');
   const subPage = () => {
     const footer = palette.dialog.querySelector('[data-slot="command-footer"]');
@@ -668,6 +679,15 @@
       return Boolean(label) && label.textContent.trim() === 'Actions';
     }) || null;
 
+  // In the virtualized list T3 renders group headings as rows of their own,
+  // with no group element for Setup's to follow. An "Actions" heading there
+  // still means T3's own commands answered the search.
+  const hasVirtualActions = (list) => {
+    if (!list || actionsGroup(list)) return false;
+    return [...list.querySelectorAll('[data-slot="command-group-label"]')]
+      .some((label) => !label.closest('[data-t3-setup-palette]') && label.textContent.trim() === 'Actions');
+  };
+
   /** How many of T3's rows come before Setup's group. */
   const rowsBefore = (group) => theirRows()
     .filter((row) => Boolean(row.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING)).length;
@@ -729,7 +749,9 @@
     });
     palette.dialog.toggleAttribute('data-t3-setup-owns', palette.own >= 0);
     const mine = rows[palette.own];
-    const theirs = theirRows().find((row) => row.hasAttribute('data-highlighted'));
+    const theirRowList = theirRows();
+    const theirs = theirRowList.find((row) => row.hasAttribute('data-active'))
+      || theirRowList.find((row) => row.hasAttribute('data-highlighted'));
     const active = mine ? mine.id : theirs ? theirs.id : '';
     if (active && palette.input.getAttribute('aria-activedescendant') !== active) palette.input.setAttribute('aria-activedescendant', active);
     if (mine) mine.scrollIntoView({ block: 'nearest' });
@@ -762,7 +784,10 @@
     // moment after the search (and vanish while it redraws), so the default
     // follows them until the person moves the highlight.
     if (query !== palette.query || !same) palette.chosen = false;
-    if (!palette.chosen) palette.own = rowsBefore(group) === 0 ? 0 : -1;
+    if (!palette.chosen) {
+      const list = palette.dialog.querySelector('[data-slot="command-list"]');
+      palette.own = paletteOwnsFirst({ before: rowsBefore(group), virtualActions: hasVirtualActions(list) }) ? 0 : -1;
+    }
     palette.items = items;
     palette.query = query;
     paintPalette();
