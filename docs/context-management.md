@@ -60,9 +60,52 @@ Start a new agent session after saving: an existing session may retain the
 instructions it loaded at startup. Project instructions and provider-specific
 precedence still apply.
 
-Only these three native integrations are included. Other providers, project
-editing, skill management, catalogs, URL imports, saved setups and Cursor rule
+Only these three native instruction integrations are included. Project
+instruction editing, catalogs, URL imports, saved setups and Cursor rule
 translation are deferred to separate proposals.
+
+## Global skill inventory
+
+The **Skills** section is a read-only first step toward
+[skill management](skill-management-plan.md). Select Claude Code, Codex,
+OpenCode, Cursor, Grok Build or Muse Code to inspect known global skill folders.
+Nested `SKILL.md` files, compatibility directories, shared files and broken
+links remain distinct installations. OpenCode's flat global Markdown files
+are included too. Environment overrides for Claude, Codex, XDG and Grok roots
+are honored.
+
+**View** opens raw Markdown in a desktop dialog or phone sheet. Copy and
+download preserve its text; skill Markdown is not rendered as HTML or executed.
+Metadata uses a pinned vendored YAML parser, including quoted names and folded
+descriptions. Parse problems, missing targets and oversized files stay visible.
+Content reads are limited to 64 KiB, frontmatter to 16 KiB. Local scans are
+bounded by entry count, depth, skill count, total bytes and elapsed time.
+Truncated or unavailable locations produce visible scan messages.
+
+The managed Codex executable is queried through its App Server using only
+`initialize` and `skills/list`; no conversation or model turn is started.
+Native global/system/admin entries include Enabled/Disabled state. Known local
+files absent from that native result remain Unverified. Native discovery has a
+six-second deadline and a 2 MiB output limit; unsupported or unavailable versions
+fall back to the local list with a reason. Custom T3 provider binaries,
+environments and project/session overrides may produce different inventories.
+
+Other providers currently use local folder discovery and show **Unverified**
+availability. Plugin inventories, configured extra locations and effective
+permission evaluation are not included in those adapters. In particular,
+OpenCode 2's experimental native list returned empty for the research fixtures,
+so it is not treated as an authoritative empty inventory.
+
+Inventory loads when Context opens or its provider changes. **Refresh skills**
+rescans after external changes. Concurrent requests share a lookup and results
+are cached for 15 seconds; regular `/status` polling does not scan skills.
+Bodies load separately through authenticated, discovered-installation IDs.
+Details refuse a link retargeted after discovery. No skill files, provider
+settings or persistence mappings are changed by this first implementation;
+native Codex startup may maintain its own system-skill cache as usual.
+
+Add/edit/remove and native activation controls are the next implementation
+slices. Shared-root persistence must be addressed before those writes ship.
 
 ## Validation
 
@@ -78,7 +121,20 @@ UI audits run against a disposable console, never a user's agent home:
 node scripts/dev-console.mjs --port 23780
 node scripts/context-api-audit.mjs http://127.0.0.1:23780/__setup/ dev
 node scripts/context-ui-audit.js http://127.0.0.1:23780/__setup/ dev
+node scripts/skills-ui-audit.js http://127.0.0.1:23780/__setup/ dev
 ```
+
+The browser audits need `playwright` or `playwright-core` and Chromium. In an
+image with Playwright under `/opt/t3/node_modules`, set
+`NODE_PATH=/opt/t3/node_modules` for these commands. Skill UI checks use response
+fixtures and never change installed skills. Unit/HTTP tests cover bounded
+discovery, native protocol failure, duplicate names, YAML metadata, cache and
+refresh behavior, authentication, unknown IDs, deleted files and retargeted links.
+
+The inventory adapter was also checked with Codex 0.163.0 in a disposable home:
+a native disabled fixture remained listed, its raw content could be read, and
+system skills appeared without any inference request. Other providers' native
+skill activation has not been verified by this implementation.
 
 Runtime discovery was checked on 2026-10-15 with Claude Code 2.1.300,
 Codex 0.162.1 and OpenCode 2.0.29. Each CLI ran in a temporary home, with its

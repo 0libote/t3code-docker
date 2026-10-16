@@ -30,6 +30,7 @@ import { createAntigravity } from "./antigravity.mjs";
 import { createT3Sessions } from "./t3-session.mjs";
 import { createDeviceLabels } from "./device-labels.mjs";
 import * as Context from "./context.mjs";
+import { createSkillsService } from "./skills.mjs";
 import { clientAddress } from "./client-address.mjs";
 import { newKey, readKeyFile, writeKeyFile } from "./setup-key.mjs";
 import { connectState, jsonFrom, parseLinkOutput } from "./connect.mjs";
@@ -498,6 +499,9 @@ const loadStorage = () => {
 // --- global instructions --------------------------------------------------
 const CONTEXT_HOME = process.env.HOME || "/home/t3";
 const contextFs = async () => (await import("node:fs/promises"));
+const skillsService = createSkillsService({ home: CONTEXT_HOME, env: process.env,
+  getHarness: async (provider) => (await harnessCache.snapshotCheap()).harnesses?.find((row) => row.id === provider),
+});
 
 // The browser image's agent browser, as built: the versions are build args the
 // Dockerfile bakes into the environment. Absent on the core image.
@@ -2151,7 +2155,7 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/providers", "/updates/check",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info",
-  "/context/agents-md"];
+  "/context/agents-md", "/context/skills/read", "/context/skills"];
 
 const storageHttpStatus = (result) => result.ok ? 200
   : ["busy", "stale-preview"].includes(result.code) ? 409
@@ -2505,6 +2509,20 @@ const server = createServer(async (req, res) => {
         return sendJson(res, result.ok ? 200 : 404, result);
       } catch (error) {
         return sendJson(res, 400, { error: String(error?.message ?? error) });
+      }
+    }
+
+    // Skill discovery is on demand, never part of /status polling.
+    if (req.method === "GET" && (route === "/context/skills" || route === "/context/skills/read")) {
+      try {
+        const params = raw.searchParams;
+        const result = route === "/context/skills/read"
+          ? await skillsService.read(params.get("provider"), params.get("id"))
+          : await skillsService.list(params.get("provider"), { refresh: params.get("refresh") === "1" });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, too_large: 413 }[error?.code] || 500;
+        return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "Skill discovery is unavailable.").slice(0, 300) });
       }
     }
 
