@@ -4,6 +4,7 @@ const T3SkillsUI = (() => {
   const { html, raw, icon } = Kit;
   const providers = [['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['cursor', 'Cursor'], ['grok', 'Grok Build'], ['muse', 'Muse Code']];
   const stateOf = (skill) => skill.error ? { text: 'Unavailable', tone: 'warn' }
+    : skill.stateAuthority === 'user-policy' ? { text: skill.stateLabel, tone: skill.state === 'off' || skill.state === 'deny' ? '' : 'ok' }
     : skill.native && skill.state === 'enabled' ? { text: 'Enabled', tone: 'ok' }
       : skill.native && skill.state === 'disabled' ? { text: 'Disabled', tone: '' }
         : { text: 'Unverified', tone: '' };
@@ -32,16 +33,17 @@ const T3SkillsUI = (() => {
         ${error ? html`<p class="tc-skill-message tc-danger" role="alert">Could not read skills: ${error}</p>` : ''}
         ${!loading && !error && inventory ? html`
           <p class="tc-skill-message tc-hint">${inventory.coverageText}</p>
-          ${inventory.nativeError ? html`<p class="tc-skill-message tc-hint">Native inventory unavailable: ${inventory.nativeError}</p>` : ''}
+          ${inventory.nativeError ? html`<p class="tc-skill-message tc-hint">Native checks unavailable: ${inventory.nativeError}</p>` : ''}
           ${(inventory.warnings || []).map((warning) => html`<p class="tc-skill-message tc-warning" role="status">${warning}</p>`)}
           <div class="tc-list">${(inventory.skills || []).map((skill) => {
             const status = stateOf(skill);
             return html`<div class="tc-row tc-skill-row" data-key="skill-${skill.id}"><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">${skill.name}</span><span class="tc-badge${status.tone ? ' tc-badge--' + status.tone : ''}">${status.text}</span></div>
               ${skill.description ? html`<p class="tc-small tc-muted tc-skill-description">${skill.description}</p>` : ''}
-              <span class="tc-hint">${skill.source}${skill.metadataError ? ' · Metadata needs attention' : ''}</span></div>
-              <div class="tc-row-actions">${skill.canToggle ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.state" data-id="${skill.id}" aria-label="${skill.state === 'enabled' ? 'Disable' : 'Enable'} ${skill.name} for Codex"${changing ? raw(' disabled') : ''}>${changing?.id === skill.id && changing.provider === provider ? 'Saving…' : skill.state === 'enabled' ? 'Disable' : 'Enable'}</button>` : ''}${skill.canEdit ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.edit" data-id="${skill.id}" aria-label="Edit ${skill.name}">${icon('pencil')}Edit</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.view" data-id="${skill.id}" aria-label="View ${skill.name}">${icon('book-open')}View</button></div></div>`;
+              <span class="tc-hint">${skill.source}${skill.metadataError ? ' · Metadata needs attention' : ''}${skill.effectiveStateText ? ' · ' + skill.effectiveStateText : ''}</span></div>
+              <div class="tc-row-actions">${skill.canSetState ? html`<label class="tc-skill-policy"><span class="tc-hint">${provider === 'claude' ? 'Visibility' : 'Permission'}</span><select class="tc-input" data-skill-policy="${skill.id}" aria-label="${provider === 'claude' ? 'Visibility' : 'Permission'} for ${skill.name}"${changing ? raw(' disabled') : ''}>${skill.stateOptions.map((option) => html`<option value="${option.value}"${option.value === skill.state ? raw(' selected') : ''}>${option.label}</option>`)}</select></label>` : ''}${skill.canToggle ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.state" data-id="${skill.id}" aria-label="${skill.state === 'enabled' ? 'Disable' : 'Enable'} ${skill.name} for Codex"${changing ? raw(' disabled') : ''}>${changing?.id === skill.id && changing.provider === provider ? 'Saving…' : skill.state === 'enabled' ? 'Disable' : 'Enable'}</button>` : ''}${skill.canEdit ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.edit" data-id="${skill.id}" aria-label="Edit ${skill.name}">${icon('pencil')}Edit</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.view" data-id="${skill.id}" aria-label="View ${skill.name}">${icon('book-open')}View</button></div></div>`;
           })}</div>
           ${!inventory.skills?.length ? html`<p class="tc-skill-message tc-muted">${inventory.warnings?.length ? 'No skill entries could be shown. Review the scan messages above.' : 'No skills found in the checked global locations.'}</p>` : ''}
+          ${inventory.coverage === 'policy' ? html`<p class="tc-skill-message tc-hint">User policies apply to every installation with the same ${provider === 'claude' ? 'name' : 'native skill ID'} in this provider. Project, managed and agent settings may further restrict use. Start a new conversation after changing a policy.</p>` : ''}
           ${provider === 'codex' ? html`<p class="tc-skill-message tc-hint">Enable/disable applies to Codex only. Start a new conversation after changing availability; existing conversations may retain loaded instructions.</p>` : ''}
           ${inventory.roots?.length ? html`<details class="tc-skill-locations" data-key="skill-locations"><summary>Checked global folders</summary>${inventory.roots.map((root) => html`<code>${root.path}</code>`)}</details>` : ''}
         ` : ''}
@@ -49,15 +51,16 @@ const T3SkillsUI = (() => {
       <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Refresh after changing skills outside the console. Project and session settings can change what an agent can use. Custom provider environments may use different locations.</span></div>
     </div>`;
     const actions = () => html`${inventory?.canCreate ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.add">${icon('plus')}Add skill</button>` : ''}<button class="tc-btn tc-btn--sm tc-btn--ghost" type="button" data-cmd="skills.refresh"${loading || changing ? raw(' disabled') : ''}>${icon('refresh-cw')}Refresh skills</button>`;
-    const setState = async (id) => {
+    const setState = async (id, state) => {
       const row = inventory?.skills?.find((skill) => skill.id === id);
-      if (!row?.canToggle || loading || changing) return;
-      const selected = provider, enabled = row.state !== 'enabled';
+      if ((!row?.canToggle && !row?.canSetState) || loading || changing) return;
+      const selected = provider, enabled = selected === 'codex' ? row.state !== 'enabled' : undefined;
+      if (row.canSetState && (!row.stateOptions.some((option) => option.value === state) || state === row.state)) return;
       changing = { provider: selected, id }; render();
-      const response = await api('/context/skills/state', { body: { provider: selected, id, stateRevision: row.stateRevision, enabled } });
+      const response = await api('/context/skills/state', { body: { provider: selected, id, stateRevision: row.stateRevision, enabled, state } });
       changing = null;
-      if (response.ok) Kit.toast(enabled ? 'Enabled skill for Codex' : 'Disabled skill for Codex');
-      else Kit.toast('Could not change Codex availability', { tone: 'danger', detail: response.error });
+      if (response.ok) Kit.toast(selected === 'codex' ? enabled ? 'Enabled skill for Codex' : 'Disabled skill for Codex' : 'Saved native skill policy');
+      else Kit.toast('Could not change skill policy', { tone: 'danger', detail: response.error });
       if (provider !== selected) { render(); return; }
       // Supersede any inventory fetched while the settings write was in flight.
       generation++; loading = false;
@@ -70,7 +73,7 @@ const T3SkillsUI = (() => {
       if (viewer?.saving) return;
       viewer?.layer.close('replace');
       const template = (slug) => '---\nname: ' + JSON.stringify(slug || 'my-skill') + '\ndescription: Describe when to use this skill.\n---\n\nWrite the skill instructions here.\n';
-      const current = { provider, row, loading: !creating, data: null, error: null, layer: null, editing, creating, saving: false, slug: '', draft: creating ? template('') : '', generated: true };
+      const current = { provider, row, loading: !creating, data: null, error: null, layer: null, editing, creating, saving: false, slug: '', target: inventory?.creationTargets?.[0]?.id || 'provider', draft: creating ? template('') : '', generated: true };
       const fileName = () => (creating ? current.slug : row.name).replace(/[^a-z0-9-]/gi, '-').slice(0, 64) || 'skill';
       const download = () => downloadMarkdown(fileName() + '.md', current.draft);
       const disabled = (condition) => condition ? raw(' disabled') : '';
@@ -80,8 +83,8 @@ const T3SkillsUI = (() => {
         onClose: () => { if (viewer === current) viewer = null; },
         render: () => html`<div class="tc-sheet-head"><div class="tc-sheet-head-text"><h3 class="tc-sheet-title" id="skill-view-title">${row.name}</h3><span class="tc-small tc-muted">${providers.find(([key]) => key === current.provider)?.[1]} · ${row.source}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-skill-close aria-label="Close"${disabled(current.saving)}>${icon('x')}</button></div>
           <div class="tc-sheet-body">
-            ${creating ? html`<label class="tc-label" for="skill-slug">Folder name</label><input class="tc-input" id="skill-slug" data-key="skill-slug" value="${current.slug}" placeholder="my-skill" maxlength="64" autocapitalize="none" spellcheck="false"${disabled(current.saving)}><p class="tc-hint">Use lowercase letters, numbers and hyphens. The frontmatter name must match.</p>` : html`<div class="tc-skill-meta"><span class="tc-hint">Location</span><code>${current.data?.path || row.path}</code>${(current.data?.resolvedPath || row.resolvedPath) && (current.data?.resolvedPath || row.resolvedPath) !== row.path ? html`<span class="tc-hint">Linked target</span><code>${current.data?.resolvedPath || row.resolvedPath}</code>` : ''}</div>
-            <p class="tc-hint">${stateOf(row).text}${row.invocation === 'manual' ? ' · Manual invocation requested by the skill' : row.invocation === 'model-only' ? ' · User invocation disabled in frontmatter' : ''}. ${row.native ? 'Listed by Codex in the managed setup environment.' : 'File found on disk; provider availability is unverified.'}</p>`}
+            ${creating ? html`${inventory?.creationTargets?.length > 1 ? html`<label class="tc-label" for="skill-target">Location</label><select class="tc-input" id="skill-target"${disabled(current.saving)}>${inventory.creationTargets.map((target) => html`<option value="${target.id}"${current.target === target.id ? raw(' selected') : ''}>${target.name}</option>`)}</select><p class="tc-hint">Shared skills can be used by multiple providers. Editing or removing them affects every provider using the same files.</p>` : ''}<label class="tc-label" for="skill-slug">Folder name</label><input class="tc-input" id="skill-slug" data-key="skill-slug" value="${current.slug}" placeholder="my-skill" maxlength="64" autocapitalize="none" spellcheck="false"${disabled(current.saving)}><p class="tc-hint">Use lowercase letters, numbers and hyphens. The frontmatter name must match.</p>` : html`<div class="tc-skill-meta"><span class="tc-hint">Location</span><code>${current.data?.path || row.path}</code>${(current.data?.resolvedPath || row.resolvedPath) && (current.data?.resolvedPath || row.resolvedPath) !== row.path ? html`<span class="tc-hint">Linked target</span><code>${current.data?.resolvedPath || row.resolvedPath}</code>` : ''}</div>
+            <p class="tc-hint">${stateOf(row).text}${row.invocation === 'manual' ? ' · Manual invocation requested by the skill' : row.invocation === 'model-only' ? ' · User invocation disabled in frontmatter' : ''}. ${row.stateAuthority === 'user-policy' ? 'Native user policy checked by the managed provider. ' + row.effectiveStateText + '. Session rules can differ.' : row.native ? 'Listed by Codex in the managed setup environment.' : 'File found on disk; provider availability is unverified.'}</p>`}
             ${!creating && row.stateReadOnlyReason ? html`<p class="tc-hint">${row.stateReadOnlyReason}</p>` : ''}
             ${row.metadataError ? html`<p class="tc-hint tc-warning">${row.metadataError}</p>` : ''}
             ${current.error ? html`<p class="tc-danger" role="alert">${current.error}</p>` : ''}
@@ -102,6 +105,7 @@ const T3SkillsUI = (() => {
         }
       });
       current.layer.panel.addEventListener('change', async (event) => {
+        if (event.target.id === 'skill-target') { current.target = event.target.value; return; }
         if (event.target.id !== 'skill-file' || !event.target.files?.[0]) return;
         const file = event.target.files[0]; event.target.value = ''; current.loading = true; current.error = null; current.layer.render();
         try { const text = await readMarkdown(file); if (viewer !== current) return; current.draft = text; current.generated = false; }
@@ -124,7 +128,7 @@ const T3SkillsUI = (() => {
             if (!yes || viewer !== current || current.saving) return;
           }
           current.saving = true; current.error = null; current.layer.render();
-          const response = await api('/context/skills/' + (removing ? 'remove' : creating ? 'create' : 'save'), { body: { provider: current.provider, id, slug: current.slug, content: current.draft, revision: current.data?.revision, removalRevision: current.data?.removalRevision } });
+          const response = await api('/context/skills/' + (removing ? 'remove' : creating ? 'create' : 'save'), { body: { provider: current.provider, id, slug: current.slug, target: current.target, content: current.draft, revision: current.data?.revision, removalRevision: current.data?.removalRevision } });
           current.saving = false;
           if (!response.ok) {
             if (viewer === current) { current.error = response.error; current.layer.render(); }

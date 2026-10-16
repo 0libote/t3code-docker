@@ -49,12 +49,22 @@ printf '[user]\n\tname = Ana\n' > "$T3_HOME/.gitconfig"
 mkdir -p "$T3_HOME/.config/muse" "$T3_HOME/.local/share/muse"
 printf '%s' '{"providers":{"meta":{"api_key":"muse-test-key"}}}' > "$T3_HOME/.config/muse/auth.json"
 printf '%s' 'saved Muse session' > "$T3_HOME/.local/share/muse/session-test"
+mkdir -p "$T3_HOME/.agents/skills/local/references"
+printf '%s' 'Shared skill instructions' > "$T3_HOME/.agents/skills/local/SKILL.md"
+printf '%s' 'Supporting reference' > "$T3_HOME/.agents/skills/local/references/guide.md"
+printf '%s' 'Unrelated agent data' > "$T3_HOME/.agents/unrelated"
 # The host's glab sign-in, mounted into the container.
 mkdir -p "$T3_HOME/.config/glab-cli"
 echo "host's" > "$T3_HOME/.config/glab-cli/config.yml"
 MOUNTED="$T3_HOME/.config/glab-cli"
 
 persist_agent_credentials
+
+[ -L "$T3_HOME/.agents/skills" ] && ok "shared skills become a scoped link" || no "shared skills become a scoped link"
+[ ! -L "$T3_HOME/.agents" ] && [ -f "$T3_HOME/.agents/unrelated" ] && ok "the rest of .agents stays in place" || no "the rest of .agents stays in place"
+[ -L "$T3_HOME/.agents/.skill-lock.json" ] && [ ! -e "$T3_HOME/.agents/.skill-lock.json" ] && ok "an absent package lock is linked without inventing JSON" || no "an absent package lock is linked without inventing JSON"
+printf '%s' '{"version":3,"skills":{"tracked":{"source":"owner/repo"}}}' > "$T3_HOME/.agents/.skill-lock.json"
+printf '%s' 'XDG skill metadata' > "$T3_HOME/.local/state/skills/fixture"
 
 [ -L "$T3_HOME/.config/gh" ] && ok "a CLI's directory becomes a link" || no "a CLI's directory becomes a link"
 is "into the state volume" "$STORE/.config_gh" "$(readlink "$T3_HOME/.config/gh")"
@@ -80,6 +90,10 @@ persist_agent_credentials
 is "after a recreate, the sign-in is back" "github.com: {user: ana}" "$(cat "$T3_HOME/.config/gh/hosts.yml")"
 is "Muse credentials survive a recreate" '{"providers":{"meta":{"api_key":"muse-test-key"}}}' "$(cat "$T3_HOME/.config/muse/auth.json")"
 is "Muse sessions survive a recreate" 'saved Muse session' "$(cat "$T3_HOME/.local/share/muse/session-test")"
+is "shared skills survive a recreate" 'Shared skill instructions' "$(cat "$T3_HOME/.agents/skills/local/SKILL.md")"
+is "shared supporting files survive a recreate" 'Supporting reference' "$(cat "$T3_HOME/.agents/skills/local/references/guide.md")"
+is "the package lock survives a recreate" '{"version":3,"skills":{"tracked":{"source":"owner/repo"}}}' "$(cat "$T3_HOME/.agents/.skill-lock.json")"
+is "XDG skills state survives a recreate" 'XDG skill metadata' "$(cat "$T3_HOME/.local/state/skills/fixture")"
 is "and so is git's identity" "Ana" "$(HOME="$T3_HOME" git config --global user.name)"
 is "and its credential helper" '!gh auth git-credential' "$(HOME="$T3_HOME" git config --global credential.https://github.com.helper)"
 
@@ -87,6 +101,15 @@ is "and its credential helper" '!gh auth git-credential' "$(HOME="$T3_HOME" git 
 before="$(cd "$WORK" && find . | sort)"
 persist_agent_credentials
 is "a second run changes nothing" "$before" "$(cd "$WORK" && find . | sort)"
+
+# Shared skills mounted through their parent remain where the host mounted them.
+rm "$T3_HOME/.agents/skills"
+mkdir -p "$T3_HOME/.agents/skills/mounted"
+printf '%s' 'Host skill' > "$T3_HOME/.agents/skills/mounted/SKILL.md"
+MOUNTED="$T3_HOME/.agents"
+persist_agent_credentials
+[ ! -L "$T3_HOME/.agents/skills" ] && ok "a mounted .agents parent is respected" || no "a mounted .agents parent is respected"
+is "mounted shared files remain intact" 'Host skill' "$(cat "$T3_HOME/.agents/skills/mounted/SKILL.md")"
 
 # Turned off: nothing moves.
 rm -rf "$T3_HOME" "$T3CODE_HOME"

@@ -3291,6 +3291,7 @@
   });
   document.addEventListener('change', (e) => {
     if (e.target.id === 'skill-provider') skillsUI.select(e.target.value);
+    if (e.target.hasAttribute('data-skill-policy')) skillsUI.setState(e.target.getAttribute('data-skill-policy'), e.target.value);
   });
 
   // Navigation links keep their hrefs (middle-click, copy link); keyboard

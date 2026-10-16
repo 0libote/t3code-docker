@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createSkillsService } from "../docker/setup/skills.mjs";
+const { createSkillsService } = await import(process.env.T3_SKILLS_MODULE || new URL("../docker/setup/skills.mjs", import.meta.url));
 
 const executable = process.argv[2];
 if (!executable || !path.isAbsolute(executable)) throw new Error("Pass the absolute managed Codex executable path.");
@@ -25,7 +25,7 @@ try {
   for (const file of files) {
     const row = inventory.skills.find((skill) => skill.path === file);
     assert.ok(row, file); assert.equal(row.canToggle, true, JSON.stringify(inventory.warnings));
-    if (file === files[1]) assert.equal(row.canEdit, false, "Shared Markdown remains read-only");
+    if (file === files[1]) assert.equal(row.canEdit, true, "Unmanaged shared Markdown can be edited");
     const disabled = await service.setState("codex", row.id, row.stateRevision, false);
     let fresh = disabled.inventory.skills.find((skill) => skill.id === row.id);
     assert.equal(fresh.state, "disabled");

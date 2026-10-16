@@ -35,8 +35,16 @@ readline.createInterface({input:process.stdin}).on('line', line => {
 });
 `);
   await fs.chmod(executable, 0o700);
+  const claudeExecutable = path.join(home, "fake-claude");
+  await fs.writeFile(claudeExecutable, `#!/usr/bin/env node
+const fs=require('node:fs'),path=require('node:path');
+require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+ const m=JSON.parse(line); const file=path.join(process.env.CLAUDE_CONFIG_DIR,'settings.json');
+ const cfg=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):{};
+ process.stdout.write(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:{claude_code_version:'2.1.302',commands:cfg.skillOverrides?.['api-policy']==='off'?[]:[{name:'api-policy'}]}}})+'\\n');
+});`); await fs.chmod(claudeExecutable, 0o700);
   const harnessModule = path.join(home, "harness.mjs");
-  await fs.writeFile(harnessModule, `export const createHarnessManager = () => ({status:async()=>({harnesses:[{id:'codex',runnable:true,installed:true,executable:${JSON.stringify(executable)}}],degraded:[]})});`);
+  await fs.writeFile(harnessModule, `export const createHarnessManager = () => ({status:async()=>({harnesses:[{id:'codex',runnable:true,installed:true,executable:${JSON.stringify(executable)}},{id:'claude',runnable:true,installed:true,executable:${JSON.stringify(claudeExecutable)}}],degraded:[]})});`);
   const reservation = createServer().listen(0, "127.0.0.1"); await once(reservation, "listening");
   const port = reservation.address().port; await new Promise((resolve) => reservation.close(resolve));
   const child = spawn(process.execPath, [fileURLToPath(new URL("../docker/setup/server.mjs", import.meta.url))], { env: {
@@ -65,7 +73,7 @@ readline.createInterface({input:process.stdin}).on('line', line => {
   assert.equal((await get("/context/skills?provider=__proto__")).status, 400);
   assert.equal((await get("/context/skills")).status, 400);
   const result = await (await get("/context/skills?provider=claude")).json();
-  assert.equal(result.coverage, "files"); assert.equal(result.skills.length, 1);
+  assert.equal(result.coverage, "policy"); assert.equal(result.skills.length, 1);
   const row = result.skills[0]; assert.equal(row.name, "one"); assert.ok(!("content" in row));
   const readPath = "/context/skills/read?provider=claude&id=" + row.id;
   assert.equal((await (await get(readPath + "&path=" + encodeURIComponent(other))).json()).content, markdown);
@@ -108,7 +116,7 @@ readline.createInterface({input:process.stdin}).on('line', line => {
   assert.equal((await post("/context/skills/state", { ...state, enabled: "false" })).status, 400);
   assert.equal((await post("/context/skills/state", { ...state, id: other })).status, 400);
   assert.equal((await post("/context/skills/state", { ...state, stateRevision: null })).status, 409);
-  assert.equal((await post("/context/skills/state", { ...state, provider: "claude" })).status, 403);
+  assert.equal((await post("/context/skills/state", { ...state, provider: "claude" })).status, 400);
   const disabled = await post("/context/skills/state", { ...state, path: other });
   assert.equal(disabled.status, 200);
   const verified = await disabled.json(); assert.equal(verified.enabled, false);
@@ -117,6 +125,21 @@ readline.createInterface({input:process.stdin}).on('line', line => {
   assert.equal((await post("/context/skills/state", { ...state, enabled: true })).status, 409);
   assert.equal((await post("/context/skills/state", { ...state, enabled: true, stateRevision: disabledRow.stateRevision })).status, 200);
   assert.equal(await fs.readFile(other, "utf8"), "Not a skill");
+  const policyMarkdown = "---\nname: api-policy\ndescription: API policy fixture\n---\nFixture.\n";
+  assert.equal((await post("/context/skills/create", { provider: "claude", slug: "api-policy", content: policyMarkdown })).status, 200);
+  let policyRow = (await (await get("/context/skills?provider=claude")).json()).skills.find((row) => row.name === "api-policy");
+  assert.equal(policyRow.canSetState, true); assert.equal(policyRow.stateOptions.length, 4);
+  const policyInput = { provider: "claude", id: policyRow.id, stateRevision: policyRow.stateRevision, state: "off" };
+  assert.equal((await post("/context/skills/state", policyInput, { "sec-fetch-site": "cross-site" })).status, 403);
+  const changedPolicy = await post("/context/skills/state", policyInput); assert.equal(changedPolicy.status, 200);
+  policyRow = (await changedPolicy.json()).inventory.skills.find((row) => row.id === policyRow.id);
+  assert.equal(policyRow.state, "off"); assert.equal(policyRow.effectiveStateText, "Manual command hidden");
+  assert.equal((await post("/context/skills/state", { ...policyInput, state: "on" })).status, 409);
+  assert.equal((await post("/context/skills/state", { ...policyInput, stateRevision: policyRow.stateRevision, state: "name-only" })).status, 200);
+  assert.equal(await fs.readFile(path.join(home, ".claude/skills/api-policy/SKILL.md"), "utf8"), policyMarkdown);
+  const sharedMarkdown = "---\nname: shared-api\ndescription: Shared API fixture\n---\nFixture.\n";
+  assert.equal((await post("/context/skills/create", { provider: "codex", slug: "shared-api", content: sharedMarkdown, target: "shared" })).status, 200);
+  assert.equal(await fs.readFile(path.join(home, ".agents/skills/shared-api/SKILL.md"), "utf8"), sharedMarkdown);
   const html = await (await fetch(base)).text();
   assert.ok(!html.includes(markdown), "skill contents are never inlined into the page");
 });

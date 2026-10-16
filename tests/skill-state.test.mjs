@@ -54,7 +54,7 @@ test("native controls are independent of Markdown ownership and exclude system/a
     { ...f.entries[0], path: plugin, pluginId: "demo" }, { ...f.entries[0], path: "/etc/fixture/SKILL.md", scope: "admin" });
   const listed = await f.service.list("codex");
   const sharedRow = listed.skills.find((row) => row.path === shared);
-  assert.equal(sharedRow.canEdit, false); assert.equal(sharedRow.canToggle, true);
+  assert.equal(sharedRow.canEdit, true); assert.equal(sharedRow.canToggle, true);
   await f.service.setState("codex", sharedRow.id, sharedRow.stateRevision, false);
   for (const row of listed.skills.filter((row) => ![shared, f.file].includes(row.path))) {
     assert.equal(row.canToggle, false); assert.equal(row.stateRevision, null);
@@ -75,7 +75,7 @@ test("stale settings, availability and retargeted links reject writes and requir
   const target = await f.put("other/SKILL.md"); await fs.unlink(f.file); await fs.symlink(target, f.file);
   await assert.rejects(f.service.setState("codex", initial.id, initial.stateRevision, true), { code: "conflict" });
   await assert.rejects(f.service.setState("codex", initial.id, initial.stateRevision, "false"), { code: "invalid" });
-  await assert.rejects(f.service.setState("claude", initial.id, initial.stateRevision, true), { code: "unsupported" });
+  await assert.rejects(f.service.setState("claude", initial.id, initial.stateRevision, true), { code: "invalid" });
   await assert.rejects(f.service.setState("codex", "/arbitrary/path", initial.stateRevision, true), { code: "invalid" });
   await assert.rejects(f.service.setState("codex", "0".repeat(32), initial.stateRevision, true), { code: "missing" });
   assert.equal(f.writes.length, 0);

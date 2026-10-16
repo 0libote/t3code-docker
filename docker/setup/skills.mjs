@@ -7,6 +7,7 @@ import { parseDocument, isMap, isScalar } from "./vendor/yaml.mjs";
 import { listCodexSkills, writeCodexSkillConfig } from "./skills/codex.mjs";
 import { codexConfigPath, configSnapshot, stateRevision, serializeState } from "./skills/state.mjs";
 import { createSkillFileManager, skillRevision } from "./skills/files.mjs";
+import { createSkillPolicies } from "./skills/policies.mjs";
 
 const PROVIDERS = Object.freeze({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok Build", muse: "Muse Code" });
 const DEFAULT_LIMITS = { entries: 2048, skills: 256, depth: 8, bytes: 4 * 1024 * 1024, fileBytes: 64 * 1024, milliseconds: 3000 };
@@ -27,7 +28,7 @@ export function skillRoots(provider, { home, env = {} }) {
   const roots = {
     claude: [own(claude)],
     codex: [own(codex), common, { path: path.join(codex, "skills/.system"), source: "System", scope: "system" }, { path: "/etc/codex/skills", source: "Admin", scope: "admin" }],
-    opencode: [own(path.join(config, "opencode")), compat(path.join(claude, "skills"), "Claude compatibility"), common],
+    opencode: [own(override("OPENCODE_CONFIG_DIR", path.join(config, "opencode"))), compat(path.join(claude, "skills"), "Claude compatibility"), common],
     cursor: [own(path.join(home, ".cursor")), common, compat(path.join(claude, "skills"), "Claude compatibility"), compat(path.join(codex, "skills"), "Codex compatibility")],
     grok: [own(override("GROK_HOME", ".grok")), compat(path.join(claude, "skills"), "Claude compatibility"), common],
     muse: [own(path.join(config, "muse")), common, compat(path.join(claude, "skills"), "Claude compatibility"), compat(path.join(codex, "skills"), "Codex compatibility")],
@@ -140,9 +141,10 @@ export async function scanSkillFiles(provider, options) {
   return { skills: [...rows.values()], roots, warnings: [...warnings] };
 }
 
-export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, getHarness = async () => null, ttlMs = 15000, limits } = {}) {
+export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, inspectClaude, inspectOpenCode, getHarness = async () => null, ttlMs = 15000, limits } = {}) {
   home = path.resolve(home || env.HOME || "/home/t3");
   const cache = new Map();
+  const policies = createSkillPolicies({ home, env, io, getHarness, inspectClaude, inspectOpenCode, invalidate: () => cache.clear() });
   const load = async (provider) => {
     const scanned = await scanSkillFiles(provider, { home, env, io, limits });
     let coverage = "files", nativeError = null, config = null;
@@ -183,9 +185,16 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
         } catch (error) { scanned.warnings.push(summaryError(error)); }
       }
     }
+    if (["claude", "opencode"].includes(provider)) {
+      try {
+        const result = await policies.inspect(provider, scanned.skills);
+        scanned.skills = result.skills; coverage = "policy";
+      } catch (error) { nativeError = summaryError(error); }
+    }
     const policy = await fileManager.policyFor(provider);
-    return { ok: true, provider, canCreate: policy.canCreate, providers: skillProviders(), skills: scanned.skills.map((row) => {
-      const reason = provider !== "codex" ? "Native availability controls are currently supported for Codex."
+    return { ok: true, provider, canCreate: policy.canCreate, creationTargets: policy.creationTargets, providers: skillProviders(), skills: scanned.skills.map((row) => {
+      if (row.stateAuthority === "user-policy") return { ...row, ...policy.capabilities(row) };
+      const reason = provider !== "codex" ? nativeError || "Native policy controls are currently supported for Claude Code and OpenCode; native availability controls for Codex."
         : !row.native ? "Codex has not verified this skill's availability."
           : row.scope !== "user" || row.source === "Plugin" ? "System, admin and plugin availability is managed through its source."
             : row.error || !row.resolvedPath ? "This skill's local file is unavailable."
@@ -194,12 +203,15 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
         stateRevision: !reason ? stateRevision(config, row) : null };
     }).sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
       roots: scanned.roots, coverage, nativeError, warnings: scanned.warnings, scannedAt: Date.now(),
-      coverageText: coverage === "native" ? "Managed Codex inventory in the setup environment, with known local folders included. Project skills are excluded."
+      coverageText: coverage === "policy" ? "Known global skill folders with native user policy settings checked by the managed provider. Project/session and managed policies can further restrict availability."
+        : coverage === "native" ? "Managed Codex inventory in the setup environment, with known local folders included. Project skills are excluded."
         : "Known global skill folders only. Provider availability, plugins and additional configured locations are not verified.",
     };
   };
-  const setState = async (provider, id, revision, enabled) => {
-    if (!Object.hasOwn(PROVIDERS, provider) || typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id) || typeof enabled !== "boolean") throw problem("invalid", "Expected a provider, skill identifier and boolean enabled value.");
+  const setState = async (provider, id, revision, enabled, state) => {
+    if (!Object.hasOwn(PROVIDERS, provider) || typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id)) throw problem("invalid", "Expected a provider and skill identifier.");
+    if (["claude", "opencode"].includes(provider)) return policies.set(provider, () => load(provider), id, revision, state);
+    if (typeof enabled !== "boolean") throw problem("invalid", "Expected a boolean enabled value.");
     if (provider !== "codex") throw problem("unsupported", "Native availability controls are currently supported for Codex.");
     if (typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision)) throw problem("conflict", "Refresh the inventory before changing availability.");
     const settings = codexConfigPath(home, env);

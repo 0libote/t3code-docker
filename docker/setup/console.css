@@ -549,6 +549,8 @@ html.tc-locked { overflow: hidden; }
 .tc-skill-row .tc-row-name { overflow-wrap: anywhere; }
 .tc-skill-row { grid-template-columns: minmax(0, 1fr) auto; }
 .tc-skill-row .tc-row-actions { flex-wrap: wrap; max-width: 205px; justify-content: flex-end; }
+.tc-skill-policy { display: flex; align-items: center; gap: var(--space-2); flex-basis: 100%; }
+.tc-skill-policy .tc-input { min-width: 0; }
 @media (max-width: 479.98px) {
   .tc-skill-row { grid-template-columns: minmax(0, 1fr); }
   .tc-skill-row .tc-row-actions { max-width: none; justify-content: flex-start; }

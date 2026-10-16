@@ -266,11 +266,11 @@ register_projects
 # Whatever you mounted, signing in once stays signed in. The same goes for the
 # source control CLIs T3 Code opens pull requests through: gh, glab, tea, fj
 # and az keep their sign-ins in these.
-AGENT_DIRS=".claude .codex .cursor .grok .config/opencode .local/share/opencode .config/muse .local/share/muse"
+AGENT_DIRS=".claude .codex .cursor .grok .config/opencode .local/share/opencode .config/muse .local/share/muse .agents/skills .local/state/skills"
 AGENT_DIRS="$AGENT_DIRS .config/gh .config/glab-cli .config/tea .local/share/forgejo-cli .azure"
 # And git's own settings: who you commit as, and the credential helpers gh and
 # tea set up so an HTTPS push uses their sign-in. git writes through the link.
-AGENT_FILES=".gitconfig"
+AGENT_FILES=".gitconfig .agents/.skill-lock.json"
 
 persist_agent_credentials() {
   [ "$T3_PERSIST_AGENT_CREDENTIALS" = "1" ] || return 0
@@ -296,7 +296,12 @@ persist_agent_credentials() {
           rm -f "$src"
           log "moved ${rel} onto the state volume"
         fi
-        [ -e "$dst" ] || : > "$dst"
+        # The skills CLI owns its JSON lock format. An absent lock stays absent;
+        # its future write follows the link onto the volume without an empty or
+        # invented JSON document. This does not move the rest of .agents.
+        if [ "$rel" != ".agents/.skill-lock.json" ]; then
+          [ -e "$dst" ] || : > "$dst"
+        fi
         ;;
       *)
         mkdir -p "$dst"

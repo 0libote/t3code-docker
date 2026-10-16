@@ -37,27 +37,33 @@ async function packageNames(io, home, env) {
 
 export async function localSkillPolicy({ provider, roots, home, env, io }) {
   const root = roots[0], packages = await packageNames(io, home, env);
-  const shared = await io.realpath(path.join(home, ".agents/skills")).catch(() => path.join(home, ".agents/skills"));
+  const sharedRoot = roots.find((entry) => entry.source === "Shared .agents");
+  const editableRoots = [root, ...(sharedRoot ? [sharedRoot] : [])];
   const pluginRoots = await Promise.all([
     path.join(path.resolve(home, env.CLAUDE_CONFIG_DIR || ".claude"), "plugins"),
     path.join(path.resolve(home, env.CODEX_HOME || ".codex"), "plugins"),
   ].map((file) => io.realpath(file).catch(() => path.resolve(file))));
   const supported = writableProviders.has(provider);
-  const resolvedRoot = await io.realpath(root.path).catch((error) => error.code === "ENOENT" ? root.path : null);
-  const canCreate = supported && packages !== null && resolvedRoot !== null && resolvedRoot !== shared && !inside(shared, resolvedRoot)
-    && !resolvedRoot.split(path.sep).includes(".system") && !pluginRoots.some((directory) => directory === resolvedRoot || inside(directory, resolvedRoot));
+  const protectedTarget = (file) => file.split(path.sep).includes(".system") || pluginRoots.some((directory) => file === directory || inside(directory, file));
+  const creationTargets = [];
+  for (const entry of editableRoots) {
+    const resolved = await io.realpath(entry.path).catch((error) => error.code === "ENOENT" ? entry.path : null);
+    if (supported && packages !== null && resolved && !protectedTarget(resolved)) creationTargets.push({
+      id: entry === root ? "provider" : "shared", name: entry === root ? "Provider folder" : "Shared .agents folder", path: entry.path,
+    });
+  }
+  const rootFor = (row) => editableRoots.filter((entry) => inside(entry.path, row.path)).sort((a, b) => b.path.length - a.path.length)[0];
   const capabilities = (row) => {
     let reason = null;
     if (!supported) reason = "Local file management is currently available for Claude Code, Codex and OpenCode.";
-    else if (row.scope !== "user" || row.source === "Plugin" || !inside(root.path, row.path)) reason = "Manage this installation through its source provider or package manager.";
+    else if (row.scope !== "user" || row.source === "Plugin" || !rootFor(row)) reason = "Manage this installation through its source provider or package manager.";
     else if (!row.resolvedPath) reason = "The skill's linked target is unavailable.";
-    else if (inside(shared, row.resolvedPath) || row.resolvedPath === shared) reason = "Shared .agents installations are read-only until shared storage management is available.";
-    else if (row.resolvedPath.split(path.sep).includes(".system") || pluginRoots.some((directory) => inside(directory, row.resolvedPath))) reason = "System and plugin skill files are read-only.";
+    else if (protectedTarget(row.resolvedPath)) reason = "System and plugin skill files are read-only.";
     else if (!packages) reason = "The skills package lock could not be checked; local changes are unavailable.";
     else if (packages.has(row.name) || packages.has(path.basename(path.dirname(row.path)))) reason = "This skill is tracked by the skills package manager.";
     return { canEdit: !reason && !row.error, canRemove: !reason && !row.error, readOnlyReason: reason || row.error || null };
   };
-  return { root, canCreate, capabilities };
+  return { root, rootFor, creationTargets, canCreate: creationTargets.length > 0, capabilities };
 }
 
 function validate(content, metadata, slug) {
@@ -113,17 +119,16 @@ export function createSkillFileManager({ home, env, io, rootsFor, metadata, read
     if (!revision || row.revision !== revision) throw fail("conflict", "This skill changed since you opened it. Download your draft and reopen the file.");
     return { row, policy };
   };
-  const create = async (provider, slug, content) => {
+  const create = async (provider, slug, content, target = "provider") => {
+    if (!["provider", "shared"].includes(target)) throw fail("invalid", "Unknown skill destination.");
     if (typeof slug !== "string" || slug.length > 64 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) throw fail("invalid", "Use a folder name of 1–64 lowercase letters, numbers and single hyphens.");
     validate(content, metadata, slug);
     const policy = await policyFor(provider);
-    if (!policy.canCreate) throw fail("unsupported", "New skills are currently supported for Claude Code, Codex and OpenCode.");
-    // A provider's whole skills root can itself be linked to the shared store.
-    await io.mkdir(policy.root.path, { recursive: true });
-    const root = await io.realpath(policy.root.path);
-    const shared = await io.realpath(path.join(home, ".agents/skills")).catch(() => path.join(home, ".agents/skills"));
-    if (root === shared || inside(shared, root)) throw fail("unsupported", "This provider's skills folder points at shared .agents storage, which is read-only in this version.");
-    const caps = policy.capabilities({ path: path.join(policy.root.path, slug, "SKILL.md"), resolvedPath: path.join(root, slug, "SKILL.md"), name: slug, scope: "user", source: "Provider" });
+    const destination = policy.creationTargets.find((entry) => entry.id === target);
+    if (!destination) throw fail("unsupported", "This skill destination is not writable for the selected provider.");
+    await io.mkdir(destination.path, { recursive: true });
+    const root = await io.realpath(destination.path);
+    const caps = policy.capabilities({ path: path.join(destination.path, slug, "SKILL.md"), resolvedPath: path.join(root, slug, "SKILL.md"), name: slug, scope: "user", source: "Provider" });
     if (!caps.canEdit) throw fail("unsupported", caps.readOnlyReason);
     return serialized(path.join(root, slug), async () => {
       const directory = path.join(root, slug);
@@ -131,7 +136,7 @@ export function createSkillFileManager({ home, env, io, rootsFor, metadata, read
       catch (error) { if (error.code === "EEXIST") throw fail("conflict", "A skill with that folder name already exists. Edit it or choose another name."); throw error; }
       try { await publish(io, path.join(directory, "SKILL.md"), content, 0o600, true); }
       catch (error) { await io.rmdir(directory).catch(() => {}); throw error; }
-      invalidate(); return { ok: true, path: path.join(policy.root.path, slug, "SKILL.md") };
+      invalidate(); return { ok: true, path: path.join(destination.path, slug, "SKILL.md") };
     });
   };
   const save = async (provider, id, revision, content) => {
@@ -148,7 +153,7 @@ export function createSkillFileManager({ home, env, io, rootsFor, metadata, read
     const policy = await policyFor(provider);
     if (!policy.capabilities(row).canRemove) return {};
     try {
-      const plan = await removalPlan(io, row, policy.root);
+      const plan = await removalPlan(io, row, policy.rootFor(row));
       return { removalRevision: plan.revision, removalPath: plan.path, removalKind: plan.kind, removalFiles: plan.files, removalLinkedTarget: plan.linked };
     } catch (error) { return { canRemove: false, removalError: error.message }; }
   };
@@ -156,7 +161,7 @@ export function createSkillFileManager({ home, env, io, rootsFor, metadata, read
     const initial = await current(provider, id, revision);
     return serialized(initial.row.resolvedPath, async () => {
       const { row, policy } = await current(provider, id, revision);
-      const plan = await removalPlan(io, row, policy.root);
+      const plan = await removalPlan(io, row, policy.rootFor(row));
       if (!removalRevision || removalRevision !== plan.revision) throw fail("conflict", "This skill or its supporting files changed. Reopen the skill before removing it.");
       const parked = path.join(path.dirname(plan.actual), ".t3-skill-remove-" + randomBytes(12).toString("hex"));
       await io.rename(plan.actual, parked);
@@ -168,7 +173,7 @@ export function createSkillFileManager({ home, env, io, rootsFor, metadata, read
           const stat = await io.lstat(parked);
           const parts = [["", stamp(stat), stat.isSymbolicLink() ? await io.readlink(parked) : ""]];
           same = digest(JSON.stringify(parts)) === plan.revision;
-        } else same = (await removalPlan(io, moved, policy.root)).revision === plan.revision;
+        } else same = (await removalPlan(io, moved, policy.rootFor(row))).revision === plan.revision;
         if (!same) throw fail("conflict", "This skill changed while it was being removed.");
       } catch (error) {
         const occupied = await io.lstat(plan.actual).then(() => true, (check) => check.code !== "ENOENT");

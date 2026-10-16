@@ -23,3 +23,21 @@ SHA-256 of the bundle:
 Metadata extraction inspects scalar nodes directly; it never expands aliases or
 executes custom tags. Inputs are bounded before parsing. Update the pinned
 version, archive checksum, bundle checksum and license together.
+
+## JSONC editor
+
+`jsonc.mjs` bundles Microsoft's `jsonc-parser@3.3.1` (MIT; see `jsonc.LICENSE`).
+It preserves JSONC comments and rule order for OpenCode's native policy edits;
+Claude settings are validated as strict JSON. No runtime dependency installation
+or browser code is added.
+
+Upstream: https://github.com/microsoft/node-jsonc-parser/tree/v3.3.1
+
+```sh
+npm install --prefix /tmp/jsonc-build --no-audit --no-fund jsonc-parser@3.3.1 esbuild@0.25.12
+/tmp/jsonc-build/node_modules/.bin/esbuild /tmp/jsonc-build/node_modules/jsonc-parser/lib/esm/main.js --bundle --format=esm --platform=node --minify --outfile=jsonc.mjs
+```
+
+Bundle SHA-256: `bd0f3ce191c835fbd222afb0e0e416852d0ea1c917406bdd0a609a0b8655f5ef`.
+Inputs are bounded to 1 MiB; invalid syntax, duplicate keys and unsupported
+policy shapes disable controls rather than normalizing away existing settings.

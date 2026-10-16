@@ -24,27 +24,33 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   let gateRead = false, releaseRead, oldReadStarted, readError = false, inventoryError = false;
   let saveError = true, gateSave = false, releaseSave, saveStarted;
   let stateError = true, gateState = false, releaseState, stateStarted, firstEnabled = true;
+  let policies = false;
+  const policyValues = { claude: 'on', opencode: 'allow' };
   const mutations = [];
   const skill = (provider, id, name) => ({ id, name, description: 'A description that is long enough to wrap comfortably on a phone. '.repeat(4),
    path: '/fixture/a-long-global-configuration-directory/skills/' + name + '/SKILL.md',
    resolvedPath: '/fixture/shared-source/skills/' + name + '/SKILL.md', source: 'Shared .agents',
-   native: provider === 'codex', state: id === firstId && firstEnabled ? 'enabled' : 'disabled', bytes: body.length,
+   native: provider === 'codex', state: policies && provider !== 'codex' ? policyValues[provider] : id === firstId && firstEnabled ? 'enabled' : 'disabled', bytes: body.length,
+   ...(policies && provider !== 'codex' ? { stateAuthority: 'user-policy', stateLabel: 'User policy: ' + policyValues[provider], canSetState: true,
+    stateOptions: (provider === 'claude' ? ['on', 'name-only', 'user-invocable-only', 'off'] : ['allow', 'ask', 'deny']).map((value) => ({ value, label: value })), effectiveStateText: 'Native runtime checked' } : {}),
    canToggle: provider === 'codex', stateRevision: 'native-state-revision',
    canEdit: true, canRemove: true, revision: 'fixture-revision', removalRevision: 'fixture-removal', removalKind: 'directory', removalPath: '/fixture/local/review' });
   const inventoryFor = (provider) => ({ ok: true, provider, canCreate: true,
+   creationTargets: [{ id: 'provider', name: 'Provider folder' }, ...(provider === 'codex' || provider === 'opencode' ? [{ id: 'shared', name: 'Shared .agents folder' }] : [])],
    skills: [skill(provider, firstId, 'review'), skill(provider, secondId, 'manual-review')],
-   coverage: provider === 'codex' ? 'native' : 'files', warnings: [], coverageText: provider + ' global skill inventory' });
+   coverage: provider === 'codex' ? 'native' : policies ? 'policy' : 'files', warnings: [], coverageText: provider + ' global skill inventory' });
   await page.route('**/context/skills**', async (route) => {
    const url = new URL(route.request().url()), provider = url.searchParams.get('provider');
    if (route.request().method() === 'POST') {
     const input = route.request().postDataJSON(); mutations.push({ path: url.pathname, input });
     if (url.pathname.endsWith('/state')) {
-     assert.equal(input.provider, 'codex'); assert.equal(input.id, firstId);
-     assert.equal(input.stateRevision, 'native-state-revision'); assert.equal(typeof input.enabled, 'boolean');
+     assert.ok(['claude', 'codex', 'opencode'].includes(input.provider)); assert.equal(input.id, firstId);
+     assert.equal(input.stateRevision, 'native-state-revision');
+     if (input.provider === 'codex') assert.equal(typeof input.enabled, 'boolean'); else assert.equal(typeof input.state, 'string');
      if (gateState) { gateState = false; stateStarted(); await new Promise((resolve) => { releaseState = resolve; }); }
-     if (!stateError) firstEnabled = input.enabled;
+     if (!stateError) { if (input.provider === 'codex') firstEnabled = input.enabled; else policyValues[input.provider] = input.state; }
      await route.fulfill(stateError ? { status: 409, json: { ok: false, error: 'Codex settings changed. Refresh required.' } }
-      : { json: { ok: true, inventory: inventoryFor('codex') } });
+      : { json: { ok: true, inventory: inventoryFor(input.provider) } });
     } else if (url.pathname.endsWith('/save')) {
      assert.equal(input.id, firstId); assert.equal(input.revision, 'fixture-revision');
      if (gateSave) { gateSave = false; saveStarted(); await new Promise((resolve) => { releaseSave = resolve; }); }
@@ -53,7 +59,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
      assert.equal(input.revision, 'fixture-revision'); assert.equal(input.removalRevision, 'fixture-removal');
      await route.fulfill({ json: { ok: true } });
     } else {
-     assert.ok(url.pathname.endsWith('/create')); assert.equal(input.slug, 'added-skill');
+     assert.ok(url.pathname.endsWith('/create')); assert.equal(input.slug, 'added-skill'); assert.equal(input.target, 'shared');
      await route.fulfill({ json: { ok: true } });
     }
     return;
@@ -173,6 +179,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   await page.getByRole('alertdialog').getByRole('button', { name: 'Remove skill', exact: true }).click();
   await page.getByRole('dialog').waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Add skill', exact: true }).click();
+  await page.locator('#skill-target').selectOption('shared');
   await page.locator('#skill-slug').fill('added-skill');
   assert.ok((await page.locator('#skill-content').inputValue()).includes('added-skill'));
   const imported = '---\nname: added-skill\ndescription: Imported Markdown\n---\nKeep this text exactly.\n';
@@ -189,6 +196,21 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   assert.equal(await page.locator('#skill-content').count(), 0);
   assert.equal(await page.locator('[data-skill-download]').isDisabled(), true);
   await page.locator('[data-skill-close]').first().click();
+  policies = true;
+  for (const [nativeProvider, count, chosen] of [['claude', 4, 'off'], ['opencode', 3, 'deny']]) {
+   await page.locator('#skill-provider').selectOption(nativeProvider);
+   await page.locator('[data-skill-policy]').first().waitFor();
+   assert.equal(await page.locator('[data-skill-policy]').first().locator('option').count(), count);
+   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+   gateState = true;
+   const savingPolicy = new Promise((resolve) => { stateStarted = resolve; });
+   await page.locator('[data-skill-policy]').first().selectOption(chosen); await savingPolicy;
+   assert.equal(await page.locator('[data-skill-policy]:disabled').count(), 2);
+   const savedPolicy = page.waitForResponse((response) => response.url().endsWith('/context/skills/state'));
+   releaseState(); await savedPolicy;
+   await page.waitForFunction((expected) => document.querySelector('[data-skill-policy]')?.value === expected && !document.querySelector('[data-skill-policy]').disabled, chosen);
+   assert.ok((await page.locator('.tc-skill-row .tc-badge').first().innerText()).includes(chosen));
+  }
   inventoryError = true;
   const refreshed = page.waitForRequest((request) => request.url().includes('refresh=1'));
   await page.getByRole('button', { name: 'Refresh skills', exact: true }).click(); await refreshed;

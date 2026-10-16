@@ -101,7 +101,7 @@ test("removing file or directory links preserves external targets and their supp
   assert.ok((await fs.stat(link)).isDirectory()); assert.equal(await fs.readFile(target, "utf8"), markdown("linked"));
 });
 
-test("shared, plugin, system and package-owned installations remain read-only", async (t) => {
+test("plugin, system and package-owned installations remain read-only", async (t) => {
   const f = await fixture(t);
   await f.put(".agents/skills/shared/SKILL.md", markdown("shared"));
   await f.put(".codex/skills/.system/system-one/SKILL.md", markdown("system-one"));
@@ -109,13 +109,14 @@ test("shared, plugin, system and package-owned installations remain read-only", 
   await fs.symlink(path.dirname(plugin), path.join(f.home, ".codex/skills/plugin-one"));
   await f.put(".codex/skills/tracked/SKILL.md", markdown("tracked"));
   await f.put(".agents/.skill-lock.json", JSON.stringify({ version: 3, skills: { tracked: { source: "owner/repo" } } }));
-  for (const name of ["shared", "system-one", "plugin-one", "tracked"]) {
+  for (const name of ["system-one", "plugin-one", "tracked"]) {
     const row = await f.read("codex", name); assert.equal(row.canEdit, false, name); assert.equal(row.canRemove, false, name);
     await assert.rejects(f.service.save("codex", row.id, row.revision, markdown(name, "Edit")), { code: "unsupported" });
   }
   await fs.mkdir(path.join(f.home, ".claude")); await fs.symlink(path.join(f.home, ".agents/skills"), path.join(f.home, ".claude/skills"));
-  assert.equal((await f.service.list("claude")).canCreate, false);
-  await assert.rejects(f.service.create("claude", "new", markdown("new")), { code: "unsupported" });
+  assert.equal((await f.service.list("claude")).canCreate, true);
+  await f.service.create("claude", "new", markdown("new"));
+  assert.equal(await fs.readFile(path.join(f.home, ".agents/skills/new/SKILL.md"), "utf8"), markdown("new"));
 });
 
 test("nested installations are editable but cannot be recursively removed by their parent", async (t) => {
@@ -136,4 +137,22 @@ test("a changed staged removal is rolled back without losing the new supporting 
   await assert.rejects(f.service.remove("claude", current.id, current.revision, current.removalRevision), { code: "conflict" });
   assert.equal(await fs.readFile(file, "utf8"), markdown("one"));
   assert.equal(await fs.readFile(path.join(path.dirname(file), "new-reference.md"), "utf8"), "Concurrent addition");
+});
+
+
+test("shared skill creation, edits and removal use the shared root and invalidate every provider view", async (t) => {
+  const f = await fixture(t);
+  assert.deepEqual((await f.service.list("opencode")).creationTargets.map((entry) => entry.id), ["provider", "shared"]);
+  await f.service.create("opencode", "shared-new", markdown("shared-new"), "shared");
+  const file = path.join(f.home, ".agents/skills/shared-new/SKILL.md");
+  let current = await f.read("codex", "shared-new"); assert.equal(current.canEdit, true); assert.equal(current.removalKind, "directory");
+  await f.service.save("codex", current.id, current.revision, markdown("shared-new", "Shared edit"));
+  assert.match((await f.read("opencode", "shared-new")).content, /Shared edit/);
+  assert.match(await fs.readFile(file, "utf8"), /Shared edit/);
+  current = await f.read("opencode", "shared-new");
+  await f.service.remove("opencode", current.id, current.revision, current.removalRevision);
+  assert.ok(!(await f.service.list("codex")).skills.some((row) => row.name === "shared-new"));
+  await fs.stat(path.dirname(path.dirname(file)));
+  await assert.rejects(f.service.create("claude", "new", markdown("new"), "shared"), { code: "unsupported" });
+  await assert.rejects(f.service.create("codex", "new", markdown("new"), "../arbitrary"), { code: "invalid" });
 });

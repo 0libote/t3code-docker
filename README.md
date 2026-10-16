@@ -231,7 +231,10 @@ The **Skills** section lists global skills by provider, with Markdown viewing,
 download and refresh. Claude Code, Codex and OpenCode's own user folders also
 support adding, editing and removing local skills. Managed Codex reports native
 enabled/disabled state and supports verified enable/disable controls for user
-skills. Other providers show known files with unverified availability.
+skills. Claude exposes its four native visibility states; OpenCode exposes
+allow/ask/deny user policies and reports the Build agent's effective rule.
+Unmanaged shared skills can be added, edited and removed from Codex/OpenCode.
+Other providers show known files with unverified availability.
 See [Context management](docs/context-management.md) for paths and verification.
 
 ### Storage management

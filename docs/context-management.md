@@ -66,8 +66,8 @@ translation are deferred to separate proposals.
 
 ## Global skill inventory
 
-The **Skills** section provides inventory and local file management from the
-[skill management plan](skill-management-plan.md). Select Claude Code, Codex,
+The **Skills** section provides inventory and basic local file management.
+Select Claude Code, Codex,
 OpenCode, Cursor, Grok Build or Muse Code to inspect known global skill folders.
 Nested `SKILL.md` files, compatibility directories, shared files and broken
 links remain distinct installations. OpenCode's flat global Markdown files
@@ -90,11 +90,10 @@ six-second deadline and a 2 MiB output limit; unsupported or unavailable version
 fall back to the local list with a reason. Custom T3 provider binaries,
 environments and project/session overrides may produce different inventories.
 
-Other providers currently use local folder discovery and show **Unverified**
-availability. Plugin inventories, configured extra locations and effective
-permission evaluation are not included in those adapters. In particular,
-OpenCode 2's experimental native list returned empty for the research fixtures,
-so it is not treated as an authoritative empty inventory.
+Claude and OpenCode supplement known-folder discovery with native user policies
+and runtime metadata, as described below. Cursor, Grok and Muse still show
+**Unverified** availability. Plugin inventories and configured extra locations
+are outside the basic known-folder inventory.
 
 Inventory loads when Context opens or its provider changes. **Refresh skills**
 rescans after external changes. Concurrent requests share a lookup and results
@@ -110,6 +109,10 @@ Claude Code, Codex and OpenCode's own user skill folders support **Add skill**,
 **Edit** and **Remove**. Add accepts a portable folder name and raw Markdown,
 including upload/paste. The frontmatter name must match the new folder name.
 Existing installation names are never overwritten; new files use mode `0600`.
+Codex and OpenCode also offer a **Shared .agents folder** location when adding
+skills. Unmanaged shared installations can be edited or removed; those changes
+affect every provider using the same files. Claude does not discover this shared
+root automatically, so its Add dialog offers only its provider folder.
 These native directories already participate in the image's agent-home
 persistence when `T3_PERSIST_AGENT_CREDENTIALS` is enabled. Custom locations need
 their own persistent mounts.
@@ -132,13 +135,17 @@ installation cannot be recursively removed from the console. Changes during the
 move trigger rollback; if the original path is occupied, or removal fails, the
 error identifies the preserved entry for manual recovery.
 
-System, plugin, package-tracked, compatibility and shared `.agents` installations
-remain read-only here. A provider root linked to shared or plugin storage also
-cannot create skills. The global skills CLI lock is read only to recognize
+System, plugin, package-tracked and compatibility installations remain read-only
+here; a provider's own root linked to unmanaged shared storage remains editable.
+A root linked to system/plugin storage cannot create skills. The global skills CLI lock is read only to recognize
 package ownership; the console does not edit its lock or create a T3 manifest.
-Oversized/unreadable locks conservatively disable local changes. Shared-root
-persistence remains planned work. These restrictions cover Markdown changes;
-Codex availability controls can still apply to a native user skill stored there.
+Oversized/unreadable locks conservatively disable local changes. When credential
+persistence is enabled, `.agents/skills`, `.local/state/skills` and the optional
+`.agents/.skill-lock.json` are anchored on the state volume. The rest of `.agents`
+stays in place. An absent lock is linked without inventing a JSON document; the
+upstream CLI owns its contents. Existing mounts and symlinks are respected.
+Custom XDG state paths need their own persistent mount. These ownership restrictions
+cover Markdown changes; provider policies can still apply to package-owned skills.
 
 ### Native Codex availability
 
@@ -163,8 +170,45 @@ writes trigger a refresh; they are not automatically rolled back. Native writes
 do not support compare-and-swap, so an external writer can still race the last
 check. Start a new conversation after changing availability: loaded instructions
 can remain in existing conversations, and project/session settings may differ.
-Claude's richer visibility states and OpenCode's version-specific permission
-rules still require runtime verification before exposing native controls.
+
+### Claude visibility and OpenCode permissions
+
+Claude's **Visibility** menu preserves all four native `skillOverrides` states:
+On, Name only, Manual only and Off. The console edits only the selected name in
+the resolved user `settings.json`, requires strict JSON, and preserves unrelated
+settings, file mode and symlinks. Claude silently ignores commented settings
+files, so JSONC is rejected here. Controls require the tested 2.1 interface
+(2.1.260 or newer); unsupported releases retain the known-folder inventory.
+
+A bounded stream-JSON initialization reads Claude's command metadata without a
+user message or model turn. Project settings are excluded, MCP servers are
+disabled for the check, and hooks are disabled through a settings overlay.
+The UI distinguishes the saved **user policy** from whether the manual command
+is actually listed; frontmatter and managed settings can still restrict use.
+Duplicate names share the same native override. Plugin policies stay with the
+plugin manager.
+
+OpenCode's **Permission** menu offers Allowed, Ask before use and Denied. V1 uses
+`permission.skill` by skill name; V2 uses ordered `permissions` rules and native
+path-derived skill IDs. The editor preserves JSONC comments, unrelated policies
+and wildcard rules, and changes an exact rule or appends one after existing
+matches. When both global JSON and JSONC files exist, it edits JSONC, which loads
+last. `OPENCODE_CONFIG_DIR` and XDG config overrides are honored.
+
+V1 verification uses bounded native debug reads with external plugins disabled.
+V2 starts a private loopback metadata server and waits for skill/agent plugins to
+activate before reading inventory. The early empty result from a one-shot API
+request is not authoritative. Only the installation selected by native inventory
+gets a policy control. The UI reports the Build agent's resolved permission
+separately, preserving agent-specific restrictions rather than overriding them.
+Other agents, managed policies and session rules can differ.
+
+Both editors check revisions, serialize writes to the same settings file,
+preserve modes/symlinks and verify through a fresh native process. Invalid syntax,
+duplicate keys or unsupported policy shapes disable controls without rewriting
+settings. A failed verification reports that the policy may already be saved;
+it does not roll back over a possible external change. External applications can
+still race the final check. Start a new conversation to load policy changes.
 
 ## Validation
 
@@ -204,9 +248,15 @@ path (the script creates and removes its own temporary home):
 
 ```sh
 node scripts/skills-native-smoke.mjs /absolute/path/to/codex
+node scripts/skills-policy-smoke.mjs claude /absolute/path/to/claude
+node scripts/skills-policy-smoke.mjs opencode /absolute/path/to/opencode
 ```
 
-Other providers' native skill activation has not been verified by this implementation.
+Claude 2.1.302 and OpenCode 1.19.3/2.0.31 passed native policy checks for every
+supported state, conflicts, fresh-process persistence and untouched skill content.
+OpenCode checks also verify comment preservation. Image smoke tests run these
+scripts against the packaged modules and managed binaries; browser images also
+run the Skills UI audit. Cursor/Grok/Muse native activation remains later work.
 
 Runtime discovery was checked on 2026-10-15 with Claude Code 2.1.300,
 Codex 0.162.1 and OpenCode 2.0.29. Each CLI ran in a temporary home, with its
