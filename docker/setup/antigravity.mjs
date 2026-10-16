@@ -104,8 +104,33 @@ export function createAntigravity({ api, now = Date.now, maxAgeMs = 15_000 }) {
     return antigravityFacts({ provider: snapshot.provider, install: live ?? snapshot.install, error: readError });
   };
 
-  const setEnabled = (enabled) =>
-    api.call("server.updateSettings", { patch: { providers: { antigravity: { enabled } } } });
+  const setEnabled = async (enabled) => {
+    let settings = null;
+    try {
+      settings = await api.call("server.getSettings", {});
+    } catch { /* older T3 still accepts the legacy patch below */ }
+    // T3 0.1.0 retired the `providers` settings map. Its settings answer has
+    // no such key, and enablement is an atomic default-instance mutation.
+    if (settings && typeof settings === "object" && !("providers" in settings)) {
+      const instances = settings.providerInstances && typeof settings.providerInstances === "object"
+        ? settings.providerInstances : {};
+      const existing = instances[INSTANCE] && typeof instances[INSTANCE] === "object" ? instances[INSTANCE] : {};
+      return api.call("server.updateSettings", {
+        patch: {},
+        providerInstanceMutation: {
+          operation: "upsert",
+          instanceId: INSTANCE,
+          instance: {
+            ...existing,
+            driver: existing.driver ?? INSTANCE,
+            enabled,
+            config: existing.config ?? {},
+          },
+        },
+      });
+    }
+    return api.call("server.updateSettings", { patch: { providers: { antigravity: { enabled } } } });
+  };
 
   /**
    * Install the release T3 pins (also how it updates), then wait for T3 to

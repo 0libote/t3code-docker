@@ -156,6 +156,13 @@ test("arrow keys pass through Setup's rows where they sit among T3's", () => {
   assert.deepEqual(last("ArrowDown", -1, 2), [0, false]);
 });
 
+test("Setup does not take the first highlight from T3's virtualized Actions", () => {
+  assert.equal(B.paletteOwnsFirst({ before: 0 }), true);
+  assert.equal(B.paletteOwnsFirst({ before: 2 }), false);
+  assert.equal(B.paletteOwnsFirst({ before: 0, virtualActions: true }), false);
+  assert.equal(B.paletteOwnsFirst({ before: 0, virtualActions: false }), true);
+});
+
 test("the build step injects the bridge once, before </body>, or fails loudly", () => {
   const dir = mkdtempSync(join(tmpdir(), "t3-client-"));
   const shell = join(dir, "index.html");

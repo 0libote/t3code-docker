@@ -145,7 +145,11 @@ const run = async (base) => {
 
     console.log("Pairing");
     await page.goto(base + "/pair#token=" + encodeURIComponent(CREDENTIAL));
-    await page.waitForURL((url) => !url.pathname.startsWith("/pair"), { timeout: 30000 });
+    // T3's root now redirects an unpaired browser to /pair, so the goto above
+    // can be a same-document hash change that never remounts its pairing form.
+    // Reload, as opening the pairing link in a fresh browser would load it.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForURL((url) => !url.pathname.startsWith("/pair"), { timeout: 30000, waitUntil: "commit" });
     await visit(page, base + "/");
     await page.waitForFunction(() => !document.querySelector(".t3-setup-pill"), null, { timeout: 10000 }).catch(() => null);
     expect(await page.locator(".t3-setup-pill").count() === 0, "once paired, the pill leaves T3's own corner alone", page.url());
@@ -254,6 +258,7 @@ const run = async (base) => {
         // T3 draws its highlighted row with a background; Setup's highlight leaves it plain.
         theirLitPainted: lit ? getComputedStyle(lit).backgroundColor !== "rgba(0, 0, 0, 0)" : null,
         first: list ? list.firstElementChild && list.firstElementChild.hasAttribute("data-t3-setup-palette") : null,
+        virtualized: ![...dialog.querySelectorAll('[data-slot="command-group"]')].some((g) => !g.hasAttribute("data-t3-setup-palette")),
         emptyHidden: [...dialog.querySelectorAll("[data-t3-setup-empty] > :not([data-t3-setup-host])")].every((n) => !n.getClientRects().length),
         // A row, as T3's are: the icon beside the text, not above it.
         rowShaped: ours.every((row) => {
@@ -262,6 +267,7 @@ const run = async (base) => {
           return icon.right <= text.left && icon.top < text.bottom && icon.bottom > text.top;
         }),
         active: document.activeElement && document.activeElement.getAttribute("aria-activedescendant"),
+        owns: dialog.hasAttribute("data-t3-setup-owns"),
       };
     });
     const search = async (query, { setupRows = true } = {}) => {
@@ -322,8 +328,8 @@ const run = async (base) => {
     found = await search("open");
     expect(found && found.ours.join() === "setup", "\"open\" finds Open setup, by its title", JSON.stringify(found));
     if (found.theirs) {
-      expect(found.ourLit === -1 && found.first === false && /^base-ui/.test(found.active || ""),
-        "after T3's own Actions, leaving Enter with T3's first result", JSON.stringify(found));
+      expect(found.ourLit === -1 && (found.virtualized || found.first === false) && /^base-ui/.test(found.active || ""),
+        "leaving Enter with T3's first result when its Actions answer", JSON.stringify(found));
     }
     found = await search("open setup");
     expect(found && found.ours.join() === "setup" && found.ourLit === 0, "\"open setup\" is Open setup, highlighted", JSON.stringify(found));

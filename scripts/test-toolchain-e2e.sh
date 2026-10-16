@@ -252,8 +252,11 @@ enable_providers() {
     t="$(mktemp)"
     jq '"'"'
       .providers = (.providers // {}) |
+      .providerInstances = (.providerInstances // {}) |
       reduce ["claudeAgent","codex","opencode","grok","cursor"][] as $d (.;
-        .providers[$d] = ((.providers[$d] // {}) + {enabled: true}))
+        .providers[$d] = ((.providers[$d] // {}) + {enabled: true}) |
+        .providerInstances[$d] = (((.providerInstances[$d] // {driver: $d, config: {}}) + {enabled: true})
+          | .driver = (.driver // $d) | .config = (.config // {})))
     '"'"' "$s" > "$t"
     mv "$t" "$s"'
 }
@@ -410,7 +413,7 @@ if wait_for_all_snapshots 600; then
 else
   no "T3 did not produce all five provider snapshots"
   for id in $IDS; do
-    info "$id snapshot: $(cache_body "$(driver_kind "$id")" | head -c 300)"
+    info "$id snapshot: $(cache_body "$(driver_kind "$id")" | head -c 1200)"
   done
 fi
 
@@ -424,7 +427,7 @@ for id in $IDS; do
   # T3 runs each agent through its launcher, where T3 knows how to update it,
   # and its own Update runs the launcher's update word: the manager's update.
   is "$id T3 runs it through its launcher" "$(launcher_path "$id")" \
-    "$(field ".providers.${d}.binaryPath // empty" "$settings_now")"
+    "$(field ".providerInstances.${d}.config.binaryPath // .providers.${d}.binaryPath // empty" "$settings_now")"
   if [ "$id" = "cursor" ]; then
     # T3 0.0.45 reports no update for Cursor here, launcher or not (its updater
     # was null before launchers too). Its launcher is ready for when it does.
@@ -434,7 +437,12 @@ for id in $IDS; do
     is "$id T3's Update goes through the launcher" "$(launcher_path "$id") $(update_word "$id")" \
       "$(field '.versionAdvisory.updateCommand // ""' "$body")"
     has "$id T3 snapshot reports the managed version" "${VERSION[$id]}" "${T3_VERSION[$id]}"
-    if [ "$id" = "claude" ] || [ "$id" = "codex" ]; then
+    if [ "$id" = "claude" ]; then
+      # The saved Claude credential is deliberately empty. T3 0.1.0 reports
+      # that explicit unauthenticated result as an error snapshot.
+      is "$id T3 snapshot reports the failed sign-in" "error" "$(field '.status // empty' "$body")"
+      is "$id T3 snapshot auth is unauthenticated" "unauthenticated" "$(field '.auth.status // empty' "$body")"
+    elif [ "$id" = "codex" ]; then
       is "$id T3 snapshot is ready" "ready" "$(field '.status // empty' "$body")"
     fi
   fi
@@ -537,7 +545,7 @@ fi
 HASH_BEFORE[claude]="$(exe_hash claude)"
 has "the launcher still runs the recorded version" "${VERSION[claude]}" "$(dex "$claude_launcher" --version 2>&1 | head -1)"
 is "T3 still runs it through the launcher" "$claude_launcher" \
-  "$(field '.providers.claudeAgent.binaryPath // empty' "$(settings_body)")"
+  "$(field '.providerInstances.claudeAgent.config.binaryPath // .providers.claudeAgent.binaryPath // empty' "$(settings_body)")"
 
 section "OpenCode v2 in an isolated home (Stable keeps its v1 provider)"
 opencode_v2_out="$(docker exec -i -u t3 \
@@ -615,7 +623,7 @@ is "opencode no longer resolves an executable" "null" "$(field '.harness.executa
 is "uninstall provider sync succeeded" "true" "$(field '.sync.ok' "$uninstall_out")"
 settings_after="$(settings_body)"
 is "opencode's managed path is retracted from T3 settings" "null" \
-  "$(field '.providers.opencode.binaryPath // null' "$settings_after")"
+  "$(field '.providerInstances.opencode.config.binaryPath // .providers.opencode.binaryPath // null' "$settings_after")"
 is "and its launcher is gone" "no" "$(dex sh -c "test -e '$(launcher_path opencode)' && echo yes || echo no")"
 is "opencode credentials survive uninstall" "e2e-test-key" \
   "$(dex sh -c 'cat /home/t3/.local/share/opencode/auth.json' | jq -r '.anthropic.key')"

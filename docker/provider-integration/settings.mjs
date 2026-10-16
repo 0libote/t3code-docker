@@ -5,17 +5,17 @@
 // file's per-provider `binaryPath`, which the driver spawns verbatim on Linux.
 // Two representations exist:
 //
-//   * `providers.<driverKind>` - the legacy one-instance-per-driver map. T3
-//     hydrates an instance from it when no explicit instance exists, which is
-//     the compatibility shape T3 still reads.
-//   * `providerInstances.<driverKind>.config.binaryPath` - the newer
-//     driver-agnostic map. It wins over the legacy mirror, so an explicit
-//     default instance must be updated too or it would shadow the selection.
+//   * `providers.<driverKind>` - the retired one-instance-per-driver map.
+//     T3 0.1.0 migrates it into `providerInstances` on load and then rewrites
+//     the file without it, so writing it again would only churn. An existing
+//     legacy map is still mirrored for older runtimes that share this file.
+//   * `providerInstances.<driverKind>.config.binaryPath` - the current
+//     driver-agnostic map, keyed here by the default instance id (the driver
+//     kind itself). It wins over any legacy mirror.
 //
-// These helpers never create a `providerInstances` entry: synthesising one
-// would shadow the legacy `enabled` flag and silently change enablement. They
-// edit the legacy map, and any explicit default instance that already exists,
-// preserving every unrelated key.
+// A missing default instance is created from the legacy blob when one exists,
+// carrying its config and explicit `enabled` flag across, so synthesising it
+// cannot silently change enablement. Every unrelated key is preserved.
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
@@ -67,47 +67,64 @@ export function binaryPathsFor(settings, driver) {
 }
 
 /**
- * Point one provider's legacy mirror, and its explicit default instance when
- * one exists, at `executable`. Unrelated keys on both blobs are preserved, and
- * a `binaryPath` someone set themselves is left alone (`kept`).
+ * Point one provider's default instance, and its legacy mirror when that map
+ * is already present, at `executable`. A missing instance is created from the
+ * legacy blob, preserving its other config and explicit enablement. A
+ * `binaryPath` someone set themselves in either representation is left alone
+ * (`kept`), and nothing is changed.
  */
 export function applyManaged(settings, driver, executable, ownership = {}) {
+  const hasLegacyMap = isObject(settings.providers);
+  const providers = hasLegacyMap ? { ...settings.providers } : {};
+  const legacy = isObject(providers[driver]) ? { ...providers[driver] } : {};
+  const instances = settings.providerInstances;
+  const instancesUsable = isObject(instances);
+  const instance = instancesUsable && isObject(instances[driver]) ? instances[driver] : null;
+  const instanceConfig = instance && isObject(instance.config) ? { ...instance.config } : {};
+  const currents = [legacy.binaryPath, instance ? instanceConfig.binaryPath : undefined];
+  if (currents.some((value) => value !== undefined && value !== executable && !replaceable(value, ownership))) {
+    return { settings, changed: false, kept: true };
+  }
+
   let next = settings;
   let changed = false;
-  let kept = false;
+  if (hasLegacyMap && legacy.binaryPath !== executable) {
+    legacy.binaryPath = executable;
+    providers[driver] = legacy;
+    next = { ...next, providers };
+    changed = true;
+  }
 
-  const providers = isObject(settings.providers) ? { ...settings.providers } : {};
-  const legacy = isObject(providers[driver]) ? { ...providers[driver] } : {};
-  if (legacy.binaryPath !== executable) {
-    if (replaceable(legacy.binaryPath, ownership)) {
-      legacy.binaryPath = executable;
-      providers[driver] = legacy;
-      next = { ...next, providers };
+  if (instance) {
+    if (instanceConfig.binaryPath !== executable) {
+      instanceConfig.binaryPath = executable;
+      next = {
+        ...next,
+        providerInstances: { ...instances, [driver]: { ...instance, config: instanceConfig } },
+      };
       changed = true;
-    } else {
-      kept = true;
     }
+  } else if (instances === undefined || instancesUsable) {
+    const config = {};
+    for (const [key, value] of Object.entries(legacy)) {
+      if (key !== "enabled") config[key] = value;
+    }
+    config.binaryPath = executable;
+    next = {
+      ...next,
+      providerInstances: {
+        ...(instancesUsable ? instances : {}),
+        [driver]: {
+          driver,
+          ...(typeof legacy.enabled === "boolean" ? { enabled: legacy.enabled } : {}),
+          config,
+        },
+      },
+    };
+    changed = true;
   }
 
-  const instances = settings.providerInstances;
-  if (isObject(instances) && isObject(instances[driver])) {
-    const instance = instances[driver];
-    const config = isObject(instance.config) ? { ...instance.config } : {};
-    if (config.binaryPath !== executable) {
-      if (replaceable(config.binaryPath, ownership)) {
-        config.binaryPath = executable;
-        next = {
-          ...next,
-          providerInstances: { ...instances, [driver]: { ...instance, config } },
-        };
-        changed = true;
-      } else {
-        kept = true;
-      }
-    }
-  }
-
-  return { settings: next, changed, kept };
+  return { settings: next, changed, kept: false };
 }
 
 /**
