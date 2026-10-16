@@ -4,7 +4,8 @@ import * as fs from "node:fs/promises";
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseDocument, isMap, isScalar } from "./vendor/yaml.mjs";
-import { listCodexSkills } from "./skills/codex.mjs";
+import { listCodexSkills, writeCodexSkillConfig } from "./skills/codex.mjs";
+import { codexConfigPath, configSnapshot, stateRevision, serializeState } from "./skills/state.mjs";
 import { createSkillFileManager, skillRevision } from "./skills/files.mjs";
 
 const PROVIDERS = Object.freeze({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok Build", muse: "Muse Code" });
@@ -139,13 +140,17 @@ export async function scanSkillFiles(provider, options) {
   return { skills: [...rows.values()], roots, warnings: [...warnings] };
 }
 
-export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, getHarness = async () => null, ttlMs = 15000, limits } = {}) {
+export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, getHarness = async () => null, ttlMs = 15000, limits } = {}) {
   home = path.resolve(home || env.HOME || "/home/t3");
   const cache = new Map();
   const load = async (provider) => {
     const scanned = await scanSkillFiles(provider, { home, env, io, limits });
-    let coverage = "files", nativeError = null;
+    let coverage = "files", nativeError = null, config = null;
     if (provider === "codex") {
+      const settings = codexConfigPath(home, env);
+      let before;
+      try { before = await configSnapshot(settings, io); }
+      catch (error) { scanned.warnings.push(summaryError(error)); }
       try {
         const harness = await getHarness(provider);
         if (!harness?.runnable || !harness.executable) throw new Error("A managed Codex executable is not available.");
@@ -170,13 +175,59 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
         scanned.skills = [...byPath.values()];
         if (native.errors.length) scanned.warnings.push("Codex reported " + native.errors.length + " skill discovery error(s).");
       } catch (error) { coverage = "files"; nativeError = summaryError(error); }
+      if (before) {
+        try {
+          const after = await configSnapshot(settings, io);
+          if (before === after) config = after;
+          else scanned.warnings.push("Codex settings changed during discovery. Refresh before changing availability.");
+        } catch (error) { scanned.warnings.push(summaryError(error)); }
+      }
     }
     const policy = await fileManager.policyFor(provider);
-    return { ok: true, provider, canCreate: policy.canCreate, providers: skillProviders(), skills: scanned.skills.map((row) => ({ ...row, ...policy.capabilities(row) })).sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
+    return { ok: true, provider, canCreate: policy.canCreate, providers: skillProviders(), skills: scanned.skills.map((row) => {
+      const reason = provider !== "codex" ? "Native availability controls are currently supported for Codex."
+        : !row.native ? "Codex has not verified this skill's availability."
+          : row.scope !== "user" || row.source === "Plugin" ? "System, admin and plugin availability is managed through its source."
+            : row.error || !row.resolvedPath ? "This skill's local file is unavailable."
+              : !config ? "Refresh after checking native settings before changing availability." : null;
+      return { ...row, ...policy.capabilities(row), canToggle: !reason, stateReadOnlyReason: reason,
+        stateRevision: !reason ? stateRevision(config, row) : null };
+    }).sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
       roots: scanned.roots, coverage, nativeError, warnings: scanned.warnings, scannedAt: Date.now(),
       coverageText: coverage === "native" ? "Managed Codex inventory in the setup environment, with known local folders included. Project skills are excluded."
         : "Known global skill folders only. Provider availability, plugins and additional configured locations are not verified.",
     };
+  };
+  const setState = async (provider, id, revision, enabled) => {
+    if (!Object.hasOwn(PROVIDERS, provider) || typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id) || typeof enabled !== "boolean") throw problem("invalid", "Expected a provider, skill identifier and boolean enabled value.");
+    if (provider !== "codex") throw problem("unsupported", "Native availability controls are currently supported for Codex.");
+    if (typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision)) throw problem("conflict", "Refresh the inventory before changing availability.");
+    const settings = codexConfigPath(home, env);
+    const key = await io.realpath(settings).catch(() => settings);
+    return serializeState(key, async () => {
+      cache.delete(provider);
+      const fresh = await load(provider);
+      const row = fresh.skills.find((skill) => skill.id === id);
+      if (!row) throw problem("missing", "This skill is no longer in the provider inventory. Refresh the list.");
+      if (!row.canToggle) throw problem("unsupported", row.stateReadOnlyReason);
+      if (revision !== row.stateRevision) throw problem("conflict", "Codex settings or this skill changed. Review the refreshed inventory before trying again.");
+      const harness = await getHarness(provider);
+      if (!harness?.runnable || !harness.executable) throw problem("unsupported", "A managed Codex executable is not available.");
+      // Check again immediately before calling the native writer. The provider has
+      // no compare-and-swap API; external writers can still race this last check.
+      const config = await configSnapshot(settings, io);
+      if (revision !== stateRevision(config, row) || await io.realpath(row.path).catch(() => null) !== row.resolvedPath) throw problem("conflict", "Codex settings or this skill link changed. Refresh before trying again.");
+      try {
+        const written = await nativeCodexWrite({ executable: harness.executable, home, env, path: row.path, enabled });
+        if (written?.effectiveEnabled !== enabled) throw new Error("Codex did not confirm the requested availability. Refresh to check its current state.");
+        const verified = await load(provider);
+        const updated = verified.skills.find((skill) => skill.id === id);
+        if (verified.coverage !== "native" || !updated?.native || updated.state !== (enabled ? "enabled" : "disabled")) {
+          throw new Error("Codex may have saved the setting, but its resulting availability could not be verified. Refresh to check its current state.");
+        }
+        return { ok: true, provider, id, enabled, inventory: verified };
+      } finally { cache.delete(provider); }
+    });
   };
   const list = (provider, { refresh = false } = {}) => {
     if (!Object.hasOwn(PROVIDERS, provider)) return Promise.reject(problem("invalid", "Unknown skill provider."));
@@ -202,5 +253,5 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
     return { ...detail, ...await fileManager.removal(provider, detail) };
   };
   const fileManager = createSkillFileManager({ home, env, io, rootsFor: (provider) => skillRoots(provider, { home, env }), metadata: skillMetadata, read, invalidate: () => cache.clear() });
-  return { list, read, create: fileManager.create, save: fileManager.save, remove: fileManager.remove };
+  return { list, read, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove };
 }

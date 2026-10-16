@@ -3037,6 +3037,7 @@
     'skills.view': (a) => skillsUI.view(a.id),
     'skills.add': () => skillsUI.add(),
     'skills.edit': (a) => skillsUI.view(a.id, true),
+    'skills.state': (a) => skillsUI.setState(a.id),
     'storage.goto': () => { go('environment'); requestAnimationFrame(() => $('ev-storage')?.scrollIntoView({ block: 'start', behavior: Kit.REDUCED.matches ? 'auto' : 'smooth' })); },
     refresh: () => { loadStatus(); loadPorts(); },
     goto: (a) => go(a.route),

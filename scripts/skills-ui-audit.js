@@ -23,17 +23,29 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   let inventoryRequests = 0, gateInventory = false, releaseInventory, oldInventoryStarted;
   let gateRead = false, releaseRead, oldReadStarted, readError = false, inventoryError = false;
   let saveError = true, gateSave = false, releaseSave, saveStarted;
+  let stateError = true, gateState = false, releaseState, stateStarted, firstEnabled = true;
   const mutations = [];
   const skill = (provider, id, name) => ({ id, name, description: 'A description that is long enough to wrap comfortably on a phone. '.repeat(4),
    path: '/fixture/a-long-global-configuration-directory/skills/' + name + '/SKILL.md',
    resolvedPath: '/fixture/shared-source/skills/' + name + '/SKILL.md', source: 'Shared .agents',
-   native: provider === 'codex', state: id === firstId ? 'enabled' : 'disabled', bytes: body.length,
+   native: provider === 'codex', state: id === firstId && firstEnabled ? 'enabled' : 'disabled', bytes: body.length,
+   canToggle: provider === 'codex', stateRevision: 'native-state-revision',
    canEdit: true, canRemove: true, revision: 'fixture-revision', removalRevision: 'fixture-removal', removalKind: 'directory', removalPath: '/fixture/local/review' });
+  const inventoryFor = (provider) => ({ ok: true, provider, canCreate: true,
+   skills: [skill(provider, firstId, 'review'), skill(provider, secondId, 'manual-review')],
+   coverage: provider === 'codex' ? 'native' : 'files', warnings: [], coverageText: provider + ' global skill inventory' });
   await page.route('**/context/skills**', async (route) => {
    const url = new URL(route.request().url()), provider = url.searchParams.get('provider');
    if (route.request().method() === 'POST') {
     const input = route.request().postDataJSON(); mutations.push({ path: url.pathname, input });
-    if (url.pathname.endsWith('/save')) {
+    if (url.pathname.endsWith('/state')) {
+     assert.equal(input.provider, 'codex'); assert.equal(input.id, firstId);
+     assert.equal(input.stateRevision, 'native-state-revision'); assert.equal(typeof input.enabled, 'boolean');
+     if (gateState) { gateState = false; stateStarted(); await new Promise((resolve) => { releaseState = resolve; }); }
+     if (!stateError) firstEnabled = input.enabled;
+     await route.fulfill(stateError ? { status: 409, json: { ok: false, error: 'Codex settings changed. Refresh required.' } }
+      : { json: { ok: true, inventory: inventoryFor('codex') } });
+    } else if (url.pathname.endsWith('/save')) {
      assert.equal(input.id, firstId); assert.equal(input.revision, 'fixture-revision');
      if (gateSave) { gateSave = false; saveStarted(); await new Promise((resolve) => { releaseSave = resolve; }); }
      await route.fulfill(saveError ? { status: 409, json: { ok: false, error: 'The skill changed outside the console.' } } : { json: { ok: true } });
@@ -59,8 +71,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
     gateInventory = false; oldInventoryStarted(); await new Promise((resolve) => { releaseInventory = resolve; });
    }
    await route.fulfill(inventoryError ? { status: 500, json: { ok: false, error: 'Fixture inventory unavailable' } }
-    : { json: { ok: true, provider, canCreate: true, skills: [skill(provider, firstId, 'review'), skill(provider, secondId, 'manual-review')],
-     coverage: provider === 'codex' ? 'native' : 'files', warnings: [], coverageText: provider + ' global skill inventory' } });
+    : { json: inventoryFor(provider) });
   });
   await page.goto(base);
   if (await page.locator('input[type="password"]').isVisible()) {
@@ -74,6 +85,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   await page.getByText('claude global skill inventory', { exact: true }).waitFor();
   assert.equal(await page.locator('#skill-provider option').count(), 6);
   assert.equal(await page.locator('.tc-skill-row .tc-badge').first().innerText(), 'Unverified');
+  assert.equal(await page.locator('[data-cmd="skills.state"]').count(), 0);
   const beforeStatus = inventoryRequests;
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await page.waitForResponse((response) => new URL(response.url()).pathname.endsWith('/status'));
@@ -90,6 +102,29 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   await page.locator('#skill-provider').selectOption('codex');
   await page.getByText('codex global skill inventory', { exact: true }).waitFor();
   assert.deepEqual(await page.locator('.tc-skill-row .tc-badge').allTextContents(), ['Enabled', 'Disabled']);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.getByRole('button', { name: 'Disable review for Codex', exact: true }).click();
+  await page.getByText('Codex settings changed. Refresh required.', { exact: true }).waitFor();
+  await page.locator('.tc-toast[data-tone="danger"] [data-toast-close]').click();
+  await page.getByRole('button', { name: 'Disable review for Codex', exact: true }).waitFor();
+  assert.deepEqual(await page.locator('.tc-skill-row .tc-badge').allTextContents(), ['Enabled', 'Disabled']);
+  stateError = false; gateState = true;
+  const stateSaving = new Promise((resolve) => { stateStarted = resolve; });
+  await page.getByRole('button', { name: 'Disable review for Codex', exact: true }).click(); await stateSaving;
+  assert.equal(await page.locator('[data-cmd="skills.state"]:disabled').count(), 2);
+  assert.equal(await page.getByRole('button', { name: 'Refresh skills', exact: true }).isDisabled(), true);
+  assert.deepEqual(await page.locator('.tc-skill-row .tc-badge').allTextContents(), ['Enabled', 'Disabled'], 'no optimistic availability');
+  await page.locator('#skill-provider').selectOption('opencode');
+  await page.getByText('opencode global skill inventory', { exact: true }).waitFor();
+  const stateSaved = page.waitForResponse((response) => response.url().endsWith('/context/skills/state'));
+  releaseState(); await stateSaved;
+  assert.equal(await page.locator('#skill-provider').inputValue(), 'opencode');
+  assert.equal(await page.locator('[data-cmd="skills.state"]').count(), 0, 'late native result must not replace another provider');
+  await page.locator('#skill-provider').selectOption('codex');
+  await page.getByRole('button', { name: 'Enable review for Codex', exact: true }).waitFor();
+  const enabled = page.waitForResponse((response) => response.url().endsWith('/context/skills/state'));
+  await page.getByRole('button', { name: 'Enable review for Codex', exact: true }).click(); await enabled;
+  await page.getByRole('button', { name: 'Disable review for Codex', exact: true }).waitFor();
 
   gateRead = true;
   const readStarted = new Promise((resolve) => { oldReadStarted = resolve; });
@@ -164,7 +199,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   await page.locator('.tc-skill-row').first().waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
-  console.log('PASS Skill inventory and file controls:', theme, width + 'x' + height, embedded ? 'embedded-query fallback' : 'standalone');
+  console.log('PASS Skill inventory, native state and file controls:', theme, width + 'x' + height, embedded ? 'embedded-query fallback' : 'standalone');
   await page.close();
  }
  }

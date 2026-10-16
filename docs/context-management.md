@@ -83,7 +83,7 @@ bounded by entry count, depth, skill count, total bytes and elapsed time.
 Truncated or unavailable locations produce visible scan messages.
 
 The managed Codex executable is queried through its App Server using only
-`initialize` and `skills/list`; no conversation or model turn is started.
+`initialize` and `skills/list` for inventory; no conversation or model turn is started.
 Native global/system/admin entries include Enabled/Disabled state. Known local
 files absent from that native result remain Unverified. Native discovery has a
 six-second deadline and a 2 MiB output limit; unsupported or unavailable versions
@@ -137,7 +137,34 @@ remain read-only here. A provider root linked to shared or plugin storage also
 cannot create skills. The global skills CLI lock is read only to recognize
 package ownership; the console does not edit its lock or create a T3 manifest.
 Oversized/unreadable locks conservatively disable local changes. Shared-root
-persistence and native activation controls remain planned work.
+persistence remains planned work. These restrictions cover Markdown changes;
+Codex availability controls can still apply to a native user skill stored there.
+
+### Native Codex availability
+
+**Enable** and **Disable** appear for user skills verified by the managed Codex
+inventory, including shared and package-tracked user skills. The console sends
+the selected installation's path to Codex's native `skills/config/write` method.
+It changes Codex availability only, leaves Markdown and other providers alone,
+and uses Codex's existing user configuration persistence. System, admin, plugin,
+unavailable and filesystem-only entries do not offer these controls.
+
+Requests carry an opaque revision covering native settings and the selected
+installation/state. The service reloads inventory and checks settings immediately
+before writing, rejects stale requests, and serializes console changes against
+the same config file. Settings reads are bounded to 1 MiB; unsafe or unavailable
+settings leave inventory usable with controls disabled. Configuration contents
+are never included in responses. Codex preserves the configuration through its
+own writer; the console does not parse or rewrite TOML.
+
+Both the write acknowledgement and a freshly started native inventory must
+confirm the requested state before success is reported. Failed or ambiguous
+writes trigger a refresh; they are not automatically rolled back. Native writes
+do not support compare-and-swap, so an external writer can still race the last
+check. Start a new conversation after changing availability: loaded instructions
+can remain in existing conversations, and project/session settings may differ.
+Claude's richer visibility states and OpenCode's version-specific permission
+rules still require runtime verification before exposing native controls.
 
 ## Validation
 
@@ -164,13 +191,22 @@ discovery, native protocol failure, duplicate names, YAML metadata, cache and
 refresh behavior, authentication, unknown IDs, deleted files and retargeted links.
 Local file checks cover add/edit/remove, stale/concurrent saves, permission and
 symlink preservation, supporting-file conflicts, package ownership, failed
-publication and interrupted-removal rollback. Browser checks cover Markdown
-upload, draft recovery, save progress, explicit removal confirmation and errors.
+publication and interrupted-removal rollback. Native control checks cover stale
+settings, native write/verification failures and serialized requests. Browser
+checks cover Markdown upload, draft recovery, save progress, explicit removal
+confirmation, native state failures, busy controls and late provider responses.
 
-The inventory adapter was also checked with Codex 0.163.0 in a disposable home:
-a native disabled fixture remained listed, its raw content could be read, and
-system skills appeared without any inference request. Other providers' native
-skill activation has not been verified by this implementation.
+The adapters were also checked with Codex 0.163.0 in a disposable home. Native
+enable/disable, stale-request rejection, settings persistence across fresh
+processes, shared-file isolation and unrelated configuration/comment preservation
+passed without inference. Reproduce using the installed executable's absolute
+path (the script creates and removes its own temporary home):
+
+```sh
+node scripts/skills-native-smoke.mjs /absolute/path/to/codex
+```
+
+Other providers' native skill activation has not been verified by this implementation.
 
 Runtime discovery was checked on 2026-10-15 with Claude Code 2.1.300,
 Codex 0.162.1 and OpenCode 2.0.29. Each CLI ran in a temporary home, with its

@@ -16,13 +16,34 @@ test("skill endpoints require authentication and only read discovered installati
   const markdown = "---\nname: one\ndescription: Local fixture\n---\nOriginal instructions.\n";
   await fs.writeFile(file, markdown);
   const other = path.join(home, "unrelated.md"); await fs.writeFile(other, "Not a skill");
+  const nativeFile = path.join(home, ".codex/skills/native/SKILL.md");
+  await fs.mkdir(path.dirname(nativeFile), { recursive: true }); await fs.writeFile(nativeFile, markdown);
+  const executable = path.join(home, "fake-codex");
+  await fs.writeFile(executable, `#!/usr/bin/env node
+const fs = require('node:fs'), path = require('node:path'), readline = require('node:readline');
+const config = path.join(process.env.CODEX_HOME, 'config.toml');
+readline.createInterface({input:process.stdin}).on('line', line => {
+ const m = JSON.parse(line); let result;
+ if(m.method === 'initialized') return;
+ if(m.method === 'initialize') result = {};
+ else if(m.method === 'skills/list') result = {data:[{cwd:process.env.HOME,skills:[{path:${JSON.stringify(nativeFile)},name:'native',description:'Native fixture',scope:'user',enabled:!fs.existsSync(config)||!fs.readFileSync(config,'utf8').includes('enabled = false')}],errors:[]}]};
+ else if(m.method === 'skills/config/write') {
+  if(m.params.path !== ${JSON.stringify(nativeFile)}) process.exit(10);
+  fs.writeFileSync(config, 'enabled = ' + m.params.enabled + '\\n'); result = {effectiveEnabled:m.params.enabled};
+ } else process.exit(11);
+ process.stdout.write(JSON.stringify({id:m.id,result})+'\\n');
+});
+`);
+  await fs.chmod(executable, 0o700);
+  const harnessModule = path.join(home, "harness.mjs");
+  await fs.writeFile(harnessModule, `export const createHarnessManager = () => ({status:async()=>({harnesses:[{id:'codex',runnable:true,installed:true,executable:${JSON.stringify(executable)}}],degraded:[]})});`);
   const reservation = createServer().listen(0, "127.0.0.1"); await once(reservation, "listening");
   const port = reservation.address().port; await new Promise((resolve) => reservation.close(resolve));
   const child = spawn(process.execPath, [fileURLToPath(new URL("../docker/setup/server.mjs", import.meta.url))], { env: {
     ...process.env, HOME: home, T3CODE_HOME: path.join(home, ".t3"), T3_WORKSPACE: path.join(home, "workspace"),
     CODEX_HOME: path.join(home, ".codex"), CLAUDE_CONFIG_DIR: path.join(home, ".claude"), XDG_CONFIG_HOME: path.join(home, ".config"),
     MISE_DATA_DIR: path.join(home, ".local/share/mise"), MISE_STATE_DIR: path.join(home, ".local/state/mise"), MISE_CONFIG_DIR: path.join(home, ".config/mise"),
-    T3_SETUP_PORT: String(port), T3_SETUP_KEY: "skills-fixture-key", T3_SETUP_KEY_SOURCE: "env", T3_INFRA_LAUNCHER: "/bin/false", T3CODE_PORT: "1",
+    T3_HARNESS_MODULE: harnessModule, T3_SETUP_PORT: String(port), T3_SETUP_KEY: "skills-fixture-key", T3_SETUP_KEY_SOURCE: "env", T3_INFRA_LAUNCHER: "/bin/false", T3CODE_PORT: "1",
   }, stdio: ["ignore", "pipe", "pipe"] });
   let logs = ""; child.stdout.on("data", (data) => { logs += data; }); child.stderr.on("data", (data) => { logs += data; });
   t.after(async () => {
@@ -79,6 +100,23 @@ test("skill endpoints require authentication and only read discovered installati
   assert.equal((await post("/context/skills/remove", { provider: "claude", id: added.id, revision: detail.revision, removalRevision: detail.removalRevision })).status, 200);
   assert.equal((await get(detailPath)).status, 404);
   assert.equal((await post("/context/skills/create", null)).status, 400);
+  assert.equal((await fetch(base + "/context/skills/state", { method: "POST" })).status, 401);
+  const native = (await (await get("/context/skills?provider=codex")).json()).skills.find((skill) => skill.path === nativeFile);
+  assert.ok(native.canToggle);
+  const state = { provider: "codex", id: native.id, stateRevision: native.stateRevision, enabled: false };
+  assert.equal((await post("/context/skills/state", state, { "sec-fetch-site": "cross-site" })).status, 403);
+  assert.equal((await post("/context/skills/state", { ...state, enabled: "false" })).status, 400);
+  assert.equal((await post("/context/skills/state", { ...state, id: other })).status, 400);
+  assert.equal((await post("/context/skills/state", { ...state, stateRevision: null })).status, 409);
+  assert.equal((await post("/context/skills/state", { ...state, provider: "claude" })).status, 403);
+  const disabled = await post("/context/skills/state", { ...state, path: other });
+  assert.equal(disabled.status, 200);
+  const verified = await disabled.json(); assert.equal(verified.enabled, false);
+  const disabledRow = verified.inventory.skills.find((skill) => skill.id === native.id);
+  assert.equal(disabledRow.state, "disabled");
+  assert.equal((await post("/context/skills/state", { ...state, enabled: true })).status, 409);
+  assert.equal((await post("/context/skills/state", { ...state, enabled: true, stateRevision: disabledRow.stateRevision })).status, 200);
+  assert.equal(await fs.readFile(other, "utf8"), "Not a skill");
   const html = await (await fetch(base)).text();
   assert.ok(!html.includes(markdown), "skill contents are never inlined into the page");
 });

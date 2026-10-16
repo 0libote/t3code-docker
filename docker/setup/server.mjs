@@ -2155,7 +2155,7 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/providers", "/updates/check",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info",
-  "/context/agents-md", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills"];
+  "/context/agents-md", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills"];
 
 const storageHttpStatus = (result) => result.ok ? 200
   : ["busy", "stale-preview"].includes(result.code) ? 409
@@ -2526,14 +2526,15 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    if (req.method === "POST" && ["/context/skills/create", "/context/skills/save", "/context/skills/remove"].includes(route)) {
+    if (req.method === "POST" && ["/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state"].includes(route)) {
       try {
         const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
         if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Expected a skill operation object." });
         const result = route === "/context/skills/create" ? await skillsService.create(input.provider, input.slug, input.content)
           : route === "/context/skills/save" ? await skillsService.save(input.provider, input.id, input.revision, input.content)
-            : await skillsService.remove(input.provider, input.id, input.revision, input.removalRevision);
-        recordEvent("context.saved", route === "/context/skills/remove" ? "Removed a local skill installation" : "Saved a local skill");
+            : route === "/context/skills/state" ? await skillsService.setState(input.provider, input.id, input.stateRevision, input.enabled)
+              : await skillsService.remove(input.provider, input.id, input.revision, input.removalRevision);
+        recordEvent("context.saved", route === "/context/skills/remove" ? "Removed a local skill installation" : route === "/context/skills/state" ? "Changed native skill availability" : "Saved a local skill");
         return sendJson(res, 200, result);
       } catch (error) {
         const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, EEXIST: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || (error instanceof SyntaxError ? 400 : 500);

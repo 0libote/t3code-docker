@@ -5,7 +5,9 @@ This document records the researched implementation plan. The first inventory
 and local-file slices are implemented on `feat/context-skills-inventory`:
 known-root discovery for all six providers, native Codex inventory/state,
 Markdown viewing and add/edit/remove in Claude/Codex/OpenCode's own user skill
-folders. Shared storage and native activation controls remain planned.
+folders. Native Codex enable/disable is also implemented, with fresh discovery,
+settings conflict checks and verified results. Shared storage and the other
+providers' native activation controls remain planned.
 
 ## Recommendation
 
@@ -64,7 +66,10 @@ not model adherence or all Codex versions.
 **Implementation:** a bounded stdio App Server helper, resolved to the installed
 binary, without starting a conversation. Cache results; do not spawn it on each
 status poll. Validate both the write response and a fresh inventory. Keep system
-and plugin content read-only for v1.
+and plugin content read-only for v1. The implemented controls cover native user
+skills only, including shared/package-tracked skills whose content stays read-only.
+`scripts/skills-native-smoke.mjs` verifies disable/re-enable, stale requests,
+fresh-process persistence and configuration preservation against Codex 0.163.0.
 
 ### Claude Code: files plus native visibility settings
 
@@ -215,7 +220,7 @@ GET  /context/skills?provider=codex
 GET  /context/skills/read?id=<opaque installation id>
 POST /context/skills/create       { provider, slug, content }
 POST /context/skills/save         { id, revision, content }
-POST /context/skills/state        { id, configRevision, state }
+POST /context/skills/state        { provider, id, stateRevision, enabled }
 POST /context/skills/remove       { id, revision }
 ```
 
