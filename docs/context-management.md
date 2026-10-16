@@ -195,7 +195,9 @@ and wildcard rules, and changes an exact rule or appends one after existing
 matches. When both global JSON and JSONC files exist, it edits JSONC, which loads
 last. `OPENCODE_CONFIG_DIR` and XDG config overrides are honored.
 
-V1 verification uses bounded native debug reads with external plugins disabled.
+V1 verification uses bounded, sequential native debug reads with external plugins
+disabled. These processes share provider state; concurrent first use can race
+database initialization in a fresh home.
 V2 starts a private loopback metadata server and waits for skill/agent plugins to
 activate before reading inventory. The early empty result from a one-shot API
 request is not authoritative. Only the installation selected by native inventory

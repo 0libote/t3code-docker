@@ -5,7 +5,7 @@ import os from "node:os";
 import * as fs from "node:fs/promises";
 import { createSkillsService } from "../docker/setup/skills.mjs";
 import { parseSettings, userPolicy } from "../docker/setup/skills/policies.mjs";
-import { inspectClaudeSkills } from "../docker/setup/skills/native.mjs";
+import { inspectClaudeSkills, inspectOpenCodeSkills } from "../docker/setup/skills/native.mjs";
 
 async function fixture(t, provider = "claude", major = 2, content = '{\n "env": {"FIXTURE": "preserved"}\n}\n', io = fs) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "t3-skill-policies-"));
@@ -122,4 +122,24 @@ process.stdout.write(JSON.stringify({type:'control_response',response:{subtype:'
   assert.deepEqual(JSON.parse(await fs.readFile(capture, "utf8")).request, { subtype: "initialize" });
   await fs.writeFile(executable, '#!/usr/bin/env node\nsetInterval(()=>{},1000);\n');
   await assert.rejects(inspectClaudeSkills({ executable, home: f.home, env: process.env, timeoutMs: 50 }), /timed out/);
+});
+
+test("OpenCode V1 metadata commands serialize access to shared provider initialization", async (t) => {
+  const f = await fixture(t, "opencode"), executable = path.join(f.home, "fake-opencode");
+  await fs.writeFile(executable, `#!/usr/bin/env node
+const fs = require('node:fs'), path = require('node:path');
+const args = process.argv.slice(2);
+if (args[0] === '--version') { console.log('1.19.2'); process.exit(0); }
+const lock = path.join(process.env.HOME, 'metadata-initializing');
+try { fs.writeFileSync(lock, args.join(' '), {flag:'wx'}); }
+catch { process.stderr.write('Concurrent provider initialization'); process.exit(1); }
+setTimeout(() => {
+ const result = args[1] === 'skill' ? [] : args[1] === 'config' ? {} : {permission:[{permission:'skill',pattern:'*',action:'ask'}]};
+ fs.unlinkSync(lock); console.log(JSON.stringify(result));
+}, 30);
+`); await fs.chmod(executable, 0o700);
+  const result = await inspectOpenCodeSkills({ executable, home: f.home, env: { ...process.env, HOME: f.home } });
+  assert.equal(result.version, "1.19.2");
+  assert.deepEqual(result.agent.permissions, [{ action: "skill", resource: "*", effect: "ask" }]);
+  await assert.rejects(fs.stat(path.join(f.home, "metadata-initializing")), { code: "ENOENT" });
 });

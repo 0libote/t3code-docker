@@ -166,7 +166,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
 `);
   await fs.chmod(executable, 0o700);
   assert.deepEqual(await listCodexSkills({ executable, home: f.home }), { cwd: f.home, skills: [], errors: [] });
-  const malformed = await f.put("malformed", "#!/bin/sh\nprintf 'null\\n'\n"); await fs.chmod(malformed, 0o700);
+  const malformed = await f.put("malformed", "#!/usr/bin/env node\nprocess.stdin.resume();\nprocess.stdin.once('data',()=>{process.stdout.write('null\\n');setTimeout(()=>process.exit(0),200);});\n"); await fs.chmod(malformed, 0o700);
   await assert.rejects(listCodexSkills({ executable: malformed, home: f.home }), /invalid discovery response/);
   const oversized = await f.put("oversized", "#!/usr/bin/env node\nprocess.stdout.write('x'.repeat(10000));\n"); await fs.chmod(oversized, 0o700);
   await assert.rejects(listCodexSkills({ executable: oversized, home: f.home, maxBytes: 100 }), /response limit/);

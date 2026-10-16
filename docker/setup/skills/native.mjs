@@ -67,9 +67,11 @@ export async function inspectOpenCodeSkills(options) {
   options = { ...options, env: { ...options.env, OPENCODE_DISABLE_PROJECT_CONFIG: "1", OPENCODE_DISABLE_MODELS_FETCH: "1" } };
   const version = (await nativeCommand(options, ["--version"])).match(/(?:^|\s|v)(\d+\.\d+\.\d+)\b/)?.[1] || "unknown";
   if (/^1\./.test(version)) {
-    const [skills, config, agent] = await Promise.all([
-      nativeCommand(options, ["debug", "skill", "--pure"]), nativeCommand(options, ["debug", "config", "--pure"]), nativeCommand(options, ["debug", "agent", "build", "--pure"]),
-    ]);
+    // These commands share provider state. In a fresh home concurrent startup
+    // can race SQLite initialization/migrations, particularly on slower hosts.
+    const skills = await nativeCommand(options, ["debug", "skill", "--pure"]);
+    const config = await nativeCommand(options, ["debug", "config", "--pure"]);
+    const agent = await nativeCommand(options, ["debug", "agent", "build", "--pure"]);
     const result = { version, major: 1, skills: JSON.parse(skills), config: JSON.parse(config), agent: JSON.parse(agent) };
     if (!Array.isArray(result.skills) || !result.config || !result.agent) throw new Error("OpenCode returned an invalid native inventory.");
     result.agent.permissions = (result.agent.permission || []).map((rule) => ({ action: rule.permission, resource: rule.pattern, effect: rule.action }));
