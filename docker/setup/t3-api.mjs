@@ -56,6 +56,7 @@ export function createT3Api({
   issueSession,
   revokeSession = async () => {},
   WebSocketImpl = globalThis.WebSocket,
+  fetchImpl = globalThis.fetch,
   now = Date.now,
   callTimeoutMs = 15_000,
   connectTimeoutMs = 5_000,
@@ -67,10 +68,73 @@ export function createT3Api({
   let opening = null;          // a connection on its way, shared
   let nextId = 0;
   let sessionGeneration = 0;
+  let protocolVersion = null;
+  let protocolDiscovery = null;
   let idleTimer = null;
   const pending = new Map();   // requestId -> { resolve, reject, timer } | { onValue, onEnd }
 
   const expiresAtMs = (value) => (Number.isFinite(Date.parse(value)) ? Date.parse(value) : now() + 60 * 60 * 1000);
+
+  // T3 0.1.0 rejects a WebSocket upgrade that does not name the server's
+  // orchestration protocol. Ask the public environment endpoint which one it
+  // speaks, rather than hard-coding a version. Older servers simply report 1.
+  const environmentUrl = () => {
+    try {
+      const target = new URL(url);
+      if (target.protocol === "ws:") target.protocol = "http:";
+      else if (target.protocol === "wss:") target.protocol = "https:";
+      else return null;
+      target.pathname = "/.well-known/t3/environment";
+      target.search = "";
+      target.hash = "";
+      return target.toString();
+    } catch {
+      return null;
+    }
+  };
+
+  const discoverProtocol = async (generation) => {
+    if (protocolVersion !== null) return protocolVersion;
+    protocolDiscovery ??= (async () => {
+      try {
+        const target = environmentUrl();
+        if (!target || typeof fetchImpl !== "function") return null;
+        const response = await fetchImpl(target, {
+          headers: { accept: "application/json" },
+          signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+            ? AbortSignal.timeout(2_000)
+            : undefined,
+        });
+        if (!response?.ok) return null;
+        const body = await response.json();
+        return Number.isSafeInteger(body?.orchestrationProtocolVersion) ? body.orchestrationProtocolVersion : null;
+      } catch {
+        return null;
+      }
+    })();
+    const found = await protocolDiscovery;
+    if (generation !== sessionGeneration) return found;
+    if (found === null) protocolDiscovery = null;
+    else protocolVersion = found;
+    return found;
+  };
+
+  const socketUrl = async (generation) => {
+    try {
+      const target = new URL(url);
+      if (target.searchParams.has("orchestrationProtocol")) return url;
+      const version = await discoverProtocol(generation);
+      if (generation !== sessionGeneration) {
+        throw new T3ApiError("T3 Code restarted while the console was connecting. Retry when it is ready.");
+      }
+      if (version === null) return url;
+      target.searchParams.set("orchestrationProtocol", String(version));
+      return target.toString();
+    } catch (error) {
+      if (error instanceof T3ApiError) throw error;
+      return url;
+    }
+  };
 
   /** A session good for a while yet: issued now, or renewed when its end is near. */
   const ensureSession = async (force = false) => {
@@ -148,9 +212,10 @@ export function createT3Api({
       let lastError = null;
       for (const fresh of [false, true]) {
         const { token } = await ensureSession(fresh);
+        const targetUrl = await socketUrl(sessionGeneration);
         try {
           return await new Promise((resolve, reject) => {
-            const ws = new WebSocketImpl(url, { headers: { authorization: `Bearer ${token}` } });
+            const ws = new WebSocketImpl(targetUrl, { headers: { authorization: `Bearer ${token}` } });
             const timer = setTimeout(() => { try { ws.close(); } catch {} reject(new T3ApiError("T3 Code did not answer")); }, connectTimeoutMs);
             ws.addEventListener("open", () => {
               clearTimeout(timer);
@@ -247,6 +312,6 @@ export function createT3Api({
     settleAll(new T3ApiError("The console closed its connection to T3 Code"));
   };
 
-  const reset = () => { sessionGeneration += 1; close(); session = null; };
+  const reset = () => { sessionGeneration += 1; protocolVersion = null; protocolDiscovery = null; close(); session = null; };
   return { call, subscribe, first, close, reset, sessionId: () => session?.sessionId ?? null };
 }

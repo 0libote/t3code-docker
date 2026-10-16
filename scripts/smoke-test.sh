@@ -702,10 +702,12 @@ check "every agent is runnable at a recorded version" "retry 10 agents_runnable"
 t3_points_at_managed_agents() {
   docker exec -u t3 "$NAME" python3 -c '
 import json, re
-p = json.load(open("/home/t3/.t3/userdata/settings.json")).get("providers", {})
+settings = json.load(open("/home/t3/.t3/userdata/settings.json"))
+p = settings.get("providers", {})
+instances = settings.get("providerInstances", {})
 ok = True
 for d in ("claudeAgent", "codex", "opencode", "grok", "cursor"):
-    path = p.get(d, {}).get("binaryPath", "")
+    path = instances.get(d, {}).get("config", {}).get("binaryPath", "") or p.get(d, {}).get("binaryPath", "")
     ok = ok and path.startswith("/home/t3/.local/share/t3-harness/launchers/") \
         and re.search(r"^exec .?/home/t3/\.local/share/mise/installs/", open(path).read(), re.M) is not None
 raise SystemExit(0 if ok else 1)'
@@ -975,7 +977,7 @@ check "the provider picker offers a catalog the server accepts" provider_catalog
 
 printf '\nAgent lifecycle from the page\n'
 grok_binary_path() {
-  docker exec -u t3 "$NAME" cat /home/t3/.t3/userdata/settings.json | jq -r '.providers.grok.binaryPath // ""'
+  docker exec -u t3 "$NAME" cat /home/t3/.t3/userdata/settings.json | jq -r '.providerInstances.grok.config.binaryPath // .providers.grok.binaryPath // ""'
 }
 
 uninstall_retracts_t3_wiring() {
@@ -1379,11 +1381,15 @@ one_signs_in() {
 check "and signs in there, its cookie scoped to /__setup, and says it is on one port" \
   "retry 5 one_signs_in"
 one_opens_websocket() {
-  docker exec "${NAME}-one" node -e '
+  local protocol ws_url
+  protocol="$(curl -fsS --noproxy '*' --max-time 5 "${ONE_URL}/.well-known/t3/environment" | jq -r '.orchestrationProtocolVersion // empty')" || return 1
+  ws_url="ws://127.0.0.1:8080/ws"
+  [ -n "$protocol" ] && ws_url="${ws_url}?orchestrationProtocol=${protocol}"
+  docker exec -e "T3_WS_URL=${ws_url}" "${NAME}-one" node -e '
     const { execFileSync } = require("node:child_process");
     const out = execFileSync("t3", ["auth", "session", "issue", "--ttl", "5m", "--label", "smoke", "--subject", "smoke-one-port", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
     const { token } = JSON.parse(out.slice(out.indexOf("{")));
-    const ws = new WebSocket("ws://127.0.0.1:8080/ws", { headers: { authorization: `Bearer ${token}` } });
+    const ws = new WebSocket(process.env.T3_WS_URL, { headers: { authorization: `Bearer ${token}` } });
     const timer = setTimeout(() => process.exit(2), 10000);
     ws.addEventListener("open", () => ws.send(JSON.stringify({ _tag: "Ping" })));
     ws.addEventListener("message", (event) => {

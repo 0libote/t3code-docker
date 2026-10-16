@@ -157,10 +157,26 @@ test("applyManaged sets the value without mutating the input", () => {
   assert.equal(next.providers.codex.binaryPath, "/managed/codex");
 });
 
-test("applyManaged does not synthesize a providerInstances entry", () => {
+test("applyManaged creates the default instance without resurrecting the retired providers map", () => {
   const { settings: next } = applyManaged({}, "grok", "/managed/grok");
-  assert.equal(next.providers.grok.binaryPath, "/managed/grok");
-  assert.equal(next.providerInstances, undefined);
+  assert.equal(next.providers, undefined);
+  assert.deepEqual(next.providerInstances.grok, {
+    driver: "grok",
+    config: { binaryPath: "/managed/grok" },
+  });
+});
+
+test("applyManaged carries a legacy blob into a synthesized default instance", () => {
+  const settings = {
+    providers: { grok: { enabled: true, homePath: "/home/t3/.grok" } },
+  };
+  const { settings: next } = applyManaged(settings, "grok", "/managed/grok");
+  assert.equal(next.providers.grok.binaryPath, "/managed/grok", "the legacy mirror stays for older runtimes");
+  assert.deepEqual(next.providerInstances.grok, {
+    driver: "grok",
+    enabled: true,
+    config: { homePath: "/home/t3/.grok", binaryPath: "/managed/grok" },
+  });
 });
 
 test("clearManaged retracts only the exact recorded value", () => {
@@ -569,7 +585,7 @@ test("the CLI resolves, reports exit codes, and syncs through the real file IO",
     const settings = JSON.parse(
       readFileSync(path.join(dir, ".t3", "userdata", "settings.json"), "utf8"),
     );
-    assert.equal(settings.providers.claudeAgent.binaryPath, launched);
+    assert.equal(settings.providerInstances.claudeAgent.config.binaryPath, launched);
 
     // Run as T3 runs it: anything goes to the managed executable, T3's update
     // call to the manager.

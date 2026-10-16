@@ -16,9 +16,12 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 const settle = async (n = 6) => { for (let i = 0; i < n; i += 1) await tick(); };
 
 /** A T3 with one Antigravity provider, an installer and a Google sign-in. */
-function fakeT3({ tokens = new Set(["good"]) } = {}) {
+function fakeT3({ tokens = new Set(["good"]), protocolVersion = 1, settingsFormat = "legacy" } = {}) {
   const t3 = {
     tokens,
+    protocolVersion,
+    settingsFormat,
+    instance: { driver: "antigravity", enabled: false, config: { homePath: "/custom" } },
     sockets: [],
     requests: [],
     acks: 0,
@@ -55,8 +58,17 @@ function fakeT3({ tokens = new Set(["good"]) } = {}) {
     const ok = (value) => answer({ _tag: "Success", value });
     switch (message.tag) {
       case "server.getConfig": return ok({ providers: [provider()] });
+      case "server.getSettings":
+        return ok(t3.settingsFormat === "instance"
+          ? { providerInstances: { antigravity: t3.instance } }
+          : { providers: { antigravity: { enabled: t3.settings.enabled } }, providerInstances: {} });
       case "server.updateSettings":
-        Object.assign(t3.settings, message.payload.patch.providers.antigravity);
+        if (message.payload.providerInstanceMutation?.operation === "upsert") {
+          t3.instance = message.payload.providerInstanceMutation.instance;
+          t3.settings.enabled = t3.instance.enabled;
+        } else if (message.payload.patch?.providers?.antigravity) {
+          Object.assign(t3.settings, message.payload.patch.providers.antigravity);
+        }
         return ok({});
       case "server.refreshProviders": return ok({});
       case "provider.install.subscribe":
@@ -99,9 +111,10 @@ function fakeT3({ tokens = new Set(["good"]) } = {}) {
       this.listeners = {};
       this.closed = false;
       const token = String(headers?.authorization ?? "").replace(/^Bearer /, "");
+      const protocol = new URL(url).searchParams.get("orchestrationProtocol");
       t3.sockets.push(this);
       setImmediate(() => {
-        if (t3.tokens.has(token)) this.emit("open", {});
+        if (t3.tokens.has(token) && (t3.protocolVersion < 2 || protocol === String(t3.protocolVersion))) this.emit("open", {});
         else this.emit("error", {});
       });
     }
@@ -131,6 +144,7 @@ const apiFor = (t3, extra = {}) => {
   const api = createT3Api({
     url: "ws://127.0.0.1:3773/ws",
     WebSocketImpl: t3.WebSocket,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ orchestrationProtocolVersion: t3.protocolVersion }) }),
     issueSession: async () => {
       const token = extra.tokens?.[next] ?? "good";
       next += 1;
@@ -153,6 +167,14 @@ test("a call is a Request answered by an Exit; a failure carries T3's own senten
   await assert.rejects(api.call("no.such.method", {}), /Unknown request tag/);
   assert.deepEqual(issued, ["good"], "one session for the lot");
   assert.equal(t3.sockets.length, 1, "one connection for the lot");
+  api.close();
+});
+
+test("the WebSocket upgrade names the orchestration protocol T3 reports", async () => {
+  const t3 = fakeT3({ protocolVersion: 2 });
+  const { api } = apiFor(t3);
+  await api.call("server.getConfig", {});
+  assert.equal(new URL(t3.sockets[0].url).searchParams.get("orchestrationProtocol"), "2");
   api.close();
 });
 
@@ -274,6 +296,20 @@ test("installing turns Antigravity on, reports T3's download, and finishes with 
   assert.equal(row.enabled, true);
   // Already on the pinned release: T3 answers at once and nothing downloads.
   assert.deepEqual(await ag.install(), { ok: true, code: "installed", version: "1.1.1" });
+  api.close();
+});
+
+test("on instance-only settings, Antigravity enablement mutates the default instance", async () => {
+  const t3 = fakeT3({ settingsFormat: "instance" });
+  t3.install = { ...t3.install, installedVersion: t3.install.version };
+  const { api } = apiFor(t3);
+  const ag = createAntigravity({ api });
+  assert.deepEqual(await ag.install(), { ok: true, code: "installed", version: "1.1.1" });
+  assert.equal(t3.instance.enabled, true);
+  assert.equal(t3.instance.config.homePath, "/custom", "existing instance config survives");
+  assert.deepEqual(await ag.uninstall(), { ok: true, code: "uninstalled" });
+  assert.equal(t3.instance.enabled, false);
+  assert.equal(t3.instance.config.homePath, "/custom");
   api.close();
 });
 
