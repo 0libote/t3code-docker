@@ -1185,9 +1185,6 @@ Issues and pull requests are welcome. Before opening one:
   shared row alignment in both themes across phone, tablet, desktop and
   embedded layouts, including the former Provider updates row as a regression
   fixture. It uses the running console's styles without running any actions.
-  For the live pages in a fresh scratch console, run `scripts/ui-audit.js`
-  with `T3_UI_AUDIT_ROUTES_ONLY=1` to skip overlay/pairing flows that need
-  installed agents and a public URL. `T3_UI_AUDIT_THEME=dark` checks dark mode.
 
 Releases are made from tags. Pushing `vX.Y.Z` builds each image for each
 architecture, tests each one against the exact digest that was pushed, runs the

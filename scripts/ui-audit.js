@@ -17,8 +17,6 @@
  * Code's settings open the console in a dialog.
  *
  * Exits non-zero when it finds something.
- * T3_UI_AUDIT_ROUTES_ONLY=1 checks pages without opening overlays or pairing.
- * T3_UI_AUDIT_THEME=light|dark selects the browser's preferred colour scheme.
  */
 // Runs from a checkout with playwright installed, or inside the browser image,
 // which already carries playwright-core and a chromium for the browser MCP.
@@ -438,7 +436,6 @@ const audit = () => {
       await page.waitForSelector("#page-devices .tc-steps, #page-devices .tc-hint--err", { timeout: 30000 });
     }],
   ];
-  const states = process.env.T3_UI_AUDIT_ROUTES_ONLY === "1" ? STATES.slice(0, ROUTES.length) : STATES;
 
   for (const { url, viewport: [width, height], tag } of RUNS) {
     // Measure a settled page: reduced motion disables the transitions and
@@ -449,7 +446,6 @@ const audit = () => {
       viewport: { width, height },
       deviceScaleFactor: 2,
       reducedMotion: "reduce",
-      colorScheme: process.env.T3_UI_AUDIT_THEME || "light",
     });
     const page = await ctx.newPage();
     // Embedded, the console is in a frame, as in T3 Code's dialog: a host page
@@ -469,7 +465,7 @@ const audit = () => {
       console.log(`  ${label.padEnd(19)} the console in the frame is not embedded, or has no visible close button`);
       found += 1;
     }
-    for (const [state, reach] of states) {
+    for (const [state, reach] of STATES) {
       await reach(target);
       await settle(target);
       const findings = await target.evaluate(audit);
@@ -481,7 +477,7 @@ const audit = () => {
         if (f.where) console.log(`        at ${f.where}`);
       }
     }
-    if (!found) console.log(`  ${label.padEnd(19)} clean (${states.length} states)`);
+    if (!found) console.log(`  ${label.padEnd(19)} clean (${STATES.length} states)`);
     total += found;
     // The link this made is not for anyone; leave no unused link behind.
     await target.evaluate(async () => {
