@@ -126,6 +126,8 @@
   // Where each kind of row's operations live in the API.
   const LIFECYCLE_PATH = { harness: 'harnesses', toolchain: 'toolchains', package: 'packages' };
   const storageUI = T3StorageUI.create({ api, getStatus: () => state.status, reload: () => loadStatus(), render: () => render() });
+  const skillsUI = T3SkillsUI.create({ api, getStatus: () => state.status, render: () => render(),
+    readMarkdown: (file) => readMarkdownFile(file, 64 * 1024), downloadMarkdown: (...args) => downloadMarkdown(...args) });
 
   /** Whether this browser came in on its T3 Code session rather than the key, so Lock would end nothing. */
   const viaT3 = (s) => Boolean(s && s.viewer && s.viewer.via === 't3');
@@ -198,6 +200,7 @@
         loadProvidersOnce();
         tellAttention();
         checkHere();
+        if (state.route === 'context') skillsUI.activate();
       } else if (!locked) {
         // Name the URL and the reason. "Could not read status" sent someone
         // hunting a migration bug when the page was calling the wrong path.
@@ -1238,7 +1241,8 @@
       <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map(contextProviderRow)}</div>
       <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Choose Shared to use the global file, Separate for that provider's own instructions, or None for no instructions. Separate restores its previous file when available, otherwise starts with a copy of the global file. Installed agents and existing instruction files are listed. Start a new agent session after saving.</span></div>
     </div>`)}
-    ${M.contextView(s).error ? notice('danger', 'circle-alert', 'Could not read instructions', M.contextView(s).error) : ''}`;
+    ${M.contextView(s).error ? notice('danger', 'circle-alert', 'Could not read instructions', M.contextView(s).error) : ''}
+    ${section('cx-skills', 'Skills', skillsUI.content(), { actions: skillsUI.actions() })}`;
 
   const downloadMarkdown = (filename, content) => {
     const url = URL.createObjectURL(new Blob([content], { type: 'text/markdown;charset=utf-8' }));
@@ -1472,6 +1476,7 @@
     }
     first = false;
     if (route === 'ports' && !state.ports) loadPorts();
+    if (route === 'context' && state.status) skillsUI.activate();
   };
   window.addEventListener('hashchange', () => show(routeFromHash(), keyboardNav));
   let keyboardNav = false;
@@ -3028,6 +3033,11 @@
     'storage.preferences': () => storageUI.preferences(),
     'storage.versions': () => storageUI.reviewVersions(),
     'storage.details': () => storageUI.toggle(),
+    'skills.refresh': () => skillsUI.refresh(),
+    'skills.view': (a) => skillsUI.view(a.id),
+    'skills.add': () => skillsUI.add(),
+    'skills.edit': (a) => skillsUI.view(a.id, true),
+    'skills.state': (a) => skillsUI.setState(a.id),
     'storage.goto': () => { go('environment'); requestAnimationFrame(() => $('ev-storage')?.scrollIntoView({ block: 'start', behavior: Kit.REDUCED.matches ? 'auto' : 'smooth' })); },
     refresh: () => { loadStatus(); loadPorts(); },
     goto: (a) => go(a.route),
@@ -3278,6 +3288,10 @@
     if (e.target.id !== 'tool-filter') return;
     state.toolFilter = e.target.value;
     render();
+  });
+  document.addEventListener('change', (e) => {
+    if (e.target.id === 'skill-provider') skillsUI.select(e.target.value);
+    if (e.target.hasAttribute('data-skill-policy')) skillsUI.setState(e.target.getAttribute('data-skill-policy'), e.target.value);
   });
 
   // Navigation links keep their hrefs (middle-click, copy link); keyboard

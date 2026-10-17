@@ -30,6 +30,7 @@ import { createAntigravity } from "./antigravity.mjs";
 import { createT3Sessions } from "./t3-session.mjs";
 import { createDeviceLabels } from "./device-labels.mjs";
 import * as Context from "./context.mjs";
+import { createSkillsService } from "./skills.mjs";
 import { clientAddress } from "./client-address.mjs";
 import { newKey, readKeyFile, writeKeyFile } from "./setup-key.mjs";
 import { connectState, jsonFrom, parseLinkOutput } from "./connect.mjs";
@@ -498,6 +499,9 @@ const loadStorage = () => {
 // --- global instructions --------------------------------------------------
 const CONTEXT_HOME = process.env.HOME || "/home/t3";
 const contextFs = async () => (await import("node:fs/promises"));
+const skillsService = createSkillsService({ home: CONTEXT_HOME, env: process.env,
+  getHarness: async (provider) => (await harnessCache.snapshotCheap()).harnesses?.find((row) => row.id === provider),
+});
 
 // The browser image's agent browser, as built: the versions are build args the
 // Dockerfile bakes into the environment. Absent on the core image.
@@ -2151,7 +2155,7 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/providers", "/updates/check",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info",
-  "/context/agents-md"];
+  "/context/agents-md", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills"];
 
 const storageHttpStatus = (result) => result.ok ? 200
   : ["busy", "stale-preview"].includes(result.code) ? 409
@@ -2505,6 +2509,36 @@ const server = createServer(async (req, res) => {
         return sendJson(res, result.ok ? 200 : 404, result);
       } catch (error) {
         return sendJson(res, 400, { error: String(error?.message ?? error) });
+      }
+    }
+
+    // Skill discovery is on demand, never part of /status polling.
+    if (req.method === "GET" && (route === "/context/skills" || route === "/context/skills/read")) {
+      try {
+        const params = raw.searchParams;
+        const result = route === "/context/skills/read"
+          ? await skillsService.read(params.get("provider"), params.get("id"))
+          : await skillsService.list(params.get("provider"), { refresh: params.get("refresh") === "1" });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, too_large: 413 }[error?.code] || 500;
+        return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "Skill discovery is unavailable.").slice(0, 300) });
+      }
+    }
+
+    if (req.method === "POST" && ["/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state"].includes(route)) {
+      try {
+        const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
+        if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Expected a skill operation object." });
+        const result = route === "/context/skills/create" ? await skillsService.create(input.provider, input.slug, input.content, input.target)
+          : route === "/context/skills/save" ? await skillsService.save(input.provider, input.id, input.revision, input.content)
+            : route === "/context/skills/state" ? await skillsService.setState(input.provider, input.id, input.stateRevision, input.enabled, input.state)
+              : await skillsService.remove(input.provider, input.id, input.revision, input.removalRevision);
+        recordEvent("context.saved", route === "/context/skills/remove" ? "Removed a local skill installation" : route === "/context/skills/state" ? "Changed native skill availability" : "Saved a local skill");
+        return sendJson(res, 200, result);
+      } catch (error) {
+        const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, EEXIST: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || (error instanceof SyntaxError ? 400 : 500);
+        return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "The skill operation failed.").slice(0, 500) });
       }
     }
 
