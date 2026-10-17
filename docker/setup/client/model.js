@@ -1519,6 +1519,7 @@ const T3Model = (() => {
         { meta: { text: plural(toolUpdates + packageUpdates, 'update') } });
     }
     add('Actions', 'Check for updates now', 'refresh-cw', { cmd: 'updates.check' });
+    add('Actions', 'Automatic updates…', 'settings-2', { cmd: 'auto.settings' }, { keywords: 'auto update idle schedule providers t3' });
     add('Actions', 'Open T3 Code', 'external-link', { cmd: 'open.t3' });
     add('Actions', 'Theme: light', 'sun', { cmd: 'theme', mode: 'light' });
     add('Actions', 'Theme: dark', 'moon', { cmd: 'theme', mode: 'dark' });
@@ -1682,6 +1683,36 @@ const T3Model = (() => {
     }));
   };
 
+  // Smart auto-update: the policy and last run state from /status, as the
+  // Agents page header and the T3 Code updates card render them. Pure, so the
+  // same labels are testable without a browser.
+  const autoUpdateView = (status, now) => {
+    const auto = status?.autoUpdate || {};
+    const policy = auto.policy || { providers: { enabled: false }, t3: { enabled: false } };
+    const state = auto.state || {};
+    const idleMs = (at) => (Number.isFinite(at) && at > 0 ? Math.max(0, now - at) : null);
+    const fmtIdle = (at) => {
+      const ms = idleMs(at);
+      if (ms === null) return "no activity seen yet";
+      if (ms < 60_000) return "active just now";
+      return relTime(at, now);
+    };
+    const kindLine = (kind) => (!kind?.enabled ? "Off"
+      : `On · check every ${kind.checkMinutes >= 60 && kind.checkMinutes % 60 === 0 ? (kind.checkMinutes / 60) + "h" : kind.checkMinutes + "m"} · update after ${kind.idleMinutes}m idle`);
+    return {
+      policy, state,
+      providersLine: kindLine(policy.providers),
+      t3Line: kindLine(policy.t3),
+      anyEnabled: Boolean(policy.providers?.enabled || policy.t3?.enabled),
+      lastActivity: auto.lastActivityAt || null,
+      lastActivityText: "Last activity " + fmtIdle(auto.lastActivityAt),
+      busy: auto.busy || null,
+      providerCheck: state.lastProviderCheckAt ? "Providers checked " + relTime(state.lastProviderCheckAt, now) : "Providers not checked yet",
+      t3Check: state.lastT3CheckAt ? "T3 Code checked " + relTime(state.lastT3CheckAt, now) : null,
+      lastResult: state.lastResult || null,
+    };
+  };
+
   return {
     AGENTS, TOOLCHAINS, SOURCE_CONTROL, DONE, WORKING, FAILED,
     compareVersions, isNewer,
@@ -1693,7 +1724,7 @@ const T3Model = (() => {
     readiness, readySummary, needsYou, activity, setupBanner,
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
-    navBadges, attentionCount, summaries, runtimeView,
+    navBadges, attentionCount, summaries, runtimeView, autoUpdateView,
     paletteItems, searchPalette,
     redactedDiagnostics, storageView,
   };

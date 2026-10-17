@@ -37,6 +37,7 @@ import { connectState, jsonFrom, parseLinkOutput } from "./connect.mjs";
 import {
   checkReaches, clearSaved, parsePublicUrl, platformUrl, readSaved, resolvePublicUrl, writeSaved,
 } from "./public-url.mjs";
+import * as AutoUpdate from "./auto-update.mjs";
 
 const run = promisify(execFile);
 const gzip = promisify(gzipCallback);
@@ -375,6 +376,36 @@ const events = [];
 const recordEvent = (kind, text, detail = null) => {
   events.unshift({ at: Date.now(), kind, text, ...(detail ? { detail } : {}) });
   if (events.length > EVENT_LIMIT) events.length = EVENT_LIMIT;
+};
+
+// --- smart auto-update -------------------------------------------------------
+//
+// Opt-in background updates for providers and T3 Code. The policy lives on
+// the state volume (`setup/auto-update.json`); the last check/run times live
+// beside it. Activity is any authed request to this service (an open console
+// polling /status counts, and so does a T3 Code client asking /hello), plus
+// lifecycle/runtime work in flight. An update runs only after `idleMinutes`
+// without any of that. Agent turns inside T3 Code are not directly visible
+// here, so idle tracks client activity, not turn activity.
+let autoPolicy = AutoUpdate.normalizePolicy(null);
+let autoState = { lastProviderCheckAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastT3RunAt: null, lastResult: null };
+let lastActivityAt = Date.now();
+let autoTickRunning = false;
+const noteActivity = () => { lastActivityAt = Date.now(); };
+try {
+  const { readFile } = await import("node:fs/promises");
+  autoPolicy = await AutoUpdate.readPolicy({ readFile }, STATE_DIR);
+  autoState = await AutoUpdate.readUpdateState({ readFile }, STATE_DIR);
+} catch { /* defaults stand */ }
+const autoBusyReason = async () => {
+  const runtimeSeen = runtimeOperation?.() ?? null;
+  const setup = await loadHarness().then((manager) => harnessModule.readPreinstall({ stateDir: manager.paths.stateDir })).catch(() => null);
+  return AutoUpdate.busyReason({
+    lifecycleActive: Boolean(active) || [...operations.values()].some((op) => op.state === "running"),
+    lifecycleQueued: queue.length,
+    runtimeBusy: Boolean(runtimeSeen && runtimeModule.operationBusy(runtimeSeen)),
+    setupRunning: setup?.state === "running",
+  });
 };
 
 // --- background facts --------------------------------------------------------
@@ -912,6 +943,12 @@ const status = async () => {
       .map(([kind, { value, ...cache }]) => [kind, { ...cache, available: value !== null }])),
     events,
     degraded,
+    autoUpdate: {
+      policy: autoPolicy,
+      state: autoState,
+      lastActivityAt,
+      busy: await autoBusyReason().catch(() => null),
+    },
   };
 };
 
@@ -2148,6 +2185,7 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/storage/versions/prune", "/storage/versions", "/storage/refresh", "/storage/clean", "/storage/policy", "/storage",
   "/public-url/clear", "/public-url", "/setup-key/reveal", "/setup-key/replace", "/connect/unlink", "/t3/restart",
   "/t3/updates/check", "/t3/update", "/ports/expose", "/ports/unexpose",
+  "/auto-update", "/auto-update/policy",
   "/harnesses/install", "/harnesses/update", "/harnesses/uninstall", "/harnesses/cancel", "/harnesses/versions", "/harnesses/enable", "/harnesses",
   "/toolchains/install", "/toolchains/update", "/toolchains/uninstall", "/toolchains/cancel",
   "/auth/apikey/remove", "/auth/apikey", "/auth/signin", "/auth/session", "/auth/code", "/auth/cancel",
@@ -2156,6 +2194,93 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info",
   "/context/agents-md", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills"];
+
+// One background pass for the opt-in auto-updater. Checks are cheap and
+// always safe; installs run only when enabled, an update is known, and
+// nobody has been active for the configured idle time. Provider updates go
+// through the same queue/lock as button presses, one at a time; the T3 Code
+// update goes through the runtime manager, staying on the selected channel.
+const autoTick = async () => {
+  if (autoTickRunning) return;
+  autoTickRunning = true;
+  try {
+    const now = Date.now();
+    const busy = await autoBusyReason().catch(() => "checks unavailable");
+    const persist = async (patch) => {
+      try {
+        const { writeFile, mkdir } = await import("node:fs/promises");
+        autoState = await AutoUpdate.writeUpdateState({ readFile: (await import("node:fs/promises")).readFile, writeFile, mkdir }, STATE_DIR, patch);
+      } catch { autoState = { ...autoState, ...patch }; }
+    };
+    // Providers: refresh the known newest releases when due.
+    if (autoPolicy.providers.enabled && AutoUpdate.checkDue({ checkMinutes: autoPolicy.providers.checkMinutes, lastCheckAt: autoState.lastProviderCheckAt, now })) {
+      try {
+        await latestCache.refresh({ force: true });
+        await persist({ lastProviderCheckAt: Date.now() });
+      } catch { /* next tick retries */ }
+    }
+    // T3 Code: ask the registry when due.
+    if (autoPolicy.t3.enabled && AutoUpdate.checkDue({ checkMinutes: autoPolicy.t3.checkMinutes, lastCheckAt: autoState.lastT3CheckAt, now })) {
+      try {
+        await runtimeManager.check();
+        await persist({ lastT3CheckAt: Date.now() });
+      } catch { /* next tick retries */ }
+    }
+    if (busy) return;
+    // Providers: install what the last check found, once idle.
+    if (autoPolicy.providers.enabled) {
+      const idle = AutoUpdate.isIdle({ idleMinutes: autoPolicy.providers.idleMinutes, lastActivityAt, now });
+      if (idle) {
+        try {
+          const manager = await loadHarness();
+          const { harnesses } = await manager.status({ authenticate: false });
+          const toolchains = autoPolicy.providers.includeToolchains ? await manager.toolchains.status() : null;
+          // Version ordering comes from the loaded harness module: a relative
+          // import would only resolve in a checkout, not in the image layout.
+          const compare = harnessModule?.compareVersions;
+          const updates = AutoUpdate.dueUpdates({
+            harnesses: harnesses ?? [],
+            toolchains,
+            latestFor: (key) => latestCache.get(key)?.latestVersion,
+            isNewer: typeof compare === "function" ? (latest, current) => compare(latest, current) > 0 : null,
+            harnessIds: HARNESS_IDS,
+            skipIds: T3_AGENT_IDS,
+          });
+          let started = 0;
+          for (const job of updates) {
+            // Activity can resume mid pass; stop queueing more. Jobs already
+            // queued keep the usual one-at-a-time lifecycle order.
+            if (!AutoUpdate.isIdle({ idleMinutes: autoPolicy.providers.idleMinutes, lastActivityAt, now: Date.now() })) break;
+            const result = await startLifecycle(job.target, "update", { id: job.id });
+            if (result.body?.ok) started++;
+            else if (result.http !== 409) break;
+          }
+          if (started) {
+            await persist({ lastProviderRunAt: Date.now(), lastResult: `Queued ${started} provider update${started === 1 ? "" : "s"}` });
+            recordEvent("auto.providers", `Queued ${started} provider update${started === 1 ? "" : "s"} after idle time`);
+          }
+        } catch { /* next tick retries */ }
+      }
+    }
+    // T3 Code: install the channel's release once idle. Never switches channels.
+    if (autoPolicy.t3.enabled) {
+      const idle = AutoUpdate.isIdle({ idleMinutes: autoPolicy.t3.idleMinutes, lastActivityAt, now: Date.now() });
+      if (idle && !await autoBusyReason().catch(() => "busy")) {
+        try {
+          const selection = await runtimeManager.status();
+          const release = selection?.releases?.[selection.channel]?.version;
+          if (selection.supported && release && selection.version && release !== selection.version) {
+            const result = await runtimeManager.update({ channel: selection.channel, version: release });
+            if (result.http === 202) {
+              await persist({ lastT3RunAt: Date.now(), lastResult: `Started T3 Code update to ${release}` });
+              recordEvent("auto.t3", `Started T3 Code update to ${release}`, selection.channel);
+            }
+          }
+        } catch { /* next tick retries */ }
+      }
+    }
+  } finally { autoTickRunning = false; }
+};
 
 const storageHttpStatus = (result) => result.ok ? 200
   : ["busy", "stale-preview"].includes(result.code) ? 409
@@ -2309,6 +2434,8 @@ const server = createServer(async (req, res) => {
     // its origin, and whether this browser can open it without the key. A
     // stranger learns only that the console exists, which its own page says.
     if (req.method === "GET" && route === "/hello") {
+      // A signed-in T3 Code client is someone around: auto-update waits.
+      if (authed) noteActivity();
       const body = { service: "t3-setup", signedIn: authed };
       if (authed) body.attention = await attentionCount().catch(() => null);
       return sendJson(res, 200, body);
@@ -2350,6 +2477,9 @@ const server = createServer(async (req, res) => {
       await throttle(ip);
       return sendJson(res, 401, { error: "unauthorized" });
     }
+    // Any signed-in request means someone (or their open console) is active.
+    // Auto-update waits for this to go quiet before installing anything.
+    noteActivity();
 
     if (req.method === "POST" && runtimeModule.databaseBusy(runtimeOperation()) && !["/logout", "/t3/updates/check"].includes(route)) {
       return sendJson(res, 409, { ok: false, error: "T3 Code is applying an update. Try again when it is back." });
@@ -2358,6 +2488,23 @@ const server = createServer(async (req, res) => {
     // `viewer` says how this browser got in, so the page offers Lock only
     // where locking would end something.
     if (route === "/status") return sendJson(res, 200, { ...(await status()), viewer: { via: viewer.via } });
+
+    if (req.method === "GET" && route === "/auto-update") {
+      return sendJson(res, 200, { ok: true, policy: autoPolicy, state: autoState, lastActivityAt, busy: await autoBusyReason().catch(() => null) });
+    }
+    if (req.method === "POST" && route === "/auto-update/policy") {
+      let input;
+      try { input = JSON.parse((await readBody(req)) || "{}"); }
+      catch { return sendJson(res, 400, { ok: false, error: "Use a valid auto-update policy." }); }
+      try {
+        const { writeFile, mkdir, readFile } = await import("node:fs/promises");
+        autoPolicy = await AutoUpdate.writePolicy({ readFile, writeFile, mkdir }, STATE_DIR, input);
+        recordEvent("auto.policy", (autoPolicy.providers.enabled || autoPolicy.t3.enabled) ? "Auto-update preferences saved" : "Auto-update turned off");
+        return sendJson(res, 200, { ok: true, policy: autoPolicy });
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, error: String(error?.message ?? error).slice(0, 300) });
+      }
+    }
 
     if (route.startsWith("/storage")) {
       const storage = await loadStorage();
@@ -2820,6 +2967,10 @@ server.listen(PORT, "0.0.0.0", () => {
   // A pass runs once the last is an hour old; looking every ten minutes keeps
   // an answer from going much past that.
   setInterval(() => { void latestCache.refresh().catch(() => {}); }, 10 * 60 * 1000).unref();
+  // Smart auto-update: check on its own cadence (default every 3h per kind)
+  // and install only after the configured idle time. Every five minutes.
+  setTimeout(() => { void autoTick().catch(() => {}); }, 60_000).unref();
+  setInterval(() => { void autoTick().catch(() => {}); }, 5 * 60 * 1000).unref();
   // Antigravity's row, warm before the first poll asks.
   setTimeout(() => { void antigravity.refresh().catch(() => {}); }, 3_000).unref();
   // How long mise holds a new release back, for "mise offers it in 21 hours".
