@@ -20,1176 +20,195 @@ with coding agents and language toolchains installed on first start.</strong></p
 
 </div>
 
-T3 Code is a control surface for coding agents. The server runs the agents,
-git and your terminals; the desktop, web and phone apps are clients that
-connect to it over a WebSocket. Run the server on a machine you can reach, and
-a phone is enough to use it.
-
-This image packages the server with what it needs: the agent CLIs and language
-toolchains, installed onto your volume on first start; a headless browser the
-agents can use; and a setup page for pairing devices, signing agents in and
-keeping everything up to date, without a shell in the container.
+T3 Code is a control surface for coding agents. The server runs the agents, git
+and your terminals; the desktop, web and phone apps connect to it. This image
+packages that server with the agent CLIs, language toolchains, a headless
+browser, and a **setup page** for pairing devices, signing agents in and
+keeping everything up to date, all without a shell in the container.
 
 > [!NOTE]
 > T3 Code is alpha software and changes quickly, and so does this image.
 
-## Highlights
-
-- **Pair a phone from a web page.** The setup page creates a pairing link and
-  QR code. No terminal needed.
-- **Reachable from T3 Code's settings.** Once a browser is paired, Settings has
-  a **Setup** entry that opens the setup page in a dialog, signed in with your
-  T3 Code session.
-- **Upgrade T3 Code without recreating the container.** Choose Stable or
-  Nightly in Setup → Environment, then install when you are ready. Only T3
-  Code restarts; the chosen version and channel stay on the volume.
-- **Sign agents in from the browser.** The setup page runs each agent's own
-  sign-in flow and shows you the link, QR code or code to enter. Credentials are
-  stored on the state volume and survive a recreate.
-- **Agents and toolchains live on the volume.** Claude Code, Codex and OpenCode,
-  plus Go, Rust, Bun, Deno and uv, install in the background on first start, at
-  exact versions. Grok, Cursor, Muse Code and Antigravity install with one click. The image
-  stays small, pulling a new one doesn't reset them, and updating is a button.
-  Node, Python, clang, ffmpeg, ImageMagick and psql are in the image, and any
-  other tool mise can install (kubectl, Java, Terraform and about a thousand
-  more) can be added from the setup page.
-- **Pull requests on any host T3 Code supports.** GitHub's `gh` is in the image;
-  the CLIs T3 Code uses for GitLab, Forgejo, Gitea and Azure DevOps install with
-  one click, and the setup page signs each one in with a token or a device code.
-- **A browser for the agents.** Headless Chromium with Playwright and Chrome
-  DevTools MCP servers, registered with Claude Code, Codex and OpenCode.
-- **Publish a dev server.** Publish a port from the setup page or with
-  `t3-expose 3000` to get a public https URL and a QR code. No DNS, certificates
-  or port forwarding.
-- **Tested on both architectures.** `linux/amd64` and `linux/arm64` are each
-  built and tested on a native runner before anything is published.
-
-## Contents
-
-- [Quickstart](#quickstart)
-- [What's in the box](#whats-in-the-box)
-- [First run: the setup page](#first-run-the-setup-page)
-- [Connecting a phone](#connecting-a-phone)
-- [Publishing a port](#publishing-a-port)
-- [Giving agents a browser](#giving-agents-a-browser)
-- [Agents](#agents)
-- [Upgrading T3 Code](#upgrading-t3-code)
-- [Toolchains](#toolchains)
-- [Source control](#source-control)
-- [How long things last](#how-long-things-last)
-- [Configuration](#configuration)
-- [Building](#building)
-- [Security](#security)
-- [Troubleshooting](#troubleshooting)
-
-## Quickstart
+## Quick start
 
 ```bash
-git clone https://github.com/dizys/t3code-docker
-cd t3code-docker
-cp .env.example .env      # then edit PUID/PGID and T3_WORKSPACE_HOST
+mkdir -p workspace
+docker run -d --name t3code --restart unless-stopped \
+  -p 127.0.0.1:3773:3773 -p 127.0.0.1:3774:3774 \
+  -v t3-home:/home/t3 -v "$PWD/workspace:/workspace" \
+  -e PUID="$(id -u)" -e PGID="$(id -g)" \
+  --shm-size 1g \
+  dizys/t3code-docker
+```
+
+1. **Get the setup key:** `docker logs t3code 2>&1 | grep -A1 T3_SETUP_KEY`
+2. **Open <http://localhost:3774>** and enter it. **Overview** walks you through
+   the rest: set a public URL, pair a device with a QR code, and sign agents in.
+3. **In T3 Code**, turn the agents on under **Settings → Providers**.
+
+On first start, the agents and toolchains install onto the `t3-home` volume in
+the background. That takes a few minutes, and the setup page shows the
+progress. Both ports listen on localhost only; see
+[Reaching it from your phone](#reaching-it-from-your-phone) to go further.
+
+### With Docker Compose
+
+For a server you keep running, save this as `compose.yaml` and run
+`docker compose up -d`:
+
+```yaml
+services:
+  t3code:
+    image: dizys/t3code-docker:latest
+    container_name: t3code
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3773:3773"   # T3 Code
+      - "127.0.0.1:3774:3774"   # setup page
+    volumes:
+      - t3-home:/home/t3        # state, sign-ins, agents and toolchains
+      - ./workspace:/workspace  # your repositories, one project per git checkout
+    environment:
+      PUID: 1000                # `id -u` on the host
+      PGID: 1000                # `id -g` on the host
+    shm_size: 1gb
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  t3-home:
+```
+
+The setup key is in `docker compose logs t3code | grep -A1 T3_SETUP_KEY`.
+Upgrade the image with `docker compose pull && docker compose up -d`.
+
+Prefer to build from source, or want the optional Caddy HTTPS sidecar? Clone
+the repository and use its [`compose.yaml`](compose.yaml) with
+[`.env.example`](.env.example), which documents every option:
+
+```bash
+git clone https://github.com/dizys/t3code-docker && cd t3code-docker
+cp .env.example .env      # set PUID/PGID and T3_WORKSPACE_HOST
 docker compose up -d --build
 ```
 
-Prebuilt images are published to `ghcr.io/dizys/t3code-docker`:
+## Images
 
-| Tags | Image |
-| --- | --- |
-| `latest`, `browser`, `full` | Everything, including the headless browser |
-| `core`, `slim` | The same without the browser |
-| `0.7.0`, `0.7`, and `0.7.0-core`, `0.7-core` | A specific release |
+| Tag | Image | Download |
+| --- | --- | --- |
+| `latest`, `browser` | Everything, including headless Chromium for the agents | ~1.0 GB |
+| `core` | The same without the browser | ~0.7 GB |
+| `X.Y.Z`, `X.Y`, `X.Y.Z-core`, `X.Y-core` | A pinned [release](https://github.com/dizys/t3code-docker/releases) | |
 
-Each tag is a multi-arch manifest for `linux/amd64` and `linux/arm64`, so
-`docker pull` gets the right one on an ARM server. To run a published image
-instead of building, set `T3_IMAGE` in `.env` and drop `--build`.
+Published to Docker Hub as [`dizys/t3code-docker`](https://hub.docker.com/r/dizys/t3code-docker)
+and to GHCR as `ghcr.io/dizys/t3code-docker`, each for `linux/amd64` and
+`linux/arm64`. The old `full` and `slim` tags are retired; see
+[Moving off `full` and `slim`](docs/configuration.md#moving-off-full-and-slim).
 
-On first start, the container installs the default agents and toolchains onto
-the `/home/t3` volume in the background. This takes a few minutes, and the
-setup page shows the progress. In the meantime, open the setup page on port
-**3774**, enter the setup key, and press **Create pairing link**. Scan the
-QR code with the T3 Code app, or open the link in a browser.
+## Highlights
 
-Then sign each agent in on the setup page's **Agents** page, and turn its
-provider on in T3 Code under **Settings → Providers**. None of this needs a
-shell in the container. If you prefer one:
-
-```bash
-docker compose exec t3code t3-doctor             # what is installed, signed in and healthy
-docker compose exec t3code t3-harness list       # agents and their exact versions
-docker compose exec -it t3code t3-login claude   # sign an agent in from a shell
-```
+- **No shell needed.** Pair devices, sign agents in, and install or update
+  everything from the setup page, which also opens from T3 Code's Settings.
+- **Every T3 Code agent.** Claude Code, Codex and OpenCode install on first
+  start; Grok, Cursor, Muse Code and Antigravity take one click.
+- **Toolchains that survive upgrades.** Go, Rust, Bun, Deno and uv, plus about
+  a thousand more tools through mise, live on the volume at exact versions.
+- **A browser for the agents.** Headless Chromium with Playwright and Chrome
+  DevTools MCP servers.
+- **Publish a dev server.** Any port gets a public `https://` URL and a QR
+  code, with no DNS or certificates.
+- **Upgrade T3 Code in place.** Pick Stable or Nightly; a failed update rolls
+  back on its own.
+- **Pull requests on any host.** GitHub, GitLab, Forgejo, Gitea and Azure
+  DevOps.
 
 ## What's in the box
 
 | | `browser` (`latest`) | `core` |
 | --- | :---: | :---: |
 | T3 Code server and web app | ✅ | ✅ |
-| git, git-lfs, gh, ssh, Node, Python | ✅ | ✅ |
-| clang/CMake/GDB, ffmpeg, ImageMagick, psql, redis-cli | ✅ | ✅ |
+| git, gh, ssh, Node, Python, clang, ffmpeg, ImageMagick, psql | ✅ | ✅ |
 | Claude Code, Codex, OpenCode | first start | first start |
 | Grok, Cursor, Muse Code, Antigravity | one click | one click |
 | Go, Rust, Bun, Deno, uv | first start | first start |
-| glab, fj, tea, az, for GitLab, Forgejo, Gitea and Azure DevOps | one click | one click |
+| glab, fj, tea, az (GitLab, Forgejo, Gitea, Azure DevOps) | one click | one click |
 | mise, for per-project versions | ✅ | ✅ |
-| Headless Chromium and browser MCP servers | ✅ | — |
 | cloudflared, for publishing a port | ✅ | ✅ |
-| Image size, unpacked (download) | ~2.5 GB (~1.0 GB) | ~1.9 GB (~0.7 GB) |
+| Headless Chromium and browser MCP servers | ✅ | — |
 
-"First start" means the container installs it onto the `/home/t3` volume in the
-background the first time it runs, and not again. That's about 2 GB that stays
-on the volume you already keep instead of being part of every pull. "One click"
-means the setup page installs it when you ask. `T3_PREINSTALL` changes what the
-first start installs: `all` adds Grok, Cursor and Muse, `default,source-control` adds
-the four source control CLIs to the usual set, and `agents`, `toolchains`, a
-list like `claude,codex,glab`, or `none` also work. Groups and ids combine; one
-named on its own replaces the default. Anything left out can be installed from
-the setup page later.
+"First start" installs onto the `/home/t3` volume once, in the background;
+"one click" installs from the setup page when you ask. `T3_PREINSTALL` changes
+what the first start installs. Neither image contains credentials or model
+access: you bring your own subscriptions or API keys.
 
-Neither image contains credentials or model access. You bring your own
-subscriptions or API keys and sign the agents in yourself.
+## Reaching it from your phone
 
-## First run: the setup page
+A phone needs an address it can reach. Pick one, then set it as the public URL
+on the setup page so pairing links point there:
 
-The container runs a setup page on port **3774**, next to T3 Code on 3773. It
-does what T3 Code can't do before you're connected to it, pairing your first
-device, and it also signs agents in, installs and updates agents and tools, and
-publishes ports. None of this needs a shell in the container or a restart.
+- **T3 Connect**, no domain needed: **Devices → From anywhere → Set up**.
+- **One hostname behind a tunnel or proxy**: set `T3_SINGLE_PORT=8080` to serve
+  T3 Code and the setup page together, and point Cloudflare Tunnel or your proxy
+  at that port.
+- **Your own domain with HTTPS**: the repository's Compose file has a Caddy
+  sidecar, `docker compose --profile tls up -d`.
+- **Tailscale or a trusted LAN**: use the machine's tailnet name or LAN address.
 
-It's guarded by a setup key. Leave `T3_SETUP_KEY` empty and the first start
-generates one and keeps it on the volume (`/home/t3/.t3/setup-key`), so it stays
-the same across restarts, redeploys and recreates. Every start prints it to the
-log, on the line after the one that names `T3_SETUP_KEY`:
+Ignore the pairing link in T3 Code's startup banner: it uses the container's
+internal address and expires in five minutes. Use the setup page or `t3-pair`
+instead. Details: [Reaching the server from a phone](docs/remote-access.md).
 
-```bash
-docker compose logs t3code | grep -A1 T3_SETUP_KEY
-```
+## Guides
 
-Or choose your own when you create the container:
-
-```
-T3_SETUP_KEY=<something long>
-```
-
-Open port 3774 and enter the key. **Environment → This console** shows the key
-to a signed-in browser, and **New key** replaces a generated one. That signs
-out every browser that used the old key, and keeps the one you're using
-signed in. A key set with `T3_SETUP_KEY` can only be changed there.
-
-**Overview** lists what's left before a phone can use the server: the server
-running, a [public URL](#the-public-url) set, a device paired, and the agents signed in, with a
-button for the next step. When all four are done, the list collapses to a
-single **Ready** line and recent activity is shown instead. On a desktop the
-pages are in a sidebar (Overview, Devices, Agents, Context, Toolchains, Ports,
-Environment); on a phone they're in a tab bar, and everything fits a 390 px
-screen.
-
-On **Devices**, **Create pairing link** gives you a URL and a QR code for your
-public address, valid for as long as you choose, plus the **pair code** on its
-own for clients such as the desktop app that ask for a server URL and a code
-separately. When the device pairs, the page says **Paired with …** and offers
-**Open T3 Code**; it also tells you if the link expires or is revoked first.
-Paired devices and unused links are listed below, each with **Revoke**.
-Choose **Rename** beside a paired device to change its label without pairing
-again. Labels are saved on the state volume and survive restarts; leave the
-label blank to restore the device's original name.
-The rename form is a compact dialog on desktop and a bottom sheet on a phone.
-Enter saves changes; Escape cancels.
-
-Each row shows the one action its state needs (**Install**, **Sign in**,
-**Update** or **Retry**) and keeps the rest in its **⋯** menu, which is a
-bottom sheet on a phone. Uninstalling, revoking and publishing a database port
-ask for confirmation. **⌘K** (Ctrl K) opens a palette with every action and
-page, `G` followed by a letter goes to a page, and `P` on Devices creates a
-link.
-
-The sidebar's server card shows which image is running, such as
-`v0.7.0 · browser`, next to the server's health. It comes from a stamp written
-at build time: the release tag in CI, or `dev` for a local build.
-**Environment** shows the public URL, where state and work are stored and
-whether those mounts survive a recreate, the agent browser, **Copy
-diagnostics** (the status with identifying details removed, for bug reports)
-and **Lock**, which signs this browser out if it came in with the key.
-**Restart T3 Code** there restarts the server inside the container, which keeps
-running. Open apps reconnect by themselves, and any agent turn in progress
-stops. T3 Code exiting on its own still ends the container, so a crash is left
-to the container's restart policy rather than hidden.
-
-The page is a single self-contained document. It loads no fonts, scripts or
-styles from anywhere else, which helps over a slow tunnel.
-
-`T3_SETUP_ENABLED=0` turns the setup page off.
-
-### Global agent instructions
-
-**Setup → Context** edits one shared global `AGENTS.md`, with Markdown upload
-and download. Claude Code, Codex and OpenCode can each use **Shared** global
-instructions, a **Separate** file, or **None**. Switching to Shared backs up an existing
-file; switching back restores it, or creates an independent copy of the shared
-instructions. Separate files can be edited in place, preserving symlinks and
-permissions. Start a new agent session to load changes.
-The **Skills** section lists global skills by provider, with Markdown viewing,
-download and refresh. **Install from source** previews repositories, catalog links,
-direct Markdown URLs and container folders before installing selected skills for
-Claude Code, Codex, OpenCode, Cursor, Grok, Muse or Antigravity. Local skills can
-be added, edited and removed; importing again offers an explicit replacement.
-Package-owned skills stay protected. Managed Codex reports native
-enabled/disabled state and supports verified enable/disable controls for user
-skills. Claude exposes its four native visibility states; OpenCode exposes
-allow/ask/deny user policies and reports the Build agent's effective rule.
-Unmanaged shared skills can be added, edited and removed from Codex/OpenCode.
-Other providers show known files with unverified availability.
-See [Context management](docs/context-management.md) for paths and verification.
-
-### Storage management
-
-**Setup → Environment → Storage** shows available filesystem space, Go build
-cache and npm download sizes, and a folder inventory. A warning appears in
-Overview and navigation at 80% usage; it becomes critical at 90%. Filesystem
-usage includes other containers and host files, while the inventory covers
-folders visible inside this container. Sizes use decimal GB and allocated disk
-space. Scans run in the background, at startup and every ten minutes; polling
-reads the cached inventory and current filesystem space. **Refresh** requests
-a new scan. The latest inventory survives setup service restarts.
-
-**Clear** previews the estimated space and asks for confirmation. Cleanup uses
-`go clean -cache` and `npm cache clean --force`, leaving npm's `_npx` tools,
-project files, installed tools, credentials, conversations, and backups alone.
-The next build or install may take longer. Cleanup shares the installation
-lock, refuses to run during detected build/install activity, and rejects linked
-or external cache locations. A custom cache outside managed home cache folders
-must be cleaned from a terminal. Operation results survive service restarts.
-
-**Maintenance** controls two independent policies:
-
-- **Automatic cache cleanup** starts off. When enabled, a cache above its limit
-  is cleared after ten minutes without detected build/install activity. This
-  clears the whole cache; the limit is a trigger, not a target size. Defaults
-  are 10 GB for Go and 2 GB for npm. Limits range from 0.25 to 500 GB.
-- **Keep managed versions bounded** starts on. After a verified install or
-  update, older versions owned by the setup manager are trimmed. The current
-  and previous selections, versions required by mise's tracked project configs
-  or tool selections, configured provider paths, and running processes are
-  protected. Unmanaged installs are kept. If references cannot be verified,
-  trimming stops. **Older tool versions → Review** provides a manual preview;
-  the server checks it again before removing anything.
-
-Preferences live in `~/.t3/setup/storage-policy.json` (under `T3CODE_HOME` when
-set) and persist with T3 state. Invalid preferences pause automatic cleanup.
-The CLI uses the same service and policies:
-
-```bash
-t3-storage status                 # cheap filesystem/cached inventory read
-t3-storage scan --json            # measure folders now
-t3-storage clean all              # preview only
-t3-storage clean go --yes          # explicitly clear the Go cache
-t3-storage trim                   # review older managed versions
-t3-storage trim --yes             # recheck and remove eligible versions
-t3-storage policy --automatic on --go-budget 10 --npm-budget 2
-```
-
-`t3-doctor` includes filesystem pressure and the cached inventory. Project
-storage such as Wrangler/R2 state, test artifacts, and local databases belongs
-to the project that creates it. Backup retention belongs to the upgrade or
-backup process that produces the copies. Neither is automatically deleted here.
-Unused host Docker volumes and host build caches need host administration;
-the storage service does not require the Docker socket.
-
-The supplied Compose file rotates each service's Docker logs at 10 MB, keeping
-three files. For an existing deployment, apply the changed Compose configuration
-by recreating the container while reusing its home and workspace volumes.
-In **1Panel**, add the same `logging` block from `compose.yaml` to the stack's
-Compose definition before redeploying. Rotation is a container/daemon setting,
-so updating the image alone cannot apply it. Keep the existing volume mappings
-when redeploying, especially if home uses an anonymous volume.
-
-### The public URL
-
-A pairing link points at the address your phone or browser uses to reach the
-server, so the setup page needs that address before it can pair anything. It
-uses the first of these that is set:
-
-1. `T3_PUBLIC_URL` in the container's settings. The setup page shows it as set
-   there and doesn't offer to change it.
-2. An address saved on the setup page. It's stored on the volume
-   (`/home/t3/.t3/public-url`), takes effect at once, and survives a recreate.
-3. The address a hosting platform gives the service: Railway
-   (`RAILWAY_PUBLIC_DOMAIN`), Render (`RENDER_EXTERNAL_URL`), Koyeb
-   (`KOYEB_PUBLIC_DOMAIN`), Zeabur, Coolify, or Fly (`<app>.fly.dev`).
-
-If none is set, **Overview** asks for one. When you opened the setup page on
-T3 Code's own address (through `T3_SINGLE_PORT`, or a proxy that routes
-`/__setup` on the same hostname), it offers that address as a single button,
-having checked that T3 Code answers there. Otherwise **Set address** takes
-any address, such as `t3.example.com` or `http://192.168.1.20:3773`. Change it
-later under **Environment**.
-
-Before saving an address you typed, the setup page asks it for T3 Code's
-environment from inside the container. If a different T3 Code server answers,
-it refuses, because links there would pair with that server. If nothing
-answers, it saves the address anyway and says why: LAN and tailnet names often
-can't be reached from inside a container, and only your devices need to reach
-them.
-
-`t3-pair`, `t3-doctor` and the startup log use the same address.
-
-### Opening it from T3 Code
-
-If the setup page is reachable at `/__setup` on the same hostname as T3 Code
-(see [Exposing it through one hostname](#exposing-it-through-one-hostname)),
-T3 Code links to it in two places:
-
-- Before a browser is paired, T3 Code's pairing screen has a small **Setup**
-  button in the bottom-left corner. It opens the setup page in a new tab, which
-  asks for the key.
-- Once paired, **Settings** has a **Setup** entry at the end of its list. It
-  opens the setup page in a dialog over T3 Code, in T3 Code's theme, without
-  asking for the key. On a phone the dialog fills the screen. The number beside
-  the entry counts what needs you: agents signed out or failing, tools that
-  failed. Available updates aren't counted. **Esc** or **✕** closes the
-  dialog, and **Open in a new tab** at the foot of its sidebar opens the page
-  on its own.
-- In T3 Code's command palette (**⌘K**), searching for **setup** offers **Open
-  setup**, and **pair**, **agents**, **toolchains** or **ports** offer that
-  page of the setup page. Enter opens the same dialog on that page. A short
-  search such as "set", which could equally mean T3 Code's settings, lists
-  Setup without taking Enter away from T3 Code's own first result.
-
-The dialog doesn't ask for the key because the setup page accepts T3 Code's own
-session. It asks T3 Code about the browser's session cookie and lets the
-browser in only if T3 Code says the session is valid and includes terminal
-access. A browser with a terminal in the container can already read the key
-from the environment, so this gives it nothing new. A device revoked in T3 Code
-loses access here within half a minute, or immediately if you revoke it on the
-setup page. Requests that change something are only accepted from the setup
-page's own origin. Set `T3_SETUP_ACCEPT_T3_SESSIONS=0` to ask for the key every
-time.
-
-Neither link appears unless the setup page is routed on T3 Code's hostname, and
-neither changes anything else in T3 Code's pages.
-
-### Signing agents in and keeping them up to date
-
-**Muse Code** is an optional agent: choose **Install** on its row in
-**Setup → Agents**, then sign in with a Meta device code or save an API key.
-It is excluded from the default first-start installs. Using Muse in T3 Code
-requires **Nightly**, selected under **Setup → Environment**, and enabling
-**Muse Code** under **Settings → Providers**. The image still starts with
-Stable by default. You can also opt in with `T3_PREINSTALL=muse` or include it
-in a comma-separated list; `all` and `agents` include it too.
-
-Each row on the **Agents** page shows the agent's mark and the exact version
-installed, and T3 Code is pointed at that executable. When a newer release is
-available, the version gets an arrow and the row an **Update** button.
-**Install a specific version…** and **Uninstall…** are in the row's menu. A
-specific version is picked from the agent's list of releases, newest first,
-each marked as newest, installed, on the volume, or how recently it came out.
-Typing a prefix such as `2.1` picks the newest release under it.
-
-**OpenCode's version picker includes both 1.x and 2.x.** OpenCode 1 remains
-the default first-start install. Choose **Install a specific version…** on its
-row and search for `2` to install OpenCode 2 from the official `@opencode/cli`
-package through mise. It requires T3 Code **Nightly** and OpenCode **2.0.18**
-or newer. The two distributions share one row and one active `opencode`
-command; **Update** stays within the major version you selected.
-
-Before switching majors, stop running OpenCode sessions and keep a backup of
-its data. OpenCode 2 converts the shared OpenCode database on first use, and
-installing the older CLI does not restore that database. The picker explains
-this before starting a major-version switch. See the
-[T3 Code OpenCode guide](https://github.com/pingdotgg/t3code/blob/main/docs/user/providers-opencode.md).
-
-Downloads continue in the background. The row shows the progress and a
-**Cancel** button, so a slow connection or a tunnel's request timeout doesn't
-matter. Operations run one at a time: press Update on three rows, or **Update
-all**, and they queue. If an update fails, the previous version stays
-installed. By default nothing installs or updates on its own; the setup page
-checks for new releases in the background every hour. The Agents page header
-has **Check for updates** for a fresh pass on demand, plus **Auto-update**.
-Providers, toolchains (including source-control CLIs and added tools), and
-T3 Code each have an independent opt-in switch and schedule. By default each
-enabled category checks every 3 hours and installs only after 30 minutes
-without activity (no open console or T3 Code client, no install/update
-running).
-
-T3 Code runs each agent through a small launcher the setup service writes in
-`~/.local/share/t3-harness/launchers`. It runs the exact release installed here.
-For providers with an in-app updater, T3 Code's own **Update** in
-Settings → Providers goes through that launcher to `t3-harness update`, with
-the same lock, version record and rollback as the setup page. Muse uses a
-standalone managed binary; update it from **Setup → Agents**. T3 Code only
-offers in-app Muse updates for its official auto-updating launcher. Run
-the agent's own updater over a managed install instead, and this page and T3
-Code would disagree about what is installed.
-
-Pressing **Update** for an agent installs the newest stable release immediately,
-both here and in T3 Code. It checks releases afresh and skips mise's 24-hour
-release wait. First-start installs, toolchains and added tools still follow
-`minimum_release_age`.
-
-An update never selects an older version just because mise's release list is
-behind. If you already installed a newer release, it keeps that version and
-says so; if you are already current, it reports that without reinstalling.
-To switch to an older agent release deliberately, use **Install a specific
-version…** or `t3-harness update <id> --version <exact-version>`.
-
-From a shell:
-
-```bash
-docker compose exec t3code t3-harness list
-docker compose exec t3code t3-harness update codex
-docker compose exec t3code t3-harness install claude --version 2.1.285
-docker compose exec t3code t3-harness uninstall grok
-```
-
-Uninstalling removes the executable and T3 Code's path to it, and keeps
-credentials and user data, so reinstalling brings you back signed in. An agent
-you uninstall stays uninstalled for the life of the home volume: the first-start
-install won't bring it back. If you set an agent's binary path yourself in T3
-Code's provider settings, the setup page leaves it alone.
-
-Each agent offers the sign-in methods it supports:
-
-| Agent | Sign in | API key |
-| --- | --- | --- |
-| Claude Code | `auth login`: shows a URL, then takes the code back | — |
-| Codex | device code (`login --device-auth`) | stored with `login --with-api-key` |
-| OpenCode | — | choose a provider; the key is written to its `auth.json` |
-| Cursor | browser sign-in, checked until it completes | — |
-| Grok Build | device code: a URL and a code to confirm | — |
-| Muse Code | Meta device code: a URL and a code to confirm | stored with `auth set --api-key-stdin` |
-| Antigravity | Google sign-in through T3 Code: paste back the address you land on | — |
-
-**Sign in** opens a sheet that follows the agent's own flow as numbered steps:
-open the sign-in page (or scan its QR code with your phone), enter the device
-code, or paste the code the browser gives you. The sheet closes once the agent
-reports that it's signed in, and **Esc** cancels and stops the CLI. The setup
-page runs the CLI and reads its output; you never type into a terminal.
-
-<p align="center">
-  <img src="docs/media/agent-signin.png" alt="Signing Grok Build in with a device code, from the setup page" width="100%">
-</p>
-
-Sign-in status comes from asking each CLI, not from looking for a credentials
-file, so credentials that never touch disk are recognized too.
-`ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` in the container environment
-both count, as they do for T3 Code:
-
-| Agent | Checked with |
+| Guide | Covers |
 | --- | --- |
-| Claude Code | `claude auth status --json` |
-| Codex | `codex login status` |
-| Cursor | `cursor-agent status --format json` |
-| Grok Build | `grok models`, plus `XAI_API_KEY`, as T3 Code does |
-| OpenCode | its `auth.json`, where its keys are stored |
-| Muse Code | saved credentials in `~/.config/muse/auth.json`; sign-in is checked on the first message |
-| Antigravity | T3 Code's provider status |
+| [The setup page](docs/setup-page.md) | The setup key, pairing, opening it from T3 Code |
+| [Reaching the server from a phone](docs/remote-access.md) | Pairing, public URLs, tunnels, one hostname, link and session lifetimes |
+| [Agents](docs/agents.md) | Installing, signing in and updating each agent |
+| [Upgrading T3 Code](docs/t3code-updates.md) | Stable and Nightly, auto-update, rollback |
+| [Toolchains](docs/toolchains.md) | Go, Rust and friends, any mise tool, per-project versions |
+| [Source control](docs/source-control.md) | gh, glab, fj, tea and az sign-in |
+| [Publishing a port](docs/ports.md) | Public URLs for dev servers |
+| [Giving agents a browser](docs/agent-browser.md) | T3's server browser and the browser MCP servers |
+| [Context management](docs/context-management.md) | Global `AGENTS.md` and skills |
+| [Storage management](docs/storage.md) | Disk usage, cache cleanup, version retention |
+| [Configuration](docs/configuration.md) | Every environment variable, volumes, building |
+| [Troubleshooting](docs/troubleshooting.md) | Pairing, providers, terminals, permissions |
 
-Muse has no login-status command, and its model list works while signed out.
-The setup page reports saved credentials without claiming that they are
-verified. It ignores an inherited `META_API_KEY`, as T3 Code does; save the
-key here or set it on the Muse instance in **Settings → Providers**.
-
-Grok has no status command, and its credentials file can't be trusted on its
-own: a file in exactly the documented format still leaves the CLI reporting
-"You are not authenticated". So the setup page asks the CLI, which takes about
-a quarter of a second. When the status can't be determined, the row says
-"Sign-in state not readable".
-
-OpenCode takes a key per provider, and there are more than two hundred, so the
-setup page offers the [models.dev](https://models.dev) catalog as a picker,
-with **Other — type an id** for anything not listed. The catalog is fetched
-once and cached on the state volume, so it keeps working after restarts and
-offline.
-
-You can also use T3 Code's own provider setup, which opens a terminal on the
-server with the sign-in command ready to run. Both store credentials in the
-same place. Revoking a device's session signs that device out; it doesn't
-affect your threads, projects or provider sign-ins.
-
-### Exposing it through one hostname
-
-Two ports normally mean two public hostnames. The simplest way to need only
-one is `T3_SINGLE_PORT`. The container then also listens on that port and
-serves both there: T3 Code at the root, and the setup page at `/__setup`.
-Point your tunnel, reverse proxy or hosting platform at that port alone:
-
-```yaml
-    environment:
-      T3_SINGLE_PORT: 8080
-    ports:
-      - "127.0.0.1:8080:8080"   # instead of the 3773 and 3774 lines
-```
-
-With Cloudflare Tunnel that is one public hostname entry, `t3.example.com` to
-`http://127.0.0.1:8080`. The setup page is then at
-`https://t3.example.com/__setup`, and T3 Code's Settings find it there without
-any configuration. Opened there, the setup page also offers
-`https://t3.example.com` as the [public URL](#the-public-url).
-
-What to expect from it:
-
-- WebSockets, streamed responses and large uploads pass straight through.
-  Nothing is buffered or rewritten.
-- While T3 Code starts or restarts, a browser gets a short page that says so
-  and opens T3 Code once it answers. Anything else gets a `503` with
-  `Retry-After`.
-- It adds the visitor's address to `X-Forwarded-For`, and keeps the
-  `X-Forwarded-Proto` and `X-Forwarded-Host` that a proxy in front of it set.
-  The setup page counts wrong keys per visitor from that address.
-- Ports 3773 and 3774 still answer inside the container, so `t3-pair`,
-  `t3-expose` and anything else that talks to them keep working.
-- The Docker healthcheck asks through the one port, so the container reports
-  unhealthy if that port stops answering.
-- A port it can't serve, such as T3 Code's own 3773, stops the container at
-  start with a message saying what to change.
-
-If you'd rather route by path in your own proxy, that works too. The setup page
-works under any path prefix without configuration, because each request
-carries the prefix. With Cloudflare Tunnel, add two public hostname entries for
-the same domain:
-
-| Hostname | Path | Service |
-| --- | --- | --- |
-| `t3.example.com` | `__setup*` | `http://127.0.0.1:3774` |
-| `t3.example.com` | *(none)* | `http://127.0.0.1:3773` |
-
-The more specific path rule must come first. `T3_SETUP_BASE_PATH` is only
-needed to pin the prefix and reject every other path. With `T3_SINGLE_PORT`, it
-also moves the setup page to that prefix on the one port. T3 Code's Settings
-only look for it at `/__setup` and `/setup`.
-
-A separate hostname works just as well. Keeping the setup page off the public
-internet entirely, reachable only over your LAN or tailnet, is the safest
-option.
-
-**Treat the setup key like a password.** It can do everything a pairing link
-can, and it can create new links. `compose.yaml` binds the port to loopback;
-only publish it as far as you need to. If it leaks, replace it under
-**Environment**, or change `T3_SETUP_KEY` if you set one. A browser already paired with T3 Code
-doesn't need the key (see [Opening it from T3 Code](#opening-it-from-t3-code)).
-
-## Connecting a phone
-
-The server's own startup banner prints a pairing URL built from the container's
-network interface, such as `http://172.17.0.2:3773/pair#token=…`. Your phone
-can't reach that address. Use `t3-pair` instead, which creates the same kind of
-link for the address you serve on:
+Helper commands in the container, each safe to run with plain `docker exec`:
 
 ```bash
-docker compose exec t3code t3-pair
+docker exec t3code t3-doctor          # what is installed, signed in and healthy
+docker exec t3code t3-pair            # a pairing link and QR code
+docker exec -it t3code t3-login codex # sign an agent in from a shell
+docker exec t3code t3-harness list    # agents and their exact versions
+docker exec t3code t3-expose 3000     # publish a port
 ```
-
-```
-Pairing URL: https://t3.example.com/pair#token=A2VYN48RS2CG
-Expires:     2026-10-08T19:40:13.911Z
-Revoke with: t3 auth pairing revoke bb46fa34-…
-
-█▀▀▀▀▀█ ▀█ ▄ ▄▀▄▀▀▄▀▄▀ ▀▀ █▀▀▀▀▀█
-… QR code …
-```
-
-Scan it with the T3 Code app
-([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824),
-[Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), or
-paste the URL into **Add environment**.
-
-`t3-pair` uses the [public URL](#the-public-url). You can override it per command, for example
-`t3-pair --base-url https://other.host --ttl 7d --label "my phone"`.
-
-**Ignore the server's startup banner.** It shows the container's internal
-address, and its token expires after five minutes, usually before your tunnel
-is up. `t3-pair` fixes both.
-
-### Pairing without a shell in the container
-
-If your host panel makes `docker exec` awkward, set
-`T3_PRINT_PAIRING_ON_START=1` once a public URL is set. Each start then
-creates a 30-day link and writes it to the container log, where any log viewer
-shows it:
-
-```
-[t3code] pairing link for this environment (use this one, not the banner):
-Pairing URL: https://t3.example.com/pair#token=XZB9QYQQUXFB
-Expires:     2026-10-09T07:36:14.314Z
-```
-
-`T3_PAIR_TTL` sets how long these links last. This puts a credential in your
-logs, which is fine if only you can read them; otherwise create links on
-demand.
-
-You only pair **once per device**. The session is stored in `state.sqlite` on
-the `/home/t3` volume, so it survives restarts and image upgrades.
-
-### Getting a public URL
-
-Pick one:
-
-**Caddy sidecar with automatic HTTPS.** Set `T3_DOMAIN` to a hostname that
-points at this machine, make sure ports 80 and 443 are reachable, and run:
-
-```bash
-docker compose --profile tls up -d
-```
-
-The hosted web app at [app.t3.codes](https://app.t3.codes) needs this too: it
-connects directly to your server, and only over HTTPS.
-
-**T3 Connect.** T3's relay makes the server reachable, with no domain or
-tunnel of your own. Devices then connect through your T3 account instead of a
-pairing link, and Connect renews their credentials, so you don't re-pair every
-30 days.
-
-On the setup page, **Devices → From anywhere → Set up** shows a link and a code
-to approve in any browser. T3 Code makes the link when it starts, so the page
-then offers to restart it, and shows when the link is made. The container keeps
-running throughout. **Turn off** undoes it and keeps your sign-in, so turning
-it on again asks for no new code.
-
-From a shell, the same sign-in is:
-
-```bash
-docker compose exec -it t3code t3-login connect
-```
-
-The link then takes effect **on T3 Code's next start**: use **Restart T3 Code**
-under **Environment**, or restart the container. Use `t3-login connect` rather
-than `t3 connect` directly: `docker exec` runs as root, and Connect writes into
-the state directory, where root-owned files would stop the server from
-writing.
-
-**Tailscale.** Run Tailscale on the host and set the public URL to the
-machine's tailnet name. (`t3 serve --tailscale-serve` needs `tailscaled` inside
-the container, which this image doesn't include.)
-
-**Nothing.** On a trusted LAN, set `T3_BIND_ADDR=0.0.0.0` and the public URL
-to `http://<server-lan-ip>:3773`. The pairing token is then sent
-unencrypted, so only do this on a network you control.
-
-## Publishing a port
-
-When you start a dev server in the container, yourself in a T3 Code terminal or
-through an agent, it listens on a port nothing outside the container can reach:
-not your phone, and not the browser on your laptop. Docker's answer is to
-publish ports when the container starts, which means knowing the port in
-advance, and still gives you no TLS or access from outside your LAN.
-
-The setup page's **Ports** page lists what is listening and which process runs
-it (`vite`, `next-server`), including servers bound to `127.0.0.1`, which is
-the usual default. **Publish** gives you a public `https://` URL and a QR code
-for opening it on another device. A port that looks like a database asks for
-confirmation first.
-
-<p align="center">
-  <img src="docs/media/ports-panel.png" alt="The Ports page, listing what is listening in the container" width="100%">
-</p>
-
-From a terminal:
-
-```bash
-t3-expose 3000        # publish it; prints the URL and a QR code
-t3-expose             # what is listening, and what is published
-t3-expose stop 3000   # take it down
-```
-
-`t3-expose` uses the same `/ports` API as the page, so the two always agree: a
-port published from the terminal shows up on the page, and stopping it on the
-page stops it for the terminal too.
-
-Ports are published through a [Cloudflare quick
-tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/),
-which needs no account, DNS record or certificate. `cloudflared` is in the
-image, pinned to the version T3 Code expects, so T3 Code doesn't download its
-own copy for its managed tunnels.
-
-Keep in mind:
-
-- **A published URL is public.** It is random and stops working when you
-  unpublish the port, but anyone with the URL can reach that port while it's
-  published. Publish dev servers, not databases.
-- **Publishing needs outbound access to Cloudflare:** UDP port 7844, or HTTP/2
-  to `argotunnel.com`. If both are blocked, publishing fails with that message
-  instead of giving you a URL that returns a 530 error.
-
-## Giving agents a browser
-
-Recent T3 Code releases, including Nightly, have a **server-hosted browser**:
-open the Browser panel to see the same tabs as your agents, from web, desktop
-or mobile. T3 downloads its headless Chrome into the persistent home on first
-use. The `browser` image supplies the libraries it needs.
-
-The `browser` image sets `T3CODE_SERVER_BROWSER_SANDBOX=0`, T3's supported
-option for hosts that cannot run Chrome's sandbox. Container and host policies
-can block the kernel namespaces it needs, so the browser relies on the
-container's isolation, just like our browser MCP launchers. This needs no
-privileged container or host AppArmor changes. Set the variable to `1` only if
-you have configured the host and container to support Chrome's own sandbox.
-
-On an existing container, add `T3CODE_SERVER_BROWSER_SANDBOX=0` to its
-environment and recreate it with the same volumes. Running `t3 browser setup`
-inside the container cannot change the host's AppArmor policy. See
-[T3's browser host setup](https://github.com/pingdotgg/t3code/blob/main/docs/user/remote-access.md#browser-host-setup).
-
-Stable 0.0.45 uses the older client-hosted preview: its server relays
-`preview_open`, `preview_snapshot`, `preview_click`, and the other browser
-tools to a web or desktop client. A phone alone cannot host that browser.
-
-The `browser` image also includes separate headless browser MCP servers:
-
-```bash
-docker compose exec t3code t3-browser-mcp              # playwright, all agents
-docker compose exec t3code t3-browser-mcp --server chrome-devtools --harness claude
-docker compose exec t3code t3-browser-mcp --remove
-```
-
-This registers headless Chromium as an MCP server with the installed Claude
-Code, Codex and OpenCode, so agents can navigate, take screenshots, click and
-read the browser console, whichever client you use. Run it after the first
-start has installed those agents (the setup page shows when), then start a new
-thread, because agents read their MCP configuration when a session starts.
-
-Playwright is the default. `chrome-devtools-mcp` officially supports Google
-Chrome rather than Debian's Chromium. It works here (`t3-browser-mcp` passes
-the sandbox flags it needs), but it is less tested.
-
-## Agents
-
-Claude Code, Codex and OpenCode install on first start. Grok, Cursor and Muse install
-when you press **Install** on the Agents page, or on first start with
-`T3_PREINSTALL=all`. Each is installed into `/home/t3/.local/share/mise` at an
-exact version, so it survives a recreate with the rest of the volume. Sign them
-in from the setup page. `t3-login` does the same from a shell; it exists
-because `docker exec` runs as root, and an agent signed in as root stores its
-credentials where the server never looks.
-
-| Agent | Provider in T3 Code | From a shell |
-| --- | --- | --- |
-| Claude Code | Claude | `t3-login claude` |
-| Codex | Codex | `t3-login codex` |
-| OpenCode | OpenCode | `t3-login opencode` |
-| Cursor | Cursor (executable `cursor-agent`) | `t3-login cursor` |
-| Grok Build | Grok Build | `t3-login grok` |
-| Muse Code | Muse Code (Nightly) | `t3-login muse` |
-| Antigravity | Antigravity (runtime installed by T3 Code) | — |
-
-**Antigravity** isn't a CLI that mise installs. T3 Code runs Google's
-Antigravity runtime, which it downloads itself (about 650 MB) into its own data
-on the volume, pinned to the release it supports and checked against its
-checksum. The Agents page uses T3 Code's own installer and sign-in:
-
-- **Install** has T3 Code download the runtime, and turns Antigravity on in T3
-  Code. The row shows the download's progress.
-- **Update** appears when a T3 Code release supports a newer runtime.
-- **Uninstall** has T3 Code remove the runtime. Your Google sign-in is kept.
-- **Sign in** opens Google's sign-in. Afterwards your browser goes to an
-  `http://127.0.0.1` address that doesn't load; paste that address into the
-  sheet and T3 Code completes the sign-in.
-
-The setup page talks to T3 Code using a session of its own, which isn't listed
-under Devices.
-
-**DeepSeek** has no T3 Code driver. Use it through OpenCode (see
-[`examples/opencode/`](examples/opencode/)), or point a provider instance's
-environment variables at a compatible endpoint.
-
-## Upgrading T3 Code
-
-Open **Setup → Environment → T3 Code updates**. **Check for updates** reads the
-official platform package's published channel, and **Update and restart**
-installs its exact release immediately. It does not use mise's waiting period.
-
-**Stable** is the default. Choose **Nightly** to try new features earlier, or
-choose **Stable** again to return to its latest published release. The
-confirmation shows the exact target and explains the interruption before
-anything is installed. Changing channels can intentionally select an older
-release; Update within a channel never downgrades a newer installed version.
-
-Checks run on startup and hourly. By default downloads and restarts happen
-only when you confirm an update; **Auto-update** next to the card heading
-opts in, sharing one dialog with the independent provider and toolchain
-settings. It checks on its own
-cadence (default every 3 hours) and installs the selected channel's release
-only after 30 minutes without activity, never switching Stable ↔ Nightly.
-Turning the T3 Code switch on asks for a separate confirmation first, because
-T3 Code is alpha and a release can break T3 Code or its compatibility with
-this setup console.
-Idle tracks console and client activity, not agent turns: a turn that
-outlasts the idle time with every client closed can still be interrupted.
-T3 Code keeps running while the release downloads, verifies
-its SHA-512 integrity and checks compatibility with the container supervisor.
-Once ready, only T3 Code restarts. Active agent turns and its terminals stop;
-clients reconnect. The Setup service and container keep running. A failed or
-timed-out startup restores the previous version and SQLite snapshot, and an
-interrupted update recovers before the server starts again.
-
-The channel, selected native binary, adjacent client assets and cached releases
-live in `$T3CODE_HOME/container-runtime` on the state volume. They survive a
-container restart or image recreate. The image still supplies the initial
-release and the supervisor; an explicitly selected release stays selected
-after an image upgrade. Existing images need one image upgrade to gain this
-feature, and future releases which require a newer supervisor may still need
-a new image.
-
-After a successful update, obsolete cached releases are removed. The active
-release, its predecessor and the latest known target for each channel are kept.
-
-Current Nightly releases use a newer thread database than Stable 0.0.45.
-Nightly seeds it from the older database once; later channel switches keep the
-two histories separately. The first switch can take longer while Nightly
-imports the existing thread history. Returning to Stable can therefore show
-earlier history, and returning to Nightly shows its retained history. Both databases
-are preserved on the volume. Device pairings, revocations and consumed pairing
-links follow channel switches when the native authentication schemas match;
-an incompatible format stops the switch safely. This limitation appears in
-the channel confirmation as well.
-
-New permission scopes are limited to what the target release understands.
-Switching stops if a restricted credential would gain older broad permissions;
-revoke that credential before retrying.
-When an unchanged credential returns to a newer release, its previously
-granted permissions are restored; revocations still follow the active store.
-Existing older credentials may need pairing again to grant newly introduced
-permissions, as required by T3 Code itself.
-Conversely, credentials first issued on Nightly can contain signed permission
-claims Stable 0.0.45 cannot decode. Those devices need pairing again on Stable;
-their original credentials work again on Nightly unless revoked or expired.
-
-## Toolchains
-
-Go, Rust (with clippy and rustfmt), Bun, Deno and uv install on first start,
-alongside the agents, through [mise](https://mise.jdx.dev/) into the persistent
-home, and work in every directory. The **Toolchains** page updates or removes
-each one, installs any you left out of `T3_PREINSTALL`, and adds other tools
-(see below). Node and Python are part of the image.
-
-### Any other tool
-
-**Add a tool** on the Toolchains page searches mise's built-in registry of
-about a thousand tools, from `kubectl` and `terraform` to `java` and `zig`. You
-can search by name, by a command the tool provides (`rg` finds ripgrep), or by
-what it does (`json`). A backend spec works too: `npm:prettier`,
-`cargo:ripgrep`, `github:owner/repo`. Before anything is installed, the sheet
-shows where the tool comes from, how its downloads are verified, which commands
-it provides, and whether any of them is already in the image (an added `node`
-takes precedence in terminals and for agents). Choose the newest release or any
-other; a prefix like `3.12` picks the newest release under it.
-
-<p align="center">
-  <img src="docs/media/add-tool.png" alt="Adding kubectl from the Toolchains page: its source, how downloads are verified, and the release to install" width="100%">
-</p>
-
-Added tools follow the same rules as the toolchains: they're installed into the
-global mise config at an exact version, one operation at a time, and never
-updated on their own. Each row shows when a newer release is available, and
-**Update all** includes them. Tools you add with `mise use -g` in a terminal
-appear in the same list and can be updated or removed there. ⌘K searches the
-registry too: type `install terraform`. From a shell:
-
-```bash
-docker compose exec t3code t3-harness packages                       # what has been added
-docker compose exec t3code t3-harness install kubectl                 # newest, recorded exactly
-docker compose exec t3code t3-harness install python --version 3.12   # newest 3.12.x
-docker compose exec t3code t3-harness update kubectl
-docker compose exec t3code t3-harness uninstall kubectl
-```
-
-The agents and the five toolchains are managed on their own pages under any of
-their names (`claude-code`, `core:go`), so nothing is configured twice.
-
-Projects can still use their own versions. mise reads whatever a project
-already declares (`mise.toml`, `.tool-versions`, or files like `.nvmrc`,
-`go.mod` and `rust-toolchain.toml`), so two projects can use two different Node
-versions, and an agent that runs `node` in a project directory gets that
-project's version:
-
-```bash
-docker compose exec -u t3 -w /workspace/myapp t3code mise install       # what mise.toml asks for
-docker compose exec -u t3 -w /workspace/myapp t3code mise use node@22   # pins it exactly
-```
-
-Three policies are set in `/etc/mise/config.toml`:
-
-- **Nothing updates on its own.** `mise use` records the exact version it
-  resolved, not a floating range.
-- **No silent fallback.** If mise can't provide a declared tool, it fails
-  instead of running a different one from `PATH`.
-- **New releases wait a day.** A release counts as the newest once it has been
-  out for 24 hours (`minimum_release_age`). Naming an exact version installs it
-  right away.
-
-Toolchains are installed in `/home/t3/.local/share/mise` (Rust in `~/.rustup`
-and `~/.cargo`) and survive a recreate with the rest of the volume. The default
-set is a little over 1 GB, which lives on the volume instead of in every image
-pull.
-
-### Upgrading from `slim`/`full`
-
-Images up to v0.4 had the agents and runtimes built in. `browser` and `core`
-replace `full` and `slim`, and the `:full`, `:slim` and `:latest` tags now point
-at them, so `docker compose pull` is the upgrade. On the first start of the new
-image, the default agents and the toolchains install onto your volume in the
-background; install Grok or Cursor from the Agents page, or set
-`T3_PREINSTALL=all`. Your state, credentials, threads and projects are kept, so
-once the install finishes the agents are signed in again.
-
-If you build locally, rename the target in `.env`:
-
-```bash
-T3_IMAGE=t3code:browser       # was t3code:full
-T3_BUILD_TARGET=browser       # or core, for what was slim
-```
-
-The `v0.4.x` tags still have the old images if you need to roll back.
-
-## Source control
-
-T3 Code opens, lists and checks out pull requests through each host's own
-command-line tool, which it looks for on `PATH` and asks whether it is signed in
-(Settings → Source Control in T3 Code). The setup page's **Source control**
-page (under **More** on a phone) has one row per host:
-
-| Host | CLI | In the image | Signs in with |
-| --- | --- | :---: | --- |
-| GitHub | `gh` | ✅ | a device code, or a token |
-| GitLab | `glab` | one click | a token |
-| Forgejo (Codeberg) | `fj` | one click | a token |
-| Gitea (and Forgejo) | `tea` | one click | a token |
-| Azure DevOps | `az`, with the `azure-devops` extension | one click | a device code |
-
-Bitbucket needs no CLI: T3 Code talks to its API with a token you add in T3
-Code's own Settings → Source Control.
-
-`glab`, `fj`, `tea` and `az` install like a toolchain: into the volume through
-mise, at an exact version, one press to update or remove. None of them installs
-on its own, because which host a server talks to can't be guessed and the Azure
-CLI alone takes about 330 MB; `T3_PREINSTALL=default,source-control` (or a
-list such as `default,glab,az`) installs them on the first start along with the
-usual set. A CLI you already added as a tool of your own (`azure-cli`, say) is
-used as it is, and never installed a second time. `az` comes with the `azure-devops`
-extension, which T3 Code needs to reach repositories; a row whose extension has
-gone missing offers **Repair**.
-
-Each row says who the CLI is signed in as, the same way T3 Code asks. One you
-installed and haven't signed in counts as needing you, since T3 Code can't use
-it yet; the image's `gh` never does. **Sign in** opens a sheet:
-
-- **gh and az**: a device code, like the agents': open github.com's or
-  Microsoft's page on any device, enter the code, approve. There is no token to
-  make. `gh` asks for the `workflow` scope on top of its own, so T3 Code can
-  push a branch that changes `.github/workflows`.
-- **glab, fj, tea**, and **gh** with a token (its row's menu, for GitHub
-  Enterprise or a narrower token): name the server (gitlab.com, codeberg.org
-  and gitea.com unless yours runs elsewhere), open its token page, which links
-  to a new token with the scopes T3 Code needs where the host allows that, and
-  paste the token. It goes to the CLI on stdin (to `tea` in its environment),
-  never as an argument, and the server has to accept it before the sheet
-  closes. A token it refused leaves things as they were: a sign-in that worked
-  before is still there.
-
-`gh` and `tea` also become git's credential helper for the server they sign in
-to, so a push over HTTPS uses the same sign-in. Once signed in, the row's menu
-signs in again, to another server, or out. From a shell:
-
-```bash
-docker compose exec t3code t3-harness source-control     # every CLI, its host and who it is signed in as
-docker compose exec t3code t3-harness install glab
-docker compose exec -u t3 -it t3code bash -lc 'glab auth login'   # or any CLI's own sign-in
-```
-
-Sign-ins are kept on the state volume like the agents', and so is
-`~/.gitconfig` with the credential helpers (see
-[Configuration](#configuration)), so both survive a recreate.
-
-## How long things last
-
-There are three separate expiry times:
-
-| | Lifetime | When it runs out |
-| --- | --- | --- |
-| The server's **startup banner** token | **5 minutes** | Ignore it; it also shows the container's internal address |
-| A **pairing link** | `T3_PAIR_TTL`, 30 days by default | Create another. Links are single-use, so one per device anyway |
-| A paired **client session** | **30 days** | The device pairs again |
-
-The session is the one that matters, and using a device doesn't extend it, so
-expect to re-pair each device about once a month. That takes a few seconds on
-the setup page. T3 Connect avoids it by renewing client credentials instead of
-letting them expire.
-
-None of this affects your data. Threads, projects, provider sign-ins and history
-are stored in T3 Code's SQLite databases on the `/home/t3` volume, and re-pairing brings
-everything back.
-
-## Configuration
-
-Environment variables (all optional except where noted):
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `T3_PUBLIC_URL` | — | The address pairing links point at. Optional: without it, the one saved on the setup page or the hosting platform's is used. Setting it here fixes it. See [The public URL](#the-public-url). |
-| `T3CODE_PORT` | `3773` | Server port inside the container |
-| `T3CODE_HOST` | `0.0.0.0` | Bind interface inside the container |
-| `T3CODE_HOME` | `/home/t3/.t3` | State directory (`userdata/state.sqlite`) |
-| `T3_WORKSPACE` | `/workspace` | Scanned for projects |
-| `T3_AUTO_ADD_PROJECTS` | `1` | Register each git checkout under the workspace |
-| `T3_PRINT_PAIRING_ON_START` | `0` | Create a pairing link at startup and print it to the log |
-| `T3_PREINSTALL` | `default` | What the first start installs onto the volume: `default` (Claude Code, Codex, OpenCode and the toolchains), `all` (every agent and toolchain), `agents`, `toolchains`, `source-control` (glab, fj, tea, az), ids like `claude,go,glab`, or `none`. They combine (`default,source-control`); one on its own replaces the default |
-| `T3_PAIR_TTL` | `30d` | How long links from `t3-pair` can be used |
-| `T3_SETUP_ENABLED` | `1` | Run the setup page |
-| `T3_SETUP_KEY` | *(generated)* | Password for the setup page. Without it, the first start generates one and keeps it on the volume, and the setup page can show and replace it. |
-| `T3_SETUP_PORT` | `3774` | Setup page port inside the container |
-| `T3_SETUP_BASE_PATH` | — | Serve the setup page under a path, such as `/__setup` |
-| `T3_SINGLE_PORT` | — | Also serve T3 Code and the setup page together on this port, the setup page under `/__setup`, for a tunnel, proxy or hosting platform that routes one port. See [Exposing it through one hostname](#exposing-it-through-one-hostname). |
-| `T3_SETUP_ACCEPT_T3_SESSIONS` | `1` | Let a browser signed in to T3 Code with terminal access open the setup page without the key. `0` always asks for the key. |
-| `T3_ALLOW_SUDO` | `0` | Give agents passwordless sudo in the container |
-| `DEEPSEEK_API_KEY` | — | Used by the DeepSeek-through-OpenCode example |
-| `PUID` / `PGID` | `1000` | Owner of files in the workspace bind mount |
-
-Volumes:
-
-- `/home/t3`: state, agent credentials, installed agents and toolchains, and
-  shell history. Back this up.
-- `/workspace`: your repositories.
-
-Installed agents and toolchains live under `/home/t3/.local/share/mise`, so they
-persist when the whole home directory is mounted. With only the state directory
-mounted (`/home/t3/.t3`), credentials and threads persist, and the next start
-reinstalls the tools.
-
-Agent CLIs normally store their sign-ins in `~/.claude`, `~/.codex`,
-`~/.cursor`, `~/.grok`, OpenCode's XDG directories, Muse's `~/.config/muse`
-and `~/.local/share/muse`, and the source control
-CLIs in `~/.config/gh`, `~/.config/glab-cli`, `~/.config/tea`,
-`~/.local/share/forgejo-cli` and `~/.azure`, and git its settings in
-`~/.gitconfig` (who you commit as, and the credential helpers `gh` and `tea`
-set up), which only persist when the whole home directory is mounted. The
-container keeps them under `$T3CODE_HOME/agents` instead and links them back,
-so a sign-in survives even when only the state directory is mounted. A directory you mount yourself, such
-as the host's `~/.config/gh` to share its gh sign-in, is left where it is. Set
-`T3_PERSIST_AGENT_CREDENTIALS=0` to leave them all where the CLIs put them.
-
-**Watch out for anonymous volumes.** Because the image declares `VOLUME`,
-running without `-v` still creates a volume, and it looks persistent from
-inside. But recreating the container creates a new, empty one, and every
-sign-in, thread and project stays behind in the old one. The container detects
-this at startup and warns you:
-
-```
-[t3code] WARNING: /home/t3 is an anonymous volume. It survives a restart, but
-[t3code]          recreating this container creates a new one and every agent
-[t3code]          sign-in, thread and project is lost.
-```
-
-With a named volume or a host directory, the log says what it found instead.
-
-Helper commands in the container: `t3-pair`, `t3-login`, `t3-doctor`, `t3-storage`,
-`t3-harness`, `t3-expose` and `t3-browser-mcp`. They all switch from root to the
-`t3` user on their own, so plain `docker compose exec` is safe.
-
-## Building
-
-```bash
-scripts/build.sh                                 # t3code:browser
-scripts/build.sh --target core
-scripts/build.sh --platform linux/amd64,linux/arm64 --push --tag ghcr.io/you/t3code
-scripts/smoke-test.sh t3code:browser             # starts it and checks that it works
-```
-
-`--variant` tells the test scripts which image they are testing. It is never
-guessed from whether Chromium is present, so a digest reference needs it
-(`--variant core t3code@sha256:…`).
-
-The `browser` and `core` targets replace `full` and `slim`; see [Upgrading from
-`slim`/`full`](#upgrading-from-slimfull).
-
-Behind a TLS-intercepting proxy, put the CA certificate (PEM) in `ca-certs/` and
-build with `--build-arg APT_HTTPS=true`.
 
 ## Security
 
 An agent with a shell in this container can run anything, and the container is
-the only boundary. Keep in mind:
+the only boundary.
 
-- **Pairing links are credentials.** They carry a bearer token in the URL
-  fragment. Serve over HTTPS, keep `--ttl` short, and revoke links or sessions
-  with `t3 auth pairing revoke <id>` and `t3 auth session revoke <id>`.
-- **Don't publish port 3773, or `T3_SINGLE_PORT`, to the internet unencrypted.**
-  `compose.yaml` binds its ports to loopback for that reason. Put TLS in front,
-  or use a tunnel.
-- **A paired browser can open the setup page without the key**, when both are
-  on one hostname. T3 Code already gives that browser a terminal, which can
-  read the key. `T3_SETUP_ACCEPT_T3_SESSIONS=0` turns this off.
-- **Provider credentials are stored on the home volume**, in plain or lightly
-  encoded form, as they would be in your own home directory. Protect that volume
-  accordingly.
-- **`T3_ALLOW_SUDO=1` gives agents root in the container.** That's convenient
-  for `apt install` during a task, and it makes the host easier to reach if
-  something else is misconfigured. It's off by default.
+- **Pairing links and the setup key are credentials.** Serve over HTTPS and
+  revoke what leaks, from the setup page or with `t3 auth pairing revoke <id>`
+  and `t3 auth session revoke <id>`.
+- **Don't publish port 3773, 3774 or `T3_SINGLE_PORT` unencrypted.** The
+  examples above bind to localhost for that reason; use TLS or a tunnel.
+- **A browser paired with T3 Code can open the setup page without the key**
+  when both share a hostname, because T3 Code already gives it a terminal.
+  `T3_SETUP_ACCEPT_T3_SESSIONS=0` turns this off.
+- **Provider credentials live on the home volume.** Protect it as you would
+  your own home directory.
+- **`T3_ALLOW_SUDO=1` gives agents root in the container.** It's off by default.
 - T3 Code's own [permission modes](https://github.com/pingdotgg/t3code/blob/main/docs/user/permission-modes.md)
   still apply. Start in supervised mode.
 
-## Troubleshooting
-
-**A pairing link doesn't work, or says "Invalid pairing token".** The likely
-causes, most likely first: the token came from the server's startup banner,
-which expires five minutes after startup (use `t3-pair`); the link uses a
-`172.x` or `192.0.2.x` address, which means no public URL was set when it was made; or the
-token was already used. Tokens are single-use, so create one per device.
-
-**A provider is missing from Settings → Providers.** Each provider must be
-turned on for the environment and signed in on the server; `t3-doctor` shows
-both. Right after a first start, also check the setup page: the agent may still
-be installing, or its install may have failed (for example, with no network at
-startup). Press **Retry** on its row, or restart the container to try again.
-
-**Terminals don't open.** T3 Code ships a prebuilt `node-pty` next to its binary
-in `/opt/t3`. If terminals fail, check `t3-doctor` and the container log before
-rebuilding anything.
-
-**Files in my repository are owned by the wrong user.** Set `PUID` and `PGID` to
-the output of `id -u` and `id -g` on the host, and recreate the container.
-
-**`EACCES: permission denied, mkdir '/home/t3/.t3/userdata'`.** A volume is
-mounted at the state directory and the container couldn't take ownership of
-it. The container fixes ownership of such a mount at startup, but only when it
-starts as root. If your platform forces a `user:` setting, it can't, and the
-log says so. Either remove that setting and choose the user with
-`PUID`/`PGID`, or `chown` the host directory to that user before mounting it.
-
-**Chromium crashes.** Give it more shared memory with `shm_size: 1gb` (the
-compose file already does) and keep `--no-sandbox`, which `t3-browser-mcp`
-passes.
-
 ## Contributing
 
-Issues and pull requests are welcome. Before opening one:
-
-- **`scripts/smoke-test.sh` defines what must keep working.** It starts the
-  image and checks, against the running container, the things a user would
-  notice if they broke. Run it against your build
-  (`./scripts/smoke-test.sh t3code:browser`) and add a check for whatever you
-  fixed. Most of its checks were added after something broke.
-- **CI builds and tests both images on both architectures** before anything is
-  published, so a change that only works on amd64 is caught. The slower agent
-  lifecycle test runs on amd64 for every build.
-- **To work on the setup page or what it adds to T3 Code's pages**, run
-  `node scripts/dev-console.mjs` inside a container from this image. It starts
-  a scratch T3 Code and the setup page from your working tree behind the
-  image's one-port router, as `T3_SINGLE_PORT` would. It restarts the setup
-  page as you edit, serves T3 Code's pages with your copy of
-  `docker/t3-client/setup-bridge.js`, and prints a pairing link.
-  `scripts/setup-bridge-audit.js` checks those pages in a browser, through the
-  same router.
-  `node scripts/storage-ui-audit.js http://127.0.0.1:23780/__setup/ dev`
-  checks storage layouts and keyboard flows in light/dark and embedded modes.
-  Its storage data and mutations are intercepted, so it cannot clean a real
-  cache or change preferences. Screenshots go to `/tmp/t3-storage-ui-audit`;
-  set `T3_STORAGE_UI_OUTPUT` to change that location. The development console
-  isolates its home, mise state, and caches under `/tmp/t3-dev/home`.
-
-Releases are made from tags. Pushing `vX.Y.Z` builds each image for each
-architecture, tests each one against the exact digest that was pushed, runs the
-agent lifecycle test and measures the image size on amd64, and then combines
-the tested digests into one manifest without rebuilding. `latest` and `full`
-point at `browser`, and `slim` at `core`.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for the smoke test, the development console and how releases are made.
 
 ## License
 
