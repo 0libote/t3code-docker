@@ -595,3 +595,17 @@ html.tc-locked { overflow: hidden; }
   .tc-context-sheet .tc-input--area { min-height: 32dvh; }
   .tc-context-sheet .tc-sheet-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Source import reuses the Context sheet and stays readable on phones. */
+.tc-import-options { display: grid; gap: var(--space-3); padding: 0; margin: var(--space-4) 0; border: 0; min-width: 0; }
+.tc-import-options legend { margin-bottom: var(--space-2); }
+.tc-import-options > .tc-btn { justify-content: flex-start; height: auto; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.tc-import-skill { min-width: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.tc-import-skill p { margin: var(--space-2) 0; }
+.tc-import-skill code { overflow-wrap: anywhere; font-size: 12px; }
+.tc-import-skill summary { cursor: pointer; }
+.tc-import-markdown { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; font-size: 12px; line-height: 1.5; }
+.tc-import-confirm { display: flex; gap: var(--space-2); align-items: flex-start; font-size: 13px; }
+.tc-skill-import .tc-sheet-foot { flex-wrap: wrap; }
+.tc-section-head:has(> #cx-skills) { flex-wrap: wrap; }
+.tc-section-head:has(> #cx-skills) .tc-section-actions { flex-wrap: wrap; max-width: 100%; }

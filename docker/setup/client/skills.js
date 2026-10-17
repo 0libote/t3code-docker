@@ -2,7 +2,7 @@
 const T3SkillsUI = (() => {
   'use strict';
   const { html, raw, icon } = Kit;
-  const providers = [['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['cursor', 'Cursor'], ['grok', 'Grok Build'], ['muse', 'Muse Code']];
+  const providers = [['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['cursor', 'Cursor'], ['grok', 'Grok Build'], ['muse', 'Muse Code'], ['antigravity', 'Antigravity']];
   const stateOf = (skill) => skill.error ? { text: 'Unavailable', tone: 'warn' }
     : skill.stateAuthority === 'user-policy' ? { text: skill.stateLabel, tone: skill.state === 'off' || skill.state === 'deny' ? '' : 'ok' }
     : skill.native && skill.state === 'enabled' ? { text: 'Enabled', tone: 'ok' }
@@ -10,6 +10,7 @@ const T3SkillsUI = (() => {
         : { text: 'Unverified', tone: '' };
   const create = ({ api, getStatus, render, readMarkdown, downloadMarkdown }) => {
     let provider = null, inventory = null, loading = false, error = null, generation = 0, viewer = null, changing = null;
+    const importer = T3SkillImport.create({ api, providers, refresh: () => load(true) });
     const chooseDefault = () => {
       const installed = (getStatus()?.harnesses || []).filter((row) => row.installed).map((row) => row.id);
       return providers.find(([id]) => installed.includes(id))?.[0] || 'claude';
@@ -51,7 +52,7 @@ const T3SkillsUI = (() => {
       </div>
       <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>${inventory?.skills?.length && inventory.coverage === 'policy' ? 'User policies apply to every installation with the same ' + (provider === 'claude' ? 'name' : 'native skill ID') + '. Project or managed settings can further restrict use; start a new conversation after changing a policy.' : inventory?.skills?.length && provider === 'codex' && inventory.coverage === 'native' ? 'Availability applies to Codex only. Start a new conversation after changing it; existing conversations may keep loaded instructions.' : 'Refresh after changing skills outside the console. Project/session settings and custom provider environments can change locations or availability.'}</span></div>
     </div>`;
-    const actions = () => html`${inventory?.canCreate ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.add">${icon('plus')}Add skill</button>` : ''}<button class="tc-btn tc-btn--sm tc-btn--ghost" type="button" data-cmd="skills.refresh"${loading || changing ? raw(' disabled') : ''}>${icon('refresh-cw')}Refresh skills</button>`;
+    const actions = () => html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.import">${icon('download')}Install from source</button>${inventory?.canCreate ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.add">${icon('plus')}Add skill</button>` : ''}<button class="tc-btn tc-btn--sm tc-btn--ghost" type="button" data-cmd="skills.refresh"${loading || changing ? raw(' disabled') : ''}>${icon('refresh-cw')}Refresh skills</button>`;
     const setState = async (id, state) => {
       const row = inventory?.skills?.find((skill) => skill.id === id);
       if ((!row?.canToggle && !row?.canSetState) || loading || changing) return;
@@ -164,7 +165,7 @@ const T3SkillsUI = (() => {
       else current.error = response.error;
       current.layer.render();
     };
-    return { content, actions, setState, view: (id, editing = false) => open(id, editing), add: () => { if (inventory?.canCreate) return open(null, true, true); },
+    return { content, actions, setState, install: () => importer.open(provider || chooseDefault()), view: (id, editing = false) => open(id, editing), add: () => { if (inventory?.canCreate) return open(null, true, true); },
       activate: () => { if (!inventory && !loading && !error) load(); },
       refresh: () => load(true),
       select: (id) => {

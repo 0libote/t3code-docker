@@ -17,7 +17,7 @@ async function fixture(t, io = fs) {
 
 test("creation uses native user folders, validates Markdown and never overwrites an installation", async (t) => {
   const f = await fixture(t);
-  for (const provider of ["claude", "codex", "opencode"]) {
+  for (const provider of ["claude", "codex", "opencode", "cursor", "grok", "muse", "antigravity"]) {
     assert.equal((await f.service.list(provider)).canCreate, true);
     const result = await f.service.create(provider, "local-one", markdown("local-one"));
     assert.equal(await fs.readFile(result.path, "utf8"), markdown("local-one"));
@@ -32,7 +32,7 @@ test("creation uses native user folders, validates Markdown and never overwrites
   await assert.rejects(f.service.create("claude", "different", markdown("name")), { code: "invalid" });
   await assert.rejects(f.service.create("claude", "new", "# No frontmatter"), { code: "invalid" });
   await assert.rejects(f.service.create("claude", "new", markdown("new", "é".repeat(32768))), { code: "too_large" });
-  await assert.rejects(f.service.create("cursor", "new", markdown("new")), { code: "unsupported" });
+  await assert.rejects(f.service.create("unknown", "new", markdown("new")), { code: "invalid" });
 });
 
 test("edits preserve supporting files, permission bits and user symlink chains", async (t) => {
@@ -155,4 +155,23 @@ test("shared skill creation, edits and removal use the shared root and invalidat
   await fs.stat(path.dirname(path.dirname(file)));
   await assert.rejects(f.service.create("claude", "new", markdown("new"), "shared"), { code: "unsupported" });
   await assert.rejects(f.service.create("codex", "new", markdown("new"), "../arbitrary"), { code: "invalid" });
+});
+
+test("own roots linked to known Grok/Antigravity plugins or Codex admin storage remain protected", async (t) => {
+  const f = await fixture(t);
+  for (const [provider, relative] of [["grok", ".grok/plugins/package/skills"], ["antigravity", ".gemini/antigravity-cli/plugins/package/skills"]]) {
+    const file = await f.put(relative + "/protected/SKILL.md", markdown("protected"));
+    const root = provider === "grok" ? ".grok/skills" : ".gemini/config/skills";
+    await fs.mkdir(path.dirname(path.join(f.home, root)), { recursive: true }); await fs.symlink(path.dirname(path.dirname(file)), path.join(f.home, root));
+    const row = (await f.service.list(provider)).skills.find((row) => row.path === path.join(f.home, root, "protected/SKILL.md"));
+    assert.equal(row.canEdit, false); assert.equal(row.canRemove, false); assert.equal((await f.service.list(provider)).creationTargets.some((target) => target.id === "provider"), false);
+  }
+  const admin = await f.put("admin/skills/protected/SKILL.md", markdown("protected"));
+  const adminRoot = path.dirname(path.dirname(admin));
+  await fs.mkdir(path.join(f.home, ".codex"), { recursive: true }); await fs.symlink(adminRoot, path.join(f.home, ".codex/skills"));
+  const io = { ...fs, realpath: (file) => file === "/etc/codex/skills" ? Promise.resolve(adminRoot) : fs.realpath(file) };
+  const service = createSkillsService({ home: f.home, env: {}, io });
+  assert.equal((await service.list("codex")).creationTargets.some((target) => target.id === "provider"), false);
+  await assert.rejects(service.create("codex", "new", markdown("new")), { code: "unsupported" });
+  assert.equal(await fs.readFile(admin, "utf8"), markdown("protected"));
 });

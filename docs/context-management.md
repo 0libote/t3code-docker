@@ -61,14 +61,14 @@ instructions it loaded at startup. Project instructions and provider-specific
 precedence still apply.
 
 Only these three native instruction integrations are included. Project
-instruction editing, catalogs, URL imports, saved setups and Cursor rule
-translation are deferred to separate proposals.
+instruction editing, saved setups and Cursor rule translation are outside this page.
+Skills and source imports are described below.
 
 ## Global skill inventory
 
 The **Skills** section provides inventory and basic local file management.
 Select Claude Code, Codex,
-OpenCode, Cursor, Grok Build or Muse Code to inspect known global skill folders.
+OpenCode, Cursor, Grok Build, Muse Code or Antigravity to inspect known global skill folders.
 Nested `SKILL.md` files, compatibility directories, shared files and broken
 links remain distinct installations. OpenCode's flat global Markdown files
 are included too. Environment overrides for Claude, Codex, XDG and Grok roots
@@ -105,7 +105,7 @@ startup may maintain its own system-skill cache as usual.
 
 ### Add, edit and remove local skills
 
-Claude Code, Codex and OpenCode's own user skill folders support **Add skill**,
+All seven providers' own user skill folders support **Add skill**,
 **Edit** and **Remove**. Add accepts a portable folder name and raw Markdown,
 including upload/paste. The frontmatter name must match the new folder name.
 Existing installation names are never overwritten; new files use mode `0600`.
@@ -146,6 +146,132 @@ stays in place. An absent lock is linked without inventing a JSON document; the
 upstream CLI owns its contents. Existing mounts and symlinks are respected.
 Custom XDG state paths need their own persistent mount. These ownership restrictions
 cover Markdown changes; provider policies can still apply to package-owned skills.
+
+### Install skills from sources
+
+**Install from source** opens a desktop dialog or phone sheet. Enter a source,
+preview its skills and supporting files, select skills/providers, then review
+the exact destination folders before installing. A single discovered skill is
+selected automatically; collections require a selection. Existing folders are
+never implicitly overwritten. Replacement requires an explicit checkbox and
+rechecks the original skill and its supporting tree immediately before writing.
+
+Repository discovery prefers published `skills/`, agent skill containers and
+immediate skill folders before falling back to other bounded layouts. A tool
+repository’s private workflow skills are not mixed into its published library;
+an explicit folder/name source can still select them.
+
+Supported inputs include:
+
+- GitHub `owner/repo`, `owner/repo@skill-name`, repository URLs, and
+  `/tree/branch-or-tag/skill-folder` links. A full commit SHA can replace the ref.
+  Copied tree links resolve slash-containing branches/tags against advertised
+  Git refs; incomplete tree links are refused.
+- GitLab repositories, `/-/tree/ref/folder` links and `/-/blob/ref/file` or
+  `/-/raw/ref/file` Markdown links; other Git hosts through
+  HTTPS URLs ending in `.git`, `git@host:owner/repo.git`, or `ssh://` URLs.
+- `skills.sh/owner/repo/skill-name` links and copied `npx skills add`,
+  `pnpm dlx skills add`, or `bunx skills add` commands with one `--skill` selector.
+  `--skill '*'` previews the collection. Commands are parsed as text; no shell command is executed. Choose providers
+  in the dialog instead of supplying command flags.
+- Direct HTTP(S) `SKILL.md` URLs, including GitHub file links. Only that Markdown
+  file is imported; use a repository/folder to include scripts and references.
+- An absolute folder/file path, or `~/...`, **inside the container**. Markdown
+  upload/paste remains available in **Add skill** for files on your phone/computer.
+- HTML catalog pages with GitHub, GitLab or skills.sh links. AgenticSkills'
+  `/skills` listing also exposes its skill-detail links. Search those links,
+  choose a detail page, then choose its repository/folder link. HTML and site
+  scripts are never rendered or executed. This is link discovery from the
+  supplied page, not a maintained or endorsed catalog.
+
+Imports create independent local copies in these native global locations:
+
+| Provider | Default destination | Override |
+| --- | --- | --- |
+| Claude Code | `~/.claude/skills` | `CLAUDE_CONFIG_DIR` |
+| Codex | `~/.codex/skills` | `CODEX_HOME` |
+| OpenCode | `~/.config/opencode/skills` | `OPENCODE_CONFIG_DIR`, `XDG_CONFIG_HOME` |
+| Cursor | `~/.cursor/skills` | — |
+| Grok Build | `~/.grok/skills` | `GROK_HOME` |
+| Muse Code | `~/.config/muse/skills` | `XDG_CONFIG_HOME` |
+| Antigravity | `~/.gemini/config/skills` | — |
+
+The Antigravity inventory also includes `~/.gemini/antigravity-cli/skills`;
+T3 links both native roots into its private provider profile. Its CLI folder
+remains a separate, read-only source in the console. Grok inventory includes
+Cursor compatibility skills as well as its Claude/shared roots. See
+[T3’s native Antigravity skill paths](https://github.com/pingdotgg/t3code/blob/main/apps/server/src/provider/Drivers/AntigravitySkills.ts).
+
+Provider folders can already be symlinked onto shared storage. Review resolves
+these paths, combines destinations pointing at the same physical folder, and
+refuses retargeted roots. Compatibility discovery can expose a selected provider's
+skills to other providers too. Imports leave provider settings alone: existing
+visibility/permission/enablement rules still apply. Availability is verified for
+Claude/Codex/OpenCode through the existing inventory integrations; the other
+providers retain **Unverified** availability. Start a new conversation to load
+changes. Custom provider environments and older runtime versions may differ.
+Native path references: [Cursor skills](https://cursor.com/docs/skills),
+[Grok skill locations](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/08-skills.md),
+[Muse skills](https://meta-models.github.io/muse-code-sdk/next/guides/extend/skills/),
+and [Antigravity skills](https://antigravity.google/docs/skills).
+
+Re-importing the source is the update flow: review a fresh snapshot and explicitly
+replace each existing local folder, including removed/renamed supporting files.
+The console does not remember origins, schedule updates or maintain a source
+manifest. Use **View → Remove** to delete an imported local skill. Files tracked
+in the upstream skills CLI lock remain read-only here, including during import;
+manage those packages with their package manager. Unreadable locks, known plugin/system
+roots (including Grok/Antigravity plugin folders and Codex admin skills), linked
+individual skill folders/files, unrelated existing folders and nested
+installations cannot be replaced through this flow.
+
+This follows the state-format boundary discussed in PRs #25 and #31. The
+[upstream skills CLI](https://github.com/vercel-labs/skills) remains an alternative
+for package installation and tracking; the console continues to recognize its
+lock and shared files. Calling it directly for this flow would permit replacement
+of user folders and use a different set of provider paths/overrides. Source
+imports therefore extend the existing local-file model without introducing a
+T3 lock format, rewriting the CLI lock, or adding runtime npm dependencies.
+Archive downloads, well-known indexes and full package update automation are
+not supported by this local import flow.
+
+Preview is read-only. Git uses shallow clones without checkout, submodules,
+hooks or filters; the resolver reads blobs directly, never runs installation
+scripts and skips linked/special entries with visible warnings. Git uses the
+container's configured credentials without prompting. HTTP requests do not
+attach Git credentials. Embedded URL credentials and unsafe protocols are
+rejected. Private sources can use configured Git/SSH credentials.
+
+Preview limits are 45 seconds for Git/HTTP, 64 MiB monitored Git storage, 2 MiB
+Git listing output, 1 MiB HTTP page download, 2,048 source files, 128 skills,
+64 KiB Markdown, 4 MiB per supporting file, 25 MiB total retained contents,
+12 levels within a skill and 1,024 entries per installed tree. Narrow large
+repositories to a skill folder to reduce discovery/retained content. The clone
+storage limit still covers the repository, not just the selected folder. Git LFS
+objects and submodules are not downloaded. Git storage is checked during cloning and
+before/after commands; a fast download can temporarily exceed the monitored
+threshold. Oversized Markdown candidates are skipped with visible warnings so
+that a valid sibling can still be listed or selected; an oversized-only selection
+is refused without opening the large file. The complete Git/SSH process group is
+killed on timeout/limit failure.
+No preview or clone enters `/status` polling. Source snapshots expire after ten
+minutes (at most three per setup process); expired entries are pruned on the next
+import operation. Snapshots are discarded on close and lost on server restart. Catalog link lists are capped at 256 entries.
+
+Installation uses only that immutable preview, never re-fetches the source, and
+accepts opaque preview/plan IDs instead of caller-supplied destination paths.
+Writes stage a complete folder beside the destination. A replacement parks and
+rechecks the previous tree before publishing; failure restores it when the
+original path is available, otherwise the error identifies the preserved backup.
+Separate provider writes can partially succeed; results identify each success or
+failure. Retrying the same completed plan returns its recorded result. A process
+crash can leave hidden `.t3-skill-import-*` staging or `.t3-skill-backup-*` recovery
+folders, which discovery ignores. External processes can still race the final
+filesystem checks; this is not a cross-application transaction.
+
+All native default locations, including both scoped Antigravity skills directories,
+participate in agent persistence when `T3_PERSIST_AGENT_CREDENTIALS` is enabled.
+Custom paths require their own mounts. The rest of `.gemini` is left in place.
 
 ### Native Codex availability
 
@@ -197,7 +323,11 @@ last. `OPENCODE_CONFIG_DIR` and XDG config overrides are honored.
 
 V1 verification uses bounded, sequential native debug reads with external plugins
 disabled. These processes share provider state; concurrent first use can race
-database initialization in a fresh home.
+database initialization in a fresh home. First use can also create a higher-priority
+`opencode.jsonc`. Discovery reselects and reloads the configuration once before
+returning policy state/revisions, so the first policy change does not use the
+previously absent JSON source. Repeated source changes disable controls until
+the settings stabilize.
 V2 starts a private loopback metadata server and waits for skill/agent plugins to
 activate before reading inventory. The early empty result from a one-shot API
 request is not authoritative. Only the installation selected by native inventory
@@ -240,7 +370,10 @@ symlink preservation, supporting-file conflicts, package ownership, failed
 publication and interrupted-removal rollback. Native control checks cover stale
 settings, native write/verification failures and serialized requests. Browser
 checks cover Markdown upload, draft recovery, save progress, explicit removal
-confirmation, native state failures, busy controls and late provider responses.
+confirmation, native state failures, busy controls and late provider responses. Source regressions
+also cover catalog selection, raw Markdown previews, provider selection,
+replacement consent/conflicts, failed backup moves/restoration, supporting-file
+edits with restored mtimes, shared-root retargeting and partial results.
 
 The adapters were also checked with Codex 0.163.0 in a disposable home. Native
 enable/disable, stale-request rejection, settings persistence across fresh
@@ -252,13 +385,20 @@ path (the script creates and removes its own temporary home):
 node scripts/skills-native-smoke.mjs /absolute/path/to/codex
 node scripts/skills-policy-smoke.mjs claude /absolute/path/to/claude
 node scripts/skills-policy-smoke.mjs opencode /absolute/path/to/opencode
+node scripts/skills-import-smoke.mjs claude /absolute/path/to/claude
+node scripts/skills-import-smoke.mjs codex /absolute/path/to/codex
+node scripts/skills-import-smoke.mjs opencode /absolute/path/to/opencode
 ```
 
 Claude 2.1.302 and OpenCode 1.19.3/2.0.31 passed native policy checks for every
 supported state, conflicts, fresh-process persistence and untouched skill content.
 OpenCode checks also verify comment preservation. Image smoke tests run these
-scripts against the packaged modules and managed binaries; browser images also
-run the Skills UI audit. Cursor/Grok/Muse native activation remains later work.
+scripts against the packaged modules and managed binaries. The import smoke
+checks install supporting files, change a native policy, update the complete
+folder without changing that policy, verify discovery in a fresh process and
+remove the installation. Claude 2.1.302, Codex 0.163.0 and OpenCode 1.19.3/2.0.32 passed
+this lifecycle without a model turn. Browser images also
+run the Skills UI audit. Cursor/Grok/Muse/Antigravity native activation remains later work.
 
 Runtime discovery was checked on 2026-10-15 with Claude Code 2.1.300,
 Codex 0.162.1 and OpenCode 2.0.29. Each CLI ran in a temporary home, with its

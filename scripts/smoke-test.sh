@@ -721,6 +721,7 @@ native_skill_controls_work() {
   local id executable script
   docker cp scripts/skills-native-smoke.mjs "$NAME:/tmp/skills-native-smoke.mjs" >/dev/null 2>&1 || return 1
   docker cp scripts/skills-policy-smoke.mjs "$NAME:/tmp/skills-policy-smoke.mjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/skills-import-smoke.mjs "$NAME:/tmp/skills-import-smoke.mjs" >/dev/null 2>&1 || return 1
   for id in claude codex opencode; do
     executable="$(status_json | jq -r --arg id "$id" '.harnesses[] | select(.id == $id) | .executable')"
     [ -n "$executable" ] && [ "$executable" != null ] || { printf 'No managed executable returned for %s\n' "$id"; return 1; }
@@ -731,6 +732,7 @@ native_skill_controls_work() {
     else
       docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node "/tmp/$script" "$id" "$executable" || return 1
     fi
+    docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node /tmp/skills-import-smoke.mjs "$id" "$executable" || return 1
   done
 }
 check "native skill controls work with the installed Claude, Codex and OpenCode" "native_skill_controls_work >>\"$UI_AUDIT_LOG\" 2>&1"

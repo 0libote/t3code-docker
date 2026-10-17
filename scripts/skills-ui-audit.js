@@ -24,7 +24,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   let gateRead = false, releaseRead, oldReadStarted, readError = false, inventoryError = false;
   let saveError = true, gateSave = false, releaseSave, saveStarted;
   let stateError = true, gateState = false, releaseState, stateStarted, firstEnabled = true;
-  let policies = false;
+  let policies = false, importFailure = true, gateImport = false, releaseImport, importStarted;
   const policyValues = { claude: 'on', opencode: 'allow' };
   const mutations = [];
   const skill = (provider, id, name) => ({ id, name, description: 'A description that is long enough to wrap comfortably on a phone. '.repeat(4),
@@ -43,7 +43,20 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
    const url = new URL(route.request().url()), provider = url.searchParams.get('provider');
    if (route.request().method() === 'POST') {
     const input = route.request().postDataJSON(); mutations.push({ path: url.pathname, input });
-    if (url.pathname.endsWith('/state')) {
+    if (url.pathname.endsWith('/source')) {
+     if (input.source === 'bad-source') await route.fulfill({ status: 400, json: { ok: false, error: 'No skill found at this source.' } });
+     else if (input.source === 'catalog') await route.fulfill({ json: { ok: true, skills: [], warnings: [], links: [{ label: 'Frontend skill', source: 'org/repo@review' }, { label: 'Other skill', source: 'org/other' }] } });
+     else await route.fulfill({ json: { ok: true, previewId: 'fixture-preview', source: input.source, warnings: [], skills: [{ name: 'review', description: 'Source description', content: body, bytes: body.length, files: [{ name: 'SKILL.md', bytes: body.length }, { name: 'scripts/check.sh', bytes: 30, executable: true }] }] } });
+    } else if (url.pathname.endsWith('/plan')) {
+     assert.equal(input.previewId, 'fixture-preview'); assert.deepEqual(input.skills, ['review']); assert.ok(input.providers.includes('cursor'));
+     await route.fulfill({ json: { ok: true, planId: 'fixture-plan', canInstall: true, destinations: [{ provider: 'cursor', name: 'review', action: 'replace', directory: '/fixture/a-very-long-path-for-mobile-layout-checks/skills/review' }] } });
+    } else if (url.pathname.endsWith('/install')) {
+     assert.equal(input.previewId, 'fixture-preview'); assert.equal(input.planId, 'fixture-plan'); assert.equal(input.replace, true);
+     if (gateImport) { importStarted(); await new Promise((resolve) => { releaseImport = resolve; }); }
+     await route.fulfill(importFailure ? { status: 409, json: { ok: false, error: 'Destination changed after review.' } } : { json: { ok: true, results: [{ provider: 'cursor', name: 'review', directory: '/fixture/skills/review', status: 'installed' }, { provider: 'muse', name: 'review', directory: '/fixture/muse/skills/review', status: 'failed', error: 'Fixture permission error' }] } });
+    } else if (url.pathname.endsWith('/discard')) {
+     await route.fulfill({ json: { ok: true } });
+    } else if (url.pathname.endsWith('/state')) {
      assert.ok(['claude', 'codex', 'opencode'].includes(input.provider)); assert.equal(input.id, firstId);
      assert.equal(input.stateRevision, 'native-state-revision');
      if (input.provider === 'codex') assert.equal(typeof input.enabled, 'boolean'); else assert.equal(typeof input.state, 'string');
@@ -89,7 +102,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   await page.locator('[data-cmd="skills.view"]').first().waitFor();
   await page.locator('#skill-provider').selectOption('claude');
   await page.locator('.tc-skills[data-provider="claude"]').waitFor();
-  assert.equal(await page.locator('#skill-provider option').count(), 6);
+  assert.equal(await page.locator('#skill-provider option').count(), 7);
   assert.equal(await page.locator('.tc-skill-row .tc-badge').first().innerText(), 'Unverified');
   assert.equal(await page.locator('[data-cmd="skills.state"]').count(), 0);
   const beforeStatus = inventoryRequests;
@@ -221,9 +234,41 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   inventoryError = false;
   await page.getByRole('button', { name: 'Refresh skills', exact: true }).click();
   await page.locator('.tc-skill-row').first().waitFor();
+  await page.getByRole('button', { name: 'Install from source', exact: true }).click();
+  await page.locator('#skill-source').fill('bad-source'); await page.locator('[data-import-preview]').click();
+  await page.getByRole('alert').filter({ hasText: 'No skill found at this source.' }).waitFor();
+  await page.locator('#skill-source').fill('catalog'); await page.locator('[data-import-preview]').click();
+  await page.locator('#skill-catalog-search').fill('Frontend');
+  assert.equal(await page.locator('[data-import-link]').count(), 1);
+  await page.locator('[data-import-link]').click();
+  await page.locator('[data-import-skill]').waitFor();
+  assert.equal(await page.locator('[data-import-skill]').isChecked(), true);
+  assert.equal(await page.locator('[data-import-provider]').count(), 7);
+  await page.getByText('Review 2 files', { exact: false }).click();
+  assert.equal(await page.locator('.tc-import-markdown').innerText(), body);
+  assert.equal(await page.evaluate(() => Boolean(window.skillInjected)), false);
+  await page.locator('[data-import-provider="cursor"]').check();
+  await page.locator('[data-import-review]').click(); await page.locator('[data-import-install]').waitFor();
+  assert.equal(await page.locator('[data-import-install]').isDisabled(), true);
+  await page.locator('[data-import-replace]').check(); await page.locator('[data-import-install]').click();
+  await page.getByRole('alert').filter({ hasText: 'Destination changed after review.' }).waitFor();
+  await page.locator('[data-import-back]').click();
+  assert.equal(await page.locator('[data-import-provider="cursor"]').isChecked(), true);
+  await page.locator('[data-import-review]').click(); await page.locator('[data-import-replace]').check();
+  importFailure = false; gateImport = true;
+  const installing = new Promise((resolve) => { importStarted = resolve; });
+  await page.locator('[data-import-install]').click(); await installing;
+  assert.equal(await page.locator('[data-import-install]').isDisabled(), true);
+  assert.equal(await page.locator('[data-import-close]').first().isDisabled(), true);
+  await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').count(), 1);
+  const installBox = await page.getByRole('dialog').boundingBox();
+  assert.ok(installBox.x >= -1 && installBox.x + installBox.width <= width + 1);
+  assert.ok(installBox.y >= -1 && installBox.y + installBox.height <= height + 1);
+  releaseImport(); await page.getByText('Fixture permission error', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
-  console.log('PASS Skill inventory, native state and file controls:', theme, width + 'x' + height, embedded ? 'embedded-query fallback' : 'standalone');
+  console.log('PASS Skill inventory, native state, files and source installation:', theme, width + 'x' + height, embedded ? 'embedded-query fallback' : 'standalone');
   await page.close();
  }
  }

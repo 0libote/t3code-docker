@@ -228,8 +228,11 @@ file; switching back restores it, or creates an independent copy of the shared
 instructions. Separate files can be edited in place, preserving symlinks and
 permissions. Start a new agent session to load changes.
 The **Skills** section lists global skills by provider, with Markdown viewing,
-download and refresh. Claude Code, Codex and OpenCode's own user folders also
-support adding, editing and removing local skills. Managed Codex reports native
+download and refresh. **Install from source** previews repositories, catalog links,
+direct Markdown URLs and container folders before installing selected skills for
+Claude Code, Codex, OpenCode, Cursor, Grok, Muse or Antigravity. Local skills can
+be added, edited and removed; importing again offers an explicit replacement.
+Package-owned skills stay protected. Managed Codex reports native
 enabled/disabled state and supports verified enable/disable controls for user
 skills. Claude exposes its four native visibility states; OpenCode exposes
 allow/ask/deny user policies and reports the Build agent's effective rule.
