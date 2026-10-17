@@ -425,15 +425,15 @@ const latestCache = createLatestCache({
     // The tools added beyond those, as the last status read listed them.
     ...[...knownPackages].map((id) => `package:${id}`),
   ],
-  lookup: async (key) => {
+  lookup: async (key, options) => {
     // On the first colon only: a package id can carry its own (npm:prettier).
     const cut = key.indexOf(":");
     const target = key.slice(0, cut);
     const id = key.slice(cut + 1);
     const manager = await loadHarness();
-    if (target === "harness") return manager.latestRelease(id);
-    if (target === "package") return manager.packages.latestRelease(id);
-    return manager.toolchains.latestRelease(id);
+    if (target === "harness") return manager.latestRelease(id, options);
+    if (target === "package") return manager.packages.latestRelease(id, options);
+    return manager.toolchains.latestRelease(id, options);
   },
   read: async () => {
     const { readFile } = await import("node:fs/promises");
@@ -924,6 +924,7 @@ const status = async () => {
     sourceControlCache: { at: scmSnap?.at ?? null, stale: scmSnap?.stale ?? true, source: scmSnap?.source ?? "unavailable" },
     // How long mise waits before offering a new release as the newest.
     releaseAgeMs,
+    updates: { refreshing: latestCache.refreshing(), errors: latestCache.errors() },
     // Every other tool in the global mise config, added here or with `mise use -g`.
     packages: withLatest("package", packageRows),
     // Global instruction metadata; the editor fetches contents on demand.
@@ -2221,19 +2222,20 @@ const autoTick = async () => {
       && AutoUpdate.checkDue({ checkMinutes: autoPolicy.toolchains.checkMinutes, lastCheckAt: autoState.lastToolchainCheckAt, now });
     if (providerCheckDue || toolchainCheckDue) {
       try {
-        await latestCache.refresh({ force: true });
+        await latestCache.refresh({ force: true, manual: false });
         const checkedAt = Date.now();
         const patch = {};
-        if (autoPolicy.providers.enabled) patch.lastProviderCheckAt = checkedAt;
-        if (autoPolicy.toolchains.enabled) patch.lastToolchainCheckAt = checkedAt;
+        const failed = Object.keys(latestCache.errors());
+        if (autoPolicy.providers.enabled && !failed.some((key) => key.startsWith("harness:"))) patch.lastProviderCheckAt = checkedAt;
+        if (autoPolicy.toolchains.enabled && !failed.some((key) => !key.startsWith("harness:"))) patch.lastToolchainCheckAt = checkedAt;
         await persist(patch);
       } catch { /* next tick retries */ }
     }
     // T3 Code: ask the registry when due.
     if (autoPolicy.t3.enabled && AutoUpdate.checkDue({ checkMinutes: autoPolicy.t3.checkMinutes, lastCheckAt: autoState.lastT3CheckAt, now })) {
       try {
-        await runtimeManager.check();
-        await persist({ lastT3CheckAt: Date.now() });
+        const result = await runtimeManager.check();
+        if (!result.error) await persist({ lastT3CheckAt: Date.now() });
       } catch { /* next tick retries */ }
     }
     if (busy) return;
@@ -2910,7 +2912,11 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && route === "/t3/updates/check") {
-      const result = await runtimeManager.check();
+      let input;
+      try { input = JSON.parse((await readBody(req)) || "{}"); }
+      catch { return sendJson(res, 400, { ok: false, error: "Expected a release channel." }); }
+      if (input?.channel !== undefined && !["stable", "nightly"].includes(input.channel)) return sendJson(res, 400, { ok: false, error: "Choose Stable or Nightly." });
+      const result = await runtimeManager.check({ channel: input?.channel });
       return sendJson(res, result.error ? 502 : 200, { ok: !result.error, ...result });
     }
 

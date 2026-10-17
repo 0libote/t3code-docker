@@ -419,6 +419,9 @@ assert runtime['supported'] is True, 'T3 upgrade supervisor'
 assert runtime['channel'] == 'stable', 'initial release channel'
 assert runtime['version'] == s['server']['version'], 'selected T3 release matches running server'
 assert set(runtime['releases']) <= {'stable', 'nightly'}, 'only public release channels'
+assert 'checkedAt' in runtime and 'checkError' in runtime, 'selected channel freshness'
+assert isinstance(s['updates']['refreshing'], bool), 'update check progress'
+assert isinstance(s['updates']['errors'], dict), 'per-source update check errors'
 assert all('latestVersion' in h for h in s['harnesses']), 'harness latestVersion'
 assert all('latestVersion' in t for t in s['toolchains']), 'toolchain latestVersion'
 assert 'volumeKind' in s['paths'] and 'volumeBytes' in s['paths'], 'storage facts'
@@ -593,7 +596,7 @@ auto_update_settings_work() {
     -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
     "$NAME" node /tmp/auto-update-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
 }
-check "automatic update settings keep categories independent and warn before T3 Code opt-in" auto_update_settings_work
+check "update checks show progress and failures; automatic settings keep categories independent" auto_update_settings_work
 
 context_instructions_work() {
   docker cp scripts/context-api-audit.mjs "$NAME:/tmp/context-api-audit.mjs" >/dev/null 2>&1 || return 1

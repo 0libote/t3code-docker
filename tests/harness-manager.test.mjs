@@ -1617,6 +1617,25 @@ test("latest asks mise for the newest release without installing it", async () =
   await assert.rejects(manager.latest("nope"), /unknown harness/);
 });
 
+test("fresh release checks bypass mise caches for agents, toolchains and packages", async () => {
+  const world = createWorld(new MemoryFs());
+  const calls = [];
+  const run = world.run;
+  world.run = async (argv, options) => {
+    calls.push({ argv, env: options.env });
+    return run(argv, options);
+  };
+  const manager = managerFor(world);
+  await manager.latestRelease("claude", { fresh: true });
+  await manager.toolchains.latestRelease("rust", { fresh: true });
+  await manager.packages.latestRelease("jq", { fresh: true });
+  const lookups = calls.filter(({ argv }) => ["latest", "ls-remote"].includes(argv[3]));
+  assert.equal(lookups.length, 5);
+  assert.ok(lookups.every(({ env }) => env.MISE_FETCH_REMOTE_VERSIONS_CACHE === "0s"));
+  assert.ok(lookups[0].argv.includes("--minimum-release-age"), "agents still take new stable releases immediately");
+  assert.equal(lookups[1].argv.includes("--minimum-release-age"), false, "toolchains keep the release-age policy");
+});
+
 test("the runner stops a cancelled program and everything it started", async () => {
   const { createRunner } = await import("../docker/harness/io.mjs");
   const run = createRunner();
