@@ -432,6 +432,29 @@ assert s['storage']['policy']['retainManagedVersions'] is True, 'managed version
 }
 check "status carries what the console reads" status_has_console_fields
 
+# Exercise the shipped picker lookup without a registry or an installation.
+release_pickers_refresh() {
+  docker exec -i "$NAME" node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { createHarnessManager } from '/opt/t3-harness/index.mjs';
+let published = '1.0.0';
+const manager = createHarnessManager({
+  run: async (argv, { env }) => {
+    assert.ok(['latest', 'ls-remote'].includes(argv[3]), 'picker is read-only');
+    assert.equal(env.MISE_FETCH_REMOTE_VERSIONS_CACHE, '0s', 'bypass mise cache');
+    return { code: 0, stderr: '', stdout: argv[3] === 'latest' ? published : JSON.stringify([{ version: published }]) };
+  },
+});
+for (const [ops, id] of [[manager, 'claude'], [manager.packages, 'jq']]) {
+  published = '1.0.0';
+  assert.equal((await ops.versions(id)).releases[0].version, '1.0.0');
+  published = '1.0.1';
+  assert.equal((await ops.versions(id)).releases[0].version, '1.0.1');
+}
+JS
+}
+check "release pickers refresh mise version lists without installing" release_pickers_refresh
+
 t3_update_access_is_gated() {
   local payload
   payload='{"channel":"stable","version":"0.0.45"}'

@@ -667,7 +667,7 @@ export function createHarnessManager(options = {}) {
   function updateToolchain(id, options = {}) {
     return runToolchain(id, "update", async (entry, previous, op) => {
       op.phase("resolving");
-      const target = await mise.latest(ctx, releaseSpec(entry), { signal: op.signal });
+      const target = await mise.latest(ctx, releaseSpec(entry), { signal: op.signal, fresh: true });
       assertVersion(target);
       const selected = await globalVersion(entry.miseTool);
       if (keepNewer(entry, selected, target, op)) return {};
@@ -836,10 +836,10 @@ export function createHarnessManager(options = {}) {
     const spec = version ? `${id}@${version}` : id;
     let target;
     try {
-      target = await mise.latest(ctx, spec, { signal: op.signal });
+      target = await mise.latest(ctx, spec, { signal: op.signal, fresh: true });
     } catch (error) {
       if (!version || error?.code === "cancelled") throw error;
-      const named = await mise.latest(ctx, spec, { signal: op.signal, anyAge: true }).catch((retry) => {
+      const named = await mise.latest(ctx, spec, { signal: op.signal, anyAge: true, fresh: true }).catch((retry) => {
         if (retry?.code === "cancelled") throw retry;
         return null;
       });
@@ -1051,8 +1051,8 @@ export function createHarnessManager(options = {}) {
    */
   async function releaseList(tool, { minimumVersion = null, releaseMajor = null } = {}) {
     const [listing, offered] = await Promise.all([
-      mise.lsRemote(ctx, tool, { json: true, anyAge: true }),
-      mise.latest(ctx, releaseMajor ? `${tool}@${releaseMajor}` : tool).catch(() => null),
+      mise.lsRemote(ctx, tool, { json: true, anyAge: true, fresh: true }),
+      mise.latest(ctx, releaseMajor ? `${tool}@${releaseMajor}` : tool, { fresh: true }).catch(() => null),
     ]);
     return {
       latest: offered,

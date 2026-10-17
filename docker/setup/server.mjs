@@ -21,6 +21,7 @@ import {
   createProviderCache,
   createHarnessCache,
   createListCache,
+  createTtlCache,
 } from "./cache.mjs";
 import { loadAssets, renderConsole, renderUnlock, contentSecurityPolicy } from "./page.mjs";
 import { parseListeners, processLabel, looksLikeDatabase } from "./ports.mjs";
@@ -490,27 +491,9 @@ const withRegistry = async (rows) => {
   });
 };
 
-/** A small TTL cache whose concurrent misses share one lookup. */
-const ttlCache = (ttlMs, limit = 200) => {
-  const entries = new Map();
-  return (key, load) => {
-    const hit = entries.get(key);
-    if (hit && (hit.pending || Date.now() - hit.at < ttlMs)) return hit.value;
-    const value = load().then((result) => {
-      entries.set(key, { at: Date.now(), value: Promise.resolve(result) });
-      return result;
-    }, (error) => {
-      entries.delete(key);
-      throw error;
-    });
-    entries.set(key, { at: Date.now(), pending: true, value });
-    if (entries.size > limit) entries.delete(entries.keys().next().value);
-    return value;
-  };
-};
-// Short: which releases mise is still holding back changes as they age.
-const versionsCache = ttlCache(10 * 60 * 1000);
-const infoCache = ttlCache(6 * 60 * 60 * 1000);
+// Picker openings fetch fresh versions; only concurrent reads share a lookup.
+const versionsCache = createTtlCache({ ttlMs: 0 });
+const infoCache = createTtlCache({ ttlMs: 6 * 60 * 60 * 1000 });
 
 let storagePromise = null;
 const loadStorage = () => {
@@ -2666,6 +2649,7 @@ const server = createServer(async (req, res) => {
     // "Check for updates now": a fresh pass in the background; rows pick the
     // answers up on the next poll.
     if (req.method === "POST" && route === "/updates/check") {
+      versionsCache.clear();
       void latestCache.refresh({ force: true }).catch(() => {});
       return sendJson(res, 202, { ok: true, code: "checking" });
     }
