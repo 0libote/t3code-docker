@@ -27,6 +27,66 @@ export async function probeVersion(ctx, entry, executable) {
   return { ok: true, version, error: null };
 }
 
+/**
+ * OpenCode's major version decides where credentials live. 1.x keeps provider
+ * keys in an auth.json file; 2.x stores accounts (API keys, OAuth grants, ...)
+ * in its SQLite database and only imports auth.json once during migration.
+ * Null means the version is unknown, which reads like 1.x: the file check is
+ * cheap and bounded, while the 2.x check has to start the CLI's server.
+ */
+export function openCodeMajor(version) {
+  const match = /^v?(\d+)\./.exec(String(version ?? "").trim());
+  return match ? Number(match[1]) : null;
+}
+
+/** Parse `opencode auth list --format json`, tolerating log chatter before it. */
+export function parseOpenCodeAuthList(text) {
+  const start = String(text ?? "").indexOf("[");
+  if (start < 0) throw new Error("OpenCode returned no list");
+  const list = JSON.parse(String(text).slice(start));
+  if (!Array.isArray(list)) throw new Error("OpenCode returned an invalid list");
+  return list;
+}
+
+/**
+ * Whether the list holds at least one stored account. Environment connections
+ * (`type: "env"`) are deliberately not counted: they are not credentials this
+ * setup manages, and the 1.x file check they replace never saw them either.
+ */
+export function openCodeHasStoredCredentials(list) {
+  return (list ?? []).some((integration) =>
+    (integration?.connections ?? []).some((connection) => connection?.type === "credential"));
+}
+
+/** Stored accounts as { integration, id, label }, for removal one by one. */
+export function openCodeStoredCredentials(list) {
+  return (list ?? []).flatMap((integration) =>
+    (integration?.connections ?? [])
+      .filter((connection) => connection?.type === "credential")
+      .map((connection) => ({
+        integration: integration.id,
+        id: connection.id,
+        label: connection.label ?? null,
+      })));
+}
+
+/** Integration ids holding at least one stored account, sorted. */
+export function openCodeStoredIntegrationIds(list) {
+  return [...new Set(
+    openCodeStoredCredentials(list).map((credential) => credential.integration).filter(Boolean),
+  )].sort();
+}
+
+/** Sign-in verdict for OpenCode 2.x: ask the CLI about its database. */
+async function detectOpenCodeAccounts(ctx, executable) {
+  const result = await probeCommand(ctx, executable, ["auth", "list", "--format", "json"]);
+  if (result.error || result.code !== 0) return null;
+  try {
+    return openCodeHasStoredCredentials(parseOpenCodeAuthList(result.combined));
+  } catch {
+    return null;
+  }
+}
 /** Which credential sources exist for a harness: environment keys and files. */
 export async function credentialSurface(ctx, entry) {
   const env = entry.credentials.env.filter((key) => Boolean(ctx.env[key]?.trim?.()));
@@ -42,7 +102,7 @@ export async function credentialSurface(ctx, entry) {
  * Sign-in verdict. `null` is a real answer: it means the question could not be
  * answered from a file or a bounded probe, and must not be read as "signed in".
  */
-export async function detectAuth(ctx, entry, { executable, runnable }) {
+export async function detectAuth(ctx, entry, { executable, runnable, version = null }) {
   switch (entry.auth) {
     case "claude": {
       if (hasEnv(ctx, "ANTHROPIC_API_KEY") || hasEnv(ctx, "CLAUDE_CODE_OAUTH_TOKEN")) return true;
@@ -61,6 +121,12 @@ export async function detectAuth(ctx, entry, { executable, runnable }) {
       return null;
     }
     case "opencode": {
+      // 2.x keeps accounts in its database, where the legacy file is stale
+      // after the one-time migration import; only 1.x is read from the file.
+      if (openCodeMajor(version) >= 2) {
+        if (!runnable) return false;
+        return detectOpenCodeAccounts(ctx, executable);
+      }
       const file = path.join(ctx.home, entry.credentials.paths[0]);
       if (!(await ctx.fs.exists(file))) return false;
       try {

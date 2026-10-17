@@ -450,7 +450,7 @@ Each agent offers the sign-in methods it supports:
 | --- | --- | --- |
 | Claude Code | `auth login`: shows a URL, then takes the code back | — |
 | Codex | device code (`login --device-auth`) | stored with `login --with-api-key` |
-| OpenCode | — | choose a provider; the key is written to its `auth.json` |
+| OpenCode | — | choose a provider; the key is stored with OpenCode (`auth.json` on 1.x, its database on 2.x) |
 | Cursor | browser sign-in, checked until it completes | — |
 | Grok Build | device code: a URL and a code to confirm | — |
 | Muse Code | Meta device code: a URL and a code to confirm | stored with `auth set --api-key-stdin` |
@@ -477,7 +477,7 @@ both count, as they do for T3 Code:
 | Codex | `codex login status` |
 | Cursor | `cursor-agent status --format json` |
 | Grok Build | `grok models`, plus `XAI_API_KEY`, as T3 Code does |
-| OpenCode | its `auth.json`, where its keys are stored |
+| OpenCode | its `auth.json` on 1.x, its database (via `auth list`) on 2.x |
 | Muse Code | saved credentials in `~/.config/muse/auth.json`; sign-in is checked on the first message |
 | Antigravity | T3 Code's provider status |
 

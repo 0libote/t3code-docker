@@ -166,12 +166,14 @@ head_ "Harnesses"
 # particular has no shim on PATH (its package would shadow node), so asking
 # PATH would say it is missing when it is installed.
 declare -A runnable=()
+opencode_version=""
 harness_rows="$(t3-harness list 2>/dev/null || true)"
 if [ -z "$harness_rows" ]; then
   bad "manager" "t3-harness list returned nothing"
 fi
 while IFS=$'\t' read -r id version state; do
   [ -n "$id" ] || continue
+  if [ "$id" = opencode ]; then opencode_version="$version"; fi
   case "$state" in
     runnable*) ok "$id" "$version"; runnable[$id]=1 ;;
     *"…")      warn "$id" "$state" ;;
@@ -199,9 +201,61 @@ cred() {
   local name="$1" path="$2"
   if [ -e "$path" ]; then ok "$name" "signed in ($path)"; else warn "$name" "not signed in"; fi
 }
+# The runnable managed executable for a harness, or nothing.
+managed_bin() { # id
+  local resolved=""
+  if [ -r "${T3_PROVIDER_CLI:=/opt/t3-provider/cli.mjs}" ] && [ -x "${T3_INFRA_NODE:=/usr/local/bin/node}" ]; then
+    resolved="$("$T3_INFRA_NODE" "$T3_PROVIDER_CLI" resolve "$1" 2>/dev/null || true)"
+  fi
+  if [ -n "$resolved" ] && [ -x "$resolved" ]; then printf '%s' "$resolved"; fi
+  return 0
+}
+# OpenCode 2.x keeps accounts in its database, where auth.json is stale after
+# the one-time migration import; 1.x (or an unreadable version) is read from
+# the file, as before.
+cred_opencode() {
+  local major="${opencode_version%%.*}"
+  major="${major#v}"
+  if [[ $major =~ ^[0-9]+$ ]] && [ "$major" -ge 2 ]; then
+    local bin list verdict
+    bin="$(managed_bin opencode)"
+    if [ -n "$bin" ]; then
+      if command -v timeout >/dev/null 2>&1; then
+        list="$(timeout 30s "$bin" auth list --format json 2>/dev/null || true)"
+      else
+        list="$("$bin" auth list --format json 2>/dev/null || true)"
+      fi
+      if [ -n "$list" ]; then
+        verdict="$(printf '%s' "$list" | "$T3_INFRA_NODE" -e '
+          let s = "";
+          process.stdin.on("data", (c) => { s += c; }).on("end", () => {
+            try {
+              const at = s.indexOf("[");
+              if (at < 0) throw new Error("no list");
+              const ids = [...new Set(JSON.parse(s.slice(at)).flatMap((i) =>
+                (((i && i.connections) || []).filter((c) => c && c.type === "credential").map(() => i.id))
+              ).filter(Boolean))].sort();
+              process.stdout.write(ids.length
+                ? `signed in (${ids.length} provider${ids.length === 1 ? "" : "s"}: ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? `, +${ids.length - 5} more` : ""})`
+                : "not signed in");
+            } catch { process.stdout.write("unreadable"); }
+          });' 2>/dev/null || echo unreadable)"
+        case "$verdict" in
+          "signed in"*) ok "opencode" "$verdict" ;;
+          "not signed in") warn "opencode" "$verdict" ;;
+          *) warn "opencode" "sign-in state not readable" ;;
+        esac
+        return
+      fi
+    fi
+    warn "opencode" "sign-in state not readable"
+  else
+    cred opencode "$HOME/.local/share/opencode/auth.json"
+  fi
+}
 cred claude   "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"
 cred codex    "$HOME/.codex/auth.json"
-cred opencode "$HOME/.local/share/opencode/auth.json"
+cred_opencode
 for h in cursor grok muse; do
   case "$h" in
     cursor) dir="$HOME/.cursor" ;;

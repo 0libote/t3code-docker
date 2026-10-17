@@ -446,6 +446,54 @@ test("Muse treats saved credentials as unverified and ignores inherited API keys
   assert.equal(await detectAuth(ctx, entry, facts), null, "an unreadable file is unknown");
 });
 
+test("OpenCode reads 1.x from auth.json and 2.x from auth list", async () => {
+  const fs = new MemoryFs();
+  const entry = getHarness("opencode");
+  const file = path.join(HOME, entry.credentials.paths[0]);
+  const list = (connections) => JSON.stringify([{ id: "anthropic", name: "Anthropic", connections }]);
+  const v2 = (stdout, code = 0) => ({
+    home: HOME,
+    fs,
+    env: {},
+    timeouts: { probe: 5000 },
+    run: async (argv) => {
+      assert.deepEqual(argv.slice(1), ["auth", "list", "--format", "json"]);
+      return code === 0
+        ? { code: 0, signal: null, stdout, stderr: "", error: null }
+        : { code, signal: null, stdout: "", stderr: "boom", error: null };
+    },
+  });
+  const bin = { executable: "/mise/opencode", runnable: true };
+
+  // 1.x behavior is unchanged and version-gated, not assumed.
+  fs.seedFile(file, JSON.stringify({ anthropic: { type: "api", key: "sk-1" } }));
+  assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, { ...bin, version: "1.18.31" }), true);
+  fs.seedFile(file, "{}");
+  assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, { ...bin, version: "1.18.31" }), false);
+  // An unknown version keeps the old file check.
+  fs.seedFile(file, JSON.stringify({ anthropic: { type: "api", key: "sk-1" } }));
+  assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, bin), true);
+
+  // 2.x asks the CLI: stored accounts sign in, nothing stored signs out.
+  const stored = list([{ type: "credential", id: "cred_1", label: "API key", method: "key" }]);
+  assert.equal(await detectAuth(v2(stored), entry, { ...bin, version: "2.0.27" }), true);
+  assert.equal(await detectAuth(v2("[]"), entry, { ...bin, version: "2.0.27" }), false);
+  // A stale migrated file must not sign a logged-out 2.x back in.
+  fs.seedFile(file, JSON.stringify({ anthropic: { type: "api", key: "sk-stale" } }));
+  assert.equal(await detectAuth(v2("[]"), entry, { ...bin, version: "2.0.27" }), false);
+  // Environment connections are not stored accounts.
+  const envOnly = list([{ type: "env", name: "ANTHROPIC_API_KEY" }]);
+  assert.equal(await detectAuth(v2(envOnly), entry, { ...bin, version: "2.0.27" }), false);
+  // A CLI that errors or prints garbage is unknown, never signed in.
+  assert.equal(await detectAuth(v2("", 1), entry, { ...bin, version: "2.0.27" }), null);
+  assert.equal(await detectAuth(v2("not json"), entry, { ...bin, version: "2.0.27" }), null);
+  // An unrunnable 2.x answers without spawning anything.
+  assert.equal(
+    await detectAuth({ ...v2(stored), run: async () => { throw new Error("must not run"); } }, entry, { executable: bin.executable, runnable: false, version: "2.0.27" }),
+    false,
+  );
+});
+
 test("architecture normalization maps dpkg and node spellings", () => {
   assert.equal(normalizeArch("amd64"), "x64");
   assert.equal(normalizeArch("x86_64"), "x64");

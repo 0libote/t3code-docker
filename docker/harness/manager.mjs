@@ -207,10 +207,11 @@ export function createHarnessManager(options = {}) {
     const failed = Boolean(failure);
 
     const authExecutable = executableExists ? executable : null;
+    const authVersion = installedVersion ?? recordedVersion;
     const authenticated =
       authenticate && authExecutable
-        ? await authFor(entry, authExecutable, installedVersion ?? recordedVersion,
-          () => detectAuth(ctx, entry, { executable: authExecutable, runnable: true }))
+        ? await authFor(entry, authExecutable, authVersion,
+          () => detectAuth(ctx, entry, { executable: authExecutable, runnable: true, version: authVersion }))
         : null;
 
     return {
