@@ -55,13 +55,15 @@ AMD64/ARM64 members are verified before release tags are written. Every final
 tag is checked again. Existing version tags with different indexes are
 refused instead of silently overwritten.
 
-For the latest stable release all **15 existing tag aliases** are mirrored:
+For the latest stable release all **9 tag aliases** are mirrored:
 
-- Browser: version, version-browser, version-full, minor, minor-browser,
-  minor-full, `browser`, `full`, and `latest`.
-- Core: version-core, version-slim, minor-core, minor-slim, `core`, and `slim`.
+- Browser: version, version-browser, minor, minor-browser, `browser`, and
+  `latest`.
+- Core: version-core, minor-core, and `core`.
 
-Older releases and prereleases receive only their five full-version tags.
+Older releases and prereleases receive only their three full-version tags.
+The retired `full` and `slim` aliases are not published for new releases;
+tags already pushed under those names are left in place.
 A retry checks GitHub's latest stable release again before moving floating
 aliases, so backfilling an old release does not intentionally roll them back.
 The workflow serializes publications across variants/releases; it never

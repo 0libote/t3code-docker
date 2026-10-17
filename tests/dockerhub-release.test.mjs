@@ -20,11 +20,11 @@ function fixture(tag = 'v0.18.0', latest = tag) {
     verification: { version: tag, sourceSha: sha, tags }, builds };
   return { input, raw, plans: releasePlan(input) };
 }
-test('stable latest mirrors all 15 aliases; old releases and prereleases only get version tags', () => {
-  assert.equal(fixture().plans.flatMap((p) => p.tags).length, 15);
+test('stable latest mirrors all 9 aliases; old releases and prereleases only get version tags', () => {
+  assert.equal(fixture().plans.flatMap((p) => p.tags).length, 9);
   for (const [tag, latest] of [['v0.17.0','v0.18.0'], ['v0.19.0-rc.1','v0.18.0']]) {
     const { plans } = fixture(tag, latest);
-    assert.equal(plans.flatMap((p) => p.tags).length, 5);
+    assert.equal(plans.flatMap((p) => p.tags).length, 3);
     assert.ok(plans.every((p) => p.tags.every((t) => t.startsWith(tag.slice(1)))));
   }
 });
@@ -60,8 +60,8 @@ function registry(world, { brokenStage = false, latest = world.input.tag, collis
 test('copies indexes by digest, validates both staged variants, and verifies all final tags', async () => {
   const world = fixture(), fake = registry(world);
   const result = await publishPlan(world.plans, fake.driver);
-  assert.equal(result.length, 15);
-  assert.equal(fake.writes.length, 17);
+  assert.equal(result.length, 9);
+  assert.equal(fake.writes.length, 11);
   assert.ok(fake.writes.slice(0,2).every((w) => w.src.startsWith(SOURCE + '@') && w.dst.includes('candidate-')));
   for (const p of world.plans) for (const tag of p.tags) verifyIndex(fake.images.get(`${DESTINATION}:${tag}`), p);
 });
@@ -72,9 +72,15 @@ test('a damaged staged index or existing version collision cannot move release t
     assert.ok(fake.writes.every((w) => w.dst.includes('candidate-')));
   }
 });
+test('the retired full and slim aliases are never mirrored', () => {
+  for (const [tag, latest] of [['v0.18.0','v0.18.0'], ['v0.17.0','v0.18.0']]) {
+    const tags = fixture(tag, latest).plans.flatMap((p) => p.tags);
+    assert.ok(tags.every((t) => !/(^|-)(full|slim)$/.test(t)), tags.join(' '));
+  }
+});
 test('a newer release published during copying prevents updating floating aliases', async () => {
   const world = fixture(), fake = registry(world, { latest: 'v0.19.0' });
   const result = await publishPlan(world.plans, fake.driver);
-  assert.equal(result.length, 5);
+  assert.equal(result.length, 3);
   assert.ok(result.every((r) => r.tag.startsWith('0.18.0')));
 });

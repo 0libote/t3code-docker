@@ -36,9 +36,8 @@ export function releasePlan({ tag, release, latest, sourceSha, verification, bui
     assert.ok(index, `Missing verified ${variant} release index`);
     assert.match(index.digest, DIGEST);
     assert.deepEqual([...index.members].sort((a,b) => a.platform.localeCompare(b.platform)), members);
-    const alias = variant === 'core' ? 'slim' : 'full';
-    const tags = [`${version}-${variant}`, `${version}-${alias}`, ...(variant === 'browser' ? [version] : [])];
-    if (floating) tags.push(variant, alias, `${minor}-${variant}`, `${minor}-${alias}`, ...(variant === 'browser' ? [minor, 'latest'] : []));
+    const tags = [`${version}-${variant}`, ...(variant === 'browser' ? [version] : [])];
+    if (floating) tags.push(variant, `${minor}-${variant}`, ...(variant === 'browser' ? [minor, 'latest'] : []));
     return { variant, digest: index.digest, members, tags };
   });
 }
