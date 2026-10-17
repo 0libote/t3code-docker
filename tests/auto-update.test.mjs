@@ -7,6 +7,7 @@ import {
   checkDue,
   busyReason,
   describeKind,
+  dueUpdates,
 } from "../docker/setup/auto-update.mjs";
 
 describe("auto-update policy", () => {
@@ -72,5 +73,73 @@ describe("auto-update scheduling", () => {
   it("describes each kind for the UI", () => {
     assert.equal(describeKind({ enabled: false }), "Off");
     assert.equal(describeKind({ enabled: true, checkMinutes: 180, idleMinutes: 30 }), "On · every 3h · after 30m idle");
+  });
+});
+
+describe("auto-update due selection", () => {
+  const isNewer = (latest, current) => latest > current;
+  const base = {
+    harnessIds: new Set(["claude", "codex"]),
+    skipIds: new Set(["antigravity"]),
+    isNewer,
+  };
+
+  it("selects installed harnesses with a strictly newer release only", () => {
+    const latest = { "harness:claude": "2", "harness:codex": "1", "harness:antigravity": "9" };
+    const jobs = dueUpdates({
+      ...base,
+      harnesses: [
+        { id: "claude", installed: true, installedVersion: "1" },
+        { id: "codex", installed: true, installedVersion: "1" },
+        { id: "antigravity", installed: true, installedVersion: "1" },
+        { id: "other", installed: true, installedVersion: "1" },
+      ],
+      toolchains: null,
+      latestFor: (key) => latest[key] ?? null,
+    });
+    assert.deepEqual(jobs, [{ target: "harness", id: "claude" }]);
+  });
+
+  it("skips busy, missing and older-known rows", () => {
+    const jobs = dueUpdates({
+      ...base,
+      harnesses: [
+        { id: "claude", installed: true, installedVersion: "2", inProgress: true },
+        { id: "codex", installed: true, installedVersion: "3" },
+      ],
+      toolchains: null,
+      latestFor: () => "2",
+    });
+    assert.deepEqual(jobs, []);
+  });
+
+  it("includes toolchains, source control and added tools when asked", () => {
+    const latest = { "toolchain:go": "2", "toolchain:glab": "2", "package:npm:prettier": "2", "toolchain:gh": "2" };
+    const jobs = dueUpdates({
+      ...base,
+      harnesses: [],
+      toolchains: {
+        toolchains: [{ id: "go", installed: true, version: "1" }],
+        sourceControl: [{ id: "glab", installed: true, version: "1" }, { id: "gh", installed: true, version: "1", inImage: true }],
+        packages: [{ id: "npm:prettier", installed: true, version: "1" }],
+      },
+      latestFor: (key) => latest[key] ?? null,
+    });
+    assert.deepEqual(jobs, [
+      { target: "toolchain", id: "go" },
+      { target: "toolchain", id: "glab" },
+      { target: "package", id: "npm:prettier" },
+    ]);
+  });
+
+  it("falls back to a plain difference when versions cannot be ordered", () => {
+    const jobs = dueUpdates({
+      ...base,
+      isNewer: () => { throw new Error("unparseable"); },
+      harnesses: [{ id: "claude", installed: true, installedVersion: "dev-1" }],
+      toolchains: null,
+      latestFor: () => "dev-2",
+    });
+    assert.deepEqual(jobs, [{ target: "harness", id: "claude" }]);
   });
 });

@@ -1174,3 +1174,23 @@ test('unavailable device snapshots do not prompt pairing a first device', () => 
   s.authLists.session.available = true;
   assert.equal(M.readiness(s, {}).title, 'Pair your first device');
 });
+
+test('auto-update view summarizes policy, checks and activity', () => {
+  const off = M.autoUpdateView({}, NOW);
+  assert.equal(off.anyEnabled, false);
+  assert.equal(off.providersLine, 'Off');
+  assert.equal(off.t3Line, 'Off');
+  assert.equal(off.providerCheck, 'Providers not checked yet');
+  const on = M.autoUpdateView({ autoUpdate: {
+    policy: { providers: { enabled: true, checkMinutes: 180, idleMinutes: 30 }, t3: { enabled: false, checkMinutes: 45, idleMinutes: 15 } },
+    state: { lastProviderCheckAt: NOW - 6 * MIN, lastResult: 'Queued 2 provider updates' },
+    lastActivityAt: NOW - 2 * 60 * MIN, busy: 'An install or update is already running',
+  } }, NOW);
+  assert.equal(on.anyEnabled, true);
+  assert.equal(on.providersLine, 'On · check every 3h · update after 30m idle');
+  assert.equal(on.t3Line, 'Off');
+  assert.match(on.providerCheck, /Providers checked 6 min ago/);
+  assert.match(on.lastActivityText, /Last activity 2 hours ago/);
+  assert.equal(on.busy, 'An install or update is already running');
+  assert.equal(on.lastResult, 'Queued 2 provider updates');
+});

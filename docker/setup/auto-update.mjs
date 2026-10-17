@@ -4,11 +4,12 @@
 // When enabled, a background pass checks for new releases every
 // `checkMinutes` and installs them only after `idleMinutes` without activity.
 //
-// Activity here means someone is using the server: setup API traffic (the
-// console open and polling counts), a lifecycle install/update in flight, a
-// T3 Code update/restart in flight, or the first-start install running. T3
-// Code agent turns stop on restart, so deferring while anyone is around is
-// the safe default.
+// Activity here means someone is using the server: signed-in setup API
+// traffic (an open console or a T3 Code client counts), a lifecycle
+// install/update in flight, a T3 Code update/restart in flight, or the
+// first-start install running. Agent turns already running inside T3 Code
+// are not directly visible to this service, so idle is a client-activity
+// signal, not proof that no turn is running.
 export const POLICY_VERSION = 1;
 
 export const DEFAULT_POLICY = Object.freeze({
@@ -128,6 +129,39 @@ export function busyReason({ lifecycleActive = false, lifecycleQueued = 0, runti
   if (setupRunning) return "First-start install is running";
   if (restarting) return "T3 Code is restarting";
   return null;
+}
+
+/**
+ * Lifecycle jobs for rows with a newer known release. Pure: the server
+ * injects the latest-version cache (`latestFor(key)`) and version ordering
+ * (`isNewer(latest, current)`). When ordering is unavailable or throws, a
+ * plain string difference counts as due; the lifecycle manager still
+ * refuses an actual downgrade. `toolchains` is the manager's toolchain
+ * status result, or null to leave toolchains, source-control CLIs and
+ * added tools out.
+ */
+export function dueUpdates({ harnesses = [], toolchains = null, latestFor, isNewer, harnessIds, skipIds = new Set() }) {
+  const due = (key, current) => {
+    const latest = latestFor(key);
+    if (!latest || !current || latest === current) return false;
+    try { return isNewer ? isNewer(latest, current) : true; } catch { return true; }
+  };
+  const jobs = [];
+  for (const row of harnesses) {
+    if (skipIds.has(row.id) || !harnessIds.has(row.id) || !row.installed || row.inProgress) continue;
+    if (due(`harness:${row.id}`, row.installedVersion)) jobs.push({ target: "harness", id: row.id });
+  }
+  if (toolchains) {
+    for (const row of [...(toolchains.toolchains ?? []), ...(toolchains.sourceControl ?? [])]) {
+      if (!row.installed || row.inImage || row.inProgress) continue;
+      if (due(`toolchain:${row.id}`, row.version)) jobs.push({ target: "toolchain", id: row.id });
+    }
+    for (const row of toolchains.packages ?? []) {
+      if (!row.installed || row.inProgress) continue;
+      if (due(`package:${row.id}`, row.version)) jobs.push({ target: "package", id: row.id });
+    }
+  }
+  return jobs;
 }
 
 /** Short human summary for the UI, e.g. "On · every 3h · after 30m idle". */

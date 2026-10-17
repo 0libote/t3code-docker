@@ -403,9 +403,9 @@ installed. By default nothing installs or updates on its own; the setup page
 checks for new releases in the background every hour. The Agents page header
 has **Check for updates** for a fresh pass on demand, plus **Auto-update**:
 opt in and providers update by themselves, by default checking every 3 hours
-and installing only after 30 minutes without activity (no open console, no
-install/update running). An **Also update toolchains** switch extends it to
-toolchains, source-control CLIs and added tools.
+and installing only after 30 minutes without activity (no open console or
+T3 Code client, no install/update running). An **Also update toolchains**
+switch extends it to toolchains, source-control CLIs and added tools.
 
 T3 Code runs each agent through a small launcher the setup service writes in
 `~/.local/share/t3-harness/launchers`. It runs the exact release installed here.
@@ -804,6 +804,8 @@ only when you confirm an update; **Auto-update** next to the card heading
 opts in, sharing one dialog with provider auto-update. It checks on its own
 cadence (default every 3 hours) and installs the selected channel's release
 only after 30 minutes without activity, never switching Stable ↔ Nightly.
+Idle tracks console and client activity, not agent turns: a turn that
+outlasts the idle time with every client closed can still be interrupted.
 T3 Code keeps running while the release downloads, verifies
 its SHA-512 integrity and checks compatibility with the container supervisor.
 Once ready, only T3 Code restarts. Active agent turns and its terminals stop;

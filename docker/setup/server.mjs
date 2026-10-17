@@ -383,9 +383,10 @@ const recordEvent = (kind, text, detail = null) => {
 // Opt-in background updates for providers and T3 Code. The policy lives on
 // the state volume (`setup/auto-update.json`); the last check/run times live
 // beside it. Activity is any authed request to this service (an open console
-// polling /status counts), plus lifecycle/runtime work in flight. An update
-// runs only after `idleMinutes` without any of that, so an active session is
-// never interrupted by a restart or a binary swap underneath it.
+// polling /status counts, and so does a T3 Code client asking /hello), plus
+// lifecycle/runtime work in flight. An update runs only after `idleMinutes`
+// without any of that. Agent turns inside T3 Code are not directly visible
+// here, so idle tracks client activity, not turn activity.
 let autoPolicy = AutoUpdate.normalizePolicy(null);
 let autoState = { lastProviderCheckAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastT3RunAt: null, lastResult: null };
 let lastActivityAt = Date.now();
@@ -2233,36 +2234,30 @@ const autoTick = async () => {
         try {
           const manager = await loadHarness();
           const { harnesses } = await manager.status({ authenticate: false });
-          const toolchains = autoPolicy.providers.includeToolchains ? (await manager.toolchains.status()) : null;
-          const updates = [];
-          for (const h of harnesses ?? []) {
-            if (T3_AGENT_IDS.has(h.id)) continue;
-            if (!HARNESS_IDS.has(h.id) || !h.installed || h.inProgress) continue;
-            const latest = latestCache.get(`harness:${h.id}`)?.latestVersion;
-            if (latest && h.installedVersion && latest !== h.installedVersion) {
-              try {
-                const { compareVersions } = await import(new URL("../harness/version.mjs", import.meta.url).href).catch(() => ({ compareVersions: null }));
-                if (compareVersions && compareVersions(latest, h.installedVersion) <= 0) continue;
-              } catch { /* fall through on version uncertainty */ }
-              updates.push({ target: "harness", id: h.id });
-            }
+          const toolchains = autoPolicy.providers.includeToolchains ? await manager.toolchains.status() : null;
+          // Version ordering comes from the loaded harness module: a relative
+          // import would only resolve in a checkout, not in the image layout.
+          const compare = harnessModule?.compareVersions;
+          const updates = AutoUpdate.dueUpdates({
+            harnesses: harnesses ?? [],
+            toolchains,
+            latestFor: (key) => latestCache.get(key)?.latestVersion,
+            isNewer: typeof compare === "function" ? (latest, current) => compare(latest, current) > 0 : null,
+            harnessIds: HARNESS_IDS,
+            skipIds: T3_AGENT_IDS,
+          });
+          let started = 0;
+          for (const job of updates) {
+            // Activity can resume mid pass; stop queueing more. Jobs already
+            // queued keep the usual one-at-a-time lifecycle order.
+            if (!AutoUpdate.isIdle({ idleMinutes: autoPolicy.providers.idleMinutes, lastActivityAt, now: Date.now() })) break;
+            const result = await startLifecycle(job.target, "update", { id: job.id });
+            if (result.body?.ok) started++;
+            else if (result.http !== 409) break;
           }
-          if (autoPolicy.providers.includeToolchains && toolchains) {
-            for (const row of [...(toolchains.toolchains ?? []), ...(toolchains.sourceControl ?? [])]) {
-              if (!row.installed || row.inImage) continue;
-              const latest = latestCache.get(`toolchain:${row.id}`)?.latestVersion;
-              if (latest && row.version && latest !== row.version) updates.push({ target: "toolchain", id: row.id });
-            }
-          }
-          if (updates.length) {
-            for (const job of updates) {
-              if (await autoBusyReason().catch(() => "busy")) break;
-              if (!AutoUpdate.isIdle({ idleMinutes: autoPolicy.providers.idleMinutes, lastActivityAt, now: Date.now() })) break;
-              const result = await startLifecycle(job.target, "update", { id: job.id });
-              if (!result.body?.ok && result.http !== 409) break;
-            }
-            await persist({ lastProviderRunAt: Date.now(), lastResult: updates.length ? `Auto-updated ${updates.length} provider${updates.length === 1 ? "" : "s"}` : autoState.lastResult });
-            if (updates.length) recordEvent("auto.providers", `Auto-updated ${updates.length} provider${updates.length === 1 ? "" : "s"} after idle time`);
+          if (started) {
+            await persist({ lastProviderRunAt: Date.now(), lastResult: `Queued ${started} provider update${started === 1 ? "" : "s"}` });
+            recordEvent("auto.providers", `Queued ${started} provider update${started === 1 ? "" : "s"} after idle time`);
           }
         } catch { /* next tick retries */ }
       }
@@ -2274,11 +2269,11 @@ const autoTick = async () => {
         try {
           const selection = await runtimeManager.status();
           const release = selection?.releases?.[selection.channel]?.version;
-          if (release && selection.version && release !== selection.version) {
+          if (selection.supported && release && selection.version && release !== selection.version) {
             const result = await runtimeManager.update({ channel: selection.channel, version: release });
             if (result.http === 202) {
-              await persist({ lastT3RunAt: Date.now(), lastResult: `Auto-updated T3 Code to ${release}` });
-              recordEvent("auto.t3", `Auto-updated T3 Code to ${release}`, selection.channel);
+              await persist({ lastT3RunAt: Date.now(), lastResult: `Started T3 Code update to ${release}` });
+              recordEvent("auto.t3", `Started T3 Code update to ${release}`, selection.channel);
             }
           }
         } catch { /* next tick retries */ }
@@ -2439,6 +2434,8 @@ const server = createServer(async (req, res) => {
     // its origin, and whether this browser can open it without the key. A
     // stranger learns only that the console exists, which its own page says.
     if (req.method === "GET" && route === "/hello") {
+      // A signed-in T3 Code client is someone around: auto-update waits.
+      if (authed) noteActivity();
       const body = { service: "t3-setup", signedIn: authed };
       if (authed) body.attention = await attentionCount().catch(() => null);
       return sendJson(res, 200, body);

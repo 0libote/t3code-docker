@@ -430,7 +430,7 @@
         <form id="auto-update-form" novalidate>
           <div class="tc-dialog-body">
             <h2 class="tc-dialog-title" id="auto-update-title">Automatic updates</h2>
-            <p class="tc-dialog-desc">Check often, install only when nobody is around. Nothing restarts or swaps while you are active.</p>
+            <p class="tc-dialog-desc">Check often, install only when nobody is around. Installs wait until the console and T3 Code clients have gone quiet.</p>
             <div class="tc-storage-setting">
               <div><label class="tc-row-name" id="auto-prov-label">Provider auto-update</label>
                 <p class="tc-hint" id="auto-prov-help">Agents${draft.providers.includeToolchains ? ", toolchains and added tools" : ""} update by themselves after idle time.</p></div>
@@ -452,7 +452,7 @@
               <div class="tc-field"><label class="tc-label" for="auto-t3-check">Check every</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="24" step="0.25" id="auto-t3-check" value="${Math.round(draft.t3.checkMinutes / 60 * 100) / 100}" inputmode="decimal"><span>hours</span></div></div>
               <div class="tc-field"><label class="tc-label" for="auto-t3-idle">Update after idle</label><div class="tc-storage-input"><input class="tc-input" type="number" min="5" max="480" step="5" id="auto-t3-idle" value="${draft.t3.idleMinutes}" inputmode="numeric"><span>min</span></div></div>
             </div>
-            <p class="tc-hint">Idle means no open console, no install or update running, no first-start install, and no T3 Code restart. Updates queue one at a time; a failed update keeps the previous version and retries on the next pass. ${view.lastActivityText}. ${view.busy ? "Busy now: " + view.busy + "." : ""}</p>
+            <p class="tc-hint">Idle means no open console or T3 Code client, no install or update running, no first-start install, and no T3 Code restart. It cannot see agent turns already running inside T3 Code, so a turn that outlasts the idle time with every client closed can still be interrupted by a T3 Code update. Updates queue one at a time; a failed update keeps the previous version and retries on the next pass. ${view.lastActivityText}. ${view.busy ? "Busy now: " + view.busy + "." : ""}</p>
             <p class="tc-hint tc-hint--err" id="auto-update-error" role="alert" hidden></p>
           </div>
           <div class="tc-dialog-foot"><button class="tc-btn tc-btn--ghost" type="button" data-auto-cancel>Cancel</button><button class="tc-btn tc-btn--primary" type="submit" data-auto-save>Save</button></div>
@@ -510,13 +510,6 @@
       Kit.toast('Auto-update preferences saved', { detail: (draft.providers.enabled ? 'Providers on. ' : 'Providers off. ') + (draft.t3.enabled ? 'T3 Code on.' : 'T3 Code off.') });
       await loadStatus();
     });
-  };
-
-  const checkProviderUpdates = async () => {
-    const res = await api('/updates/check', { body: {} });
-    if (!res.ok) { Kit.toast('Could not check for updates', { tone: 'danger', detail: res.error }); return; }
-    Kit.toast('Checking for updates', { tone: 'info', detail: 'Rows show any newer release within a minute.' });
-    setTimeout(loadStatus, 8000);
   };
 
   // ------------------------------------------------------------- markup --
