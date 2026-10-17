@@ -533,6 +533,20 @@ html.tc-locked { overflow: hidden; }
   .tc-runtime-foot .tc-btn { min-height: var(--touch); flex: 1; justify-content: center; }
 }
 
+/* Automatic updates: dependent timing fields quieten with their switch, so
+   the saved timing remains readable without looking editable while off. */
+.tc-auto-group { display: flex; flex-direction: column; }
+.tc-auto-settings .tc-storage-budgets { margin: var(--space-3) 0 var(--space-1); }
+.tc-auto-fields { transition: opacity var(--dur-fast); }
+.tc-auto-group[data-enabled="false"] .tc-auto-fields { opacity: 0.55; }
+.tc-auto-settings .tc-switch:disabled { cursor: default; }
+.tc-auto-status { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3);
+  border: 1px solid var(--hairline); border-radius: var(--radius-lg); background: var(--surface-sunken); }
+.tc-auto-status > .tc-icon { flex: none; margin-top: 1px; color: var(--fg-muted); }
+.tc-auto-status > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tc-auto-status strong { font-size: 13px; line-height: 18px; font-weight: 500; }
+.tc-auto-status span { font-size: 12px; line-height: 18px; color: var(--fg-muted); }
+
 /* Context editors: center the workspace on desktop; retain phone sheets. */
 .tc-layer--center > .tc-context-sheet { position: relative; z-index: 1; width: min(760px, 100%); max-height: calc(100dvh - 64px); animation: tc-pop var(--dur-base) ease-out; }
 .tc-context-sheet .tc-sheet-body { min-height: 0; gap: var(--space-3); }
@@ -540,26 +554,40 @@ html.tc-locked { overflow: hidden; }
 .tc-context-sheet .tc-sheet-foot { flex-wrap: wrap; }
 .tc-context-sheet .tc-input--area { box-sizing: border-box; width: 100%; min-height: min(42dvh, 420px); resize: vertical; font-family: var(--font-mono); line-height: 1.6; }
 .tc-context-filetools { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
-.tc-context-path { overflow-wrap: anywhere; }
+.tc-context-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.tc-editor-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }
+.tc-editor-toolbar .tc-label { margin: 0; }
+.tc-editor-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-left: auto; }
+.tc-editor-area { padding: 12px 14px; tab-size: 2; }
+.tc-editor-meta { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 2px var(--space-4);
+  font-size: 12px; line-height: 18px; color: var(--fg-muted); }
+.tc-editor-meta > span:first-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tc-skill-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-4); }
 .tc-skill-toolbar .tc-label { margin: 0; }
 .tc-skill-toolbar select { width: auto; min-width: 140px; max-width: 100%; }
+.tc-skill-count { margin-left: auto; text-align: right; }
 .tc-skill-message { display: flex; gap: var(--space-2); margin: 0; padding: var(--space-3) var(--space-4); overflow-wrap: anywhere; }
+.tc-skill-message > .tc-icon { flex: none; margin-top: 1px; }
 .tc-skill-description { margin: var(--space-1) 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tc-skill-row .tc-row-name { overflow-wrap: anywhere; }
-.tc-skill-row { grid-template-columns: minmax(0, 1fr) auto; }
-.tc-skill-row .tc-row-actions { flex-wrap: wrap; max-width: 205px; justify-content: flex-end; }
+.tc-skill-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+.tc-skill-row .tc-row-actions { flex-wrap: wrap; max-width: 230px; justify-content: flex-end; }
 .tc-skill-policy { display: flex; align-items: center; gap: var(--space-2); flex-basis: 100%; }
 .tc-skill-policy .tc-input { min-width: 0; }
+.tc-skill-empty-action { grid-column: 2; justify-self: start; }
 @media (max-width: 479.98px) {
-  .tc-skill-row { grid-template-columns: minmax(0, 1fr); }
-  .tc-skill-row .tc-row-actions { max-width: none; justify-content: flex-start; }
+  .tc-skill-row { grid-template-columns: auto minmax(0, 1fr); }
+  .tc-skill-row .tc-row-actions { grid-column: 2 / -1; max-width: none; justify-content: flex-start; }
 }
-.tc-skill-meta { display: grid; gap: var(--space-1); }
+.tc-skill-meta { display: grid; grid-template-columns: 104px minmax(0, 1fr); column-gap: var(--space-3); row-gap: var(--space-1); align-items: start; }
 .tc-skill-meta code { overflow-wrap: anywhere; white-space: pre-wrap; }
 .tc-skill-locations { padding: var(--space-3) var(--space-4); font-size: 12px; color: var(--fg-muted); }
-.tc-skill-locations summary { cursor: pointer; }
+.tc-skill-locations summary { width: fit-content; cursor: pointer; }
+.tc-skill-locations summary:hover { color: var(--fg); }
 .tc-skill-locations code { display: block; margin-top: var(--space-2); overflow-wrap: anywhere; }
+@media (max-width: 479.98px) {
+  .tc-skill-meta { grid-template-columns: 84px minmax(0, 1fr); }
+}
 .tc-skills .tc-warning, .tc-skill-sheet .tc-warning { color: var(--warn-text); }
 .tc-context-provider .tc-seg { margin-top: var(--space-2); width: fit-content; max-width: 100%; }
 @media (max-width: 1023.98px) {

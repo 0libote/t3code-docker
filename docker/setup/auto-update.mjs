@@ -1,4 +1,4 @@
-// Smart auto-update policy for providers (agents/toolchains) and T3 Code.
+// Smart auto-update policy for providers, toolchains and T3 Code.
 //
 // The console never updates anything on its own unless this policy says so.
 // When enabled, a background pass checks for new releases every
@@ -10,7 +10,7 @@
 // first-start install running. Agent turns already running inside T3 Code
 // are not directly visible to this service, so idle is a client-activity
 // signal, not proof that no turn is running.
-export const POLICY_VERSION = 1;
+export const POLICY_VERSION = 2;
 
 export const DEFAULT_POLICY = Object.freeze({
   version: POLICY_VERSION,
@@ -20,9 +20,13 @@ export const DEFAULT_POLICY = Object.freeze({
     checkMinutes: 180,
     // Install only after this long without activity.
     idleMinutes: 30,
-    // When true, toolchains, source-control CLIs and added tools update too.
-    // When false, only the Agents rows update.
-    includeToolchains: false,
+  }),
+  toolchains: Object.freeze({
+    enabled: false,
+    // Toolchains, source-control CLIs and added tools have their own switch
+    // and schedule; they are not an add-on to provider updates.
+    checkMinutes: 180,
+    idleMinutes: 30,
   }),
   t3: Object.freeze({
     enabled: false,
@@ -44,14 +48,24 @@ const clamp = (value, min, max, fallback) => {
 export function normalizePolicy(input) {
   const src = input && typeof input === "object" ? input : {};
   const providers = src.providers && typeof src.providers === "object" ? src.providers : {};
+  const hasToolchains = !!(src.toolchains && typeof src.toolchains === "object");
+  const toolchains = hasToolchains ? src.toolchains : {};
   const t3 = src.t3 && typeof src.t3 === "object" ? src.t3 : {};
+  const normalizedProviders = {
+    enabled: providers.enabled === true,
+    checkMinutes: clamp(providers.checkMinutes, 15, 1440, DEFAULT_POLICY.providers.checkMinutes),
+    idleMinutes: clamp(providers.idleMinutes, 5, 480, DEFAULT_POLICY.providers.idleMinutes),
+  };
   return {
     version: POLICY_VERSION,
-    providers: {
-      enabled: providers.enabled === true,
-      checkMinutes: clamp(providers.checkMinutes, 15, 1440, DEFAULT_POLICY.providers.checkMinutes),
-      idleMinutes: clamp(providers.idleMinutes, 5, 480, DEFAULT_POLICY.providers.idleMinutes),
-      includeToolchains: providers.includeToolchains === true,
+    providers: normalizedProviders,
+    toolchains: {
+      // Version 1 nested toolchains under providers. Carry over only updates
+      // that actually ran before (providers on + included), with that shared
+      // schedule, so upgrading never starts previously inert automation.
+      enabled: hasToolchains ? toolchains.enabled === true : normalizedProviders.enabled && providers.includeToolchains === true,
+      checkMinutes: clamp(hasToolchains ? toolchains.checkMinutes : normalizedProviders.checkMinutes, 15, 1440, DEFAULT_POLICY.toolchains.checkMinutes),
+      idleMinutes: clamp(hasToolchains ? toolchains.idleMinutes : normalizedProviders.idleMinutes, 5, 480, DEFAULT_POLICY.toolchains.idleMinutes),
     },
     t3: {
       enabled: t3.enabled === true,
@@ -85,15 +99,20 @@ export async function readUpdateState(fs, stateDir) {
   try {
     const raw = JSON.parse(await fs.readFile(statePath(stateDir), "utf8"));
     if (!raw || typeof raw !== "object") throw new Error("bad state");
+    const lastProviderCheckAt = Number(raw.lastProviderCheckAt) || null;
     return {
-      lastProviderCheckAt: Number(raw.lastProviderCheckAt) || null,
+      lastProviderCheckAt,
+      // Version 1 refreshed one shared latest-release cache for agents and
+      // tools, so its provider check is also the last toolchain check.
+      lastToolchainCheckAt: Number(raw.lastToolchainCheckAt) || lastProviderCheckAt,
       lastT3CheckAt: Number(raw.lastT3CheckAt) || null,
       lastProviderRunAt: Number(raw.lastProviderRunAt) || null,
+      lastToolchainRunAt: Number(raw.lastToolchainRunAt) || null,
       lastT3RunAt: Number(raw.lastT3RunAt) || null,
       lastResult: typeof raw.lastResult === "string" ? raw.lastResult.slice(0, 300) : null,
     };
   } catch {
-    return { lastProviderCheckAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastT3RunAt: null, lastResult: null };
+    return { lastProviderCheckAt: null, lastToolchainCheckAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastToolchainRunAt: null, lastT3RunAt: null, lastResult: null };
   }
 }
 

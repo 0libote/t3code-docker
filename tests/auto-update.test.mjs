@@ -2,7 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_POLICY,
+  POLICY_VERSION,
   normalizePolicy,
+  readUpdateState,
   isIdle,
   checkDue,
   busyReason,
@@ -11,28 +13,46 @@ import {
 } from "../docker/setup/auto-update.mjs";
 
 describe("auto-update policy", () => {
-  it("defaults to off with 3h checks and 30m idle", () => {
-    assert.equal(DEFAULT_POLICY.providers.enabled, false);
-    assert.equal(DEFAULT_POLICY.t3.enabled, false);
-    assert.equal(DEFAULT_POLICY.providers.checkMinutes, 180);
-    assert.equal(DEFAULT_POLICY.t3.checkMinutes, 180);
-    assert.equal(DEFAULT_POLICY.providers.idleMinutes, 30);
-    assert.equal(DEFAULT_POLICY.t3.idleMinutes, 30);
+  it("defaults every independent kind to off with 3h checks and 30m idle", () => {
+    assert.equal(POLICY_VERSION, 2);
+    for (const kind of ["providers", "toolchains", "t3"]) {
+      assert.equal(DEFAULT_POLICY[kind].enabled, false, kind);
+      assert.equal(DEFAULT_POLICY[kind].checkMinutes, 180, kind);
+      assert.equal(DEFAULT_POLICY[kind].idleMinutes, 30, kind);
+    }
   });
 
-  it("normalizes toggles and clamps ranges", () => {
+  it("normalizes each kind independently and clamps ranges", () => {
     const policy = normalizePolicy({
-      providers: { enabled: true, checkMinutes: 5, idleMinutes: 1000, includeToolchains: true },
-      t3: { enabled: "yes", checkMinutes: 3000, idleMinutes: 1 },
+      providers: { enabled: false, checkMinutes: 5, idleMinutes: 1000 },
+      toolchains: { enabled: true, checkMinutes: 3000, idleMinutes: 1 },
+      t3: { enabled: "yes", checkMinutes: 60, idleMinutes: 90 },
     });
-    assert.equal(policy.providers.enabled, true);
-    assert.equal(policy.providers.checkMinutes, 15);
-    assert.equal(policy.providers.idleMinutes, 480);
-    assert.equal(policy.providers.includeToolchains, true);
+    assert.deepEqual(policy.providers, { enabled: false, checkMinutes: 15, idleMinutes: 480 });
+    assert.deepEqual(policy.toolchains, { enabled: true, checkMinutes: 1440, idleMinutes: 5 });
     assert.equal(policy.t3.enabled, false);
-    assert.equal(policy.t3.checkMinutes, 1440);
-    assert.equal(policy.t3.idleMinutes, 5);
+    assert.equal(policy.t3.checkMinutes, 60);
+    assert.equal(policy.t3.idleMinutes, 90);
     assert.equal(policy.t3.stayOnChannel, true);
+  });
+
+  it("migrates legacy included toolchains without enabling previously inert updates", () => {
+    const active = normalizePolicy({
+      providers: { enabled: true, checkMinutes: 120, idleMinutes: 45, includeToolchains: true },
+    });
+    assert.deepEqual(active.toolchains, { enabled: true, checkMinutes: 120, idleMinutes: 45 });
+
+    const inert = normalizePolicy({
+      providers: { enabled: false, checkMinutes: 120, idleMinutes: 45, includeToolchains: true },
+    });
+    assert.deepEqual(inert.toolchains, { enabled: false, checkMinutes: 120, idleMinutes: 45 });
+  });
+
+  it("reads toolchain state and seeds its check time from the legacy shared check", async () => {
+    const fs = { readFile: async () => JSON.stringify({ lastProviderCheckAt: 1234, lastResult: "done" }) };
+    const state = await readUpdateState(fs, "/state");
+    assert.equal(state.lastToolchainCheckAt, 1234);
+    assert.equal(state.lastToolchainRunAt, null);
   });
 
   it("rejects non-objects to defaults", () => {

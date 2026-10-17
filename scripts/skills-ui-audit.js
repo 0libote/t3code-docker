@@ -88,7 +88,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   await page.goto(base + (embedded ? '?embed=t3&theme=' + theme : '') + '#context');
   await page.locator('[data-cmd="skills.view"]').first().waitFor();
   await page.locator('#skill-provider').selectOption('claude');
-  await page.getByText('claude global skill inventory', { exact: true }).waitFor();
+  await page.locator('.tc-skills[data-provider="claude"]').waitFor();
   assert.equal(await page.locator('#skill-provider option').count(), 6);
   assert.equal(await page.locator('.tc-skill-row .tc-badge').first().innerText(), 'Unverified');
   assert.equal(await page.locator('[data-cmd="skills.state"]').count(), 0);
@@ -101,12 +101,12 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   gateInventory = true;
   await page.locator('#skill-provider').selectOption('codex'); await started;
   await page.locator('#skill-provider').selectOption('opencode');
-  await page.getByText('opencode global skill inventory', { exact: true }).waitFor();
+  await page.locator('.tc-skills[data-provider="opencode"]').waitFor();
   releaseInventory();
   await page.waitForResponse((response) => response.url().includes('provider=codex'));
   assert.equal(await page.locator('#skill-provider').inputValue(), 'opencode');
   await page.locator('#skill-provider').selectOption('codex');
-  await page.getByText('codex global skill inventory', { exact: true }).waitFor();
+  await page.locator('.tc-skills[data-provider="codex"]').waitFor();
   assert.deepEqual(await page.locator('.tc-skill-row .tc-badge').allTextContents(), ['Enabled', 'Disabled']);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.getByRole('button', { name: 'Disable review for Codex', exact: true }).click();
@@ -121,7 +121,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   assert.equal(await page.getByRole('button', { name: 'Refresh skills', exact: true }).isDisabled(), true);
   assert.deepEqual(await page.locator('.tc-skill-row .tc-badge').allTextContents(), ['Enabled', 'Disabled'], 'no optimistic availability');
   await page.locator('#skill-provider').selectOption('opencode');
-  await page.getByText('opencode global skill inventory', { exact: true }).waitFor();
+  await page.locator('.tc-skills[data-provider="opencode"]').waitFor();
   const stateSaved = page.waitForResponse((response) => response.url().endsWith('/context/skills/state'));
   releaseState(); await stateSaved;
   assert.equal(await page.locator('#skill-provider').inputValue(), 'opencode');
@@ -155,8 +155,10 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   assert.equal(fs.readFileSync(await download.path(), 'utf8'), body);
   await page.locator('[data-skill-edit]').click();
   assert.equal(await page.locator('#skill-content').evaluate((element) => element.readOnly), false);
+  assert.equal(await page.locator('[data-skill-save]').isDisabled(), true, 'unchanged skill Markdown cannot be saved again');
   const draft = body + '\nAn unsaved change.\n';
   await page.locator('#skill-content').fill(draft);
+  assert.equal(await page.locator('[data-skill-save]').isDisabled(), false, 'edited skill Markdown can be saved');
   await page.locator('[data-skill-save]').click();
   await page.getByText('The skill changed outside the console.', { exact: true }).waitFor();
   assert.equal(await page.locator('#skill-content').inputValue(), draft);

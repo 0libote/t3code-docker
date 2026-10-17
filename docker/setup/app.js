@@ -413,63 +413,103 @@
   };
 
   // ---------------------------------------------------------- auto-update --
-  // Smart auto-update: one dialog for providers and T3 Code, opened from the
-  // Agents page and from the T3 Code updates card. Toggles enable each kind;
+  // Smart auto-update: one dialog for providers, toolchains and T3 Code,
+  // opened from each surface they affect. Toggles enable each kind;
   // the numbers below appear once enabled. Check cadence defaults to 3 hours,
   // installs wait for 30 minutes without activity.
   const openAutoUpdate = (trigger) => {
     const view = M.autoUpdateView(state.status, now());
     const draft = JSON.parse(JSON.stringify(view.policy));
     let saving = false;
+    let confirmingT3 = false;
+    let t3RiskAcknowledged = draft.t3.enabled;
     const layer = Kit.open({
       kind: 'center',
-      panel: { class: 'tc-dialog tc-storage-settings', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'auto-update-title' },
+      panel: { class: 'tc-dialog tc-storage-settings tc-auto-settings', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'auto-update-title' },
       returnTo: trigger || null,
       focus: '[data-auto-cancel]',
       render: () => html`
         <form id="auto-update-form" novalidate>
           <div class="tc-dialog-body">
             <h2 class="tc-dialog-title" id="auto-update-title">Automatic updates</h2>
-            <p class="tc-dialog-desc">Check often, install only when nobody is around. Installs wait until the console and T3 Code clients have gone quiet.</p>
-            <div class="tc-storage-setting">
-              <div><label class="tc-row-name" id="auto-prov-label">Provider auto-update</label>
-                <p class="tc-hint" id="auto-prov-help">Agents${draft.providers.includeToolchains ? ", toolchains and added tools" : ""} update by themselves after idle time.</p></div>
-              <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="auto-prov-label" aria-describedby="auto-prov-help" aria-checked="${String(draft.providers.enabled)}" data-auto-switch="providers.enabled"></button></span>
-            </div>
-            <div class="tc-storage-budgets">
-              <div class="tc-field"><label class="tc-label" for="auto-prov-check">Check every</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="24" step="0.25" id="auto-prov-check" value="${Math.round(draft.providers.checkMinutes / 60 * 100) / 100}" inputmode="decimal"><span>hours</span></div></div>
-              <div class="tc-field"><label class="tc-label" for="auto-prov-idle">Update after idle</label><div class="tc-storage-input"><input class="tc-input" type="number" min="5" max="480" step="5" id="auto-prov-idle" value="${draft.providers.idleMinutes}" inputmode="numeric"><span>min</span></div></div>
-            </div>
-            <div class="tc-storage-setting">
-              <div><label class="tc-row-name" id="auto-tools-label">Also update toolchains</label><p class="tc-hint" id="auto-tools-help">Include toolchains, source-control CLIs and added tools, not just agents.</p></div>
-              <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="auto-tools-label" aria-describedby="auto-tools-help" aria-checked="${String(draft.providers.includeToolchains)}" data-auto-switch="providers.includeToolchains"></button></span>
-            </div>
-            <div class="tc-storage-setting tc-storage-setting--border">
-              <div><label class="tc-row-name" id="auto-t3-label">T3 Code auto-update</label><p class="tc-hint" id="auto-t3-help">Installs the selected channel's release and restarts only T3 Code, after idle time. Never switches Stable ↔ Nightly.</p></div>
-              <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="auto-t3-label" aria-describedby="auto-t3-help" aria-checked="${String(draft.t3.enabled)}" data-auto-switch="t3.enabled"></button></span>
-            </div>
-            <div class="tc-storage-budgets">
-              <div class="tc-field"><label class="tc-label" for="auto-t3-check">Check every</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="24" step="0.25" id="auto-t3-check" value="${Math.round(draft.t3.checkMinutes / 60 * 100) / 100}" inputmode="decimal"><span>hours</span></div></div>
-              <div class="tc-field"><label class="tc-label" for="auto-t3-idle">Update after idle</label><div class="tc-storage-input"><input class="tc-input" type="number" min="5" max="480" step="5" id="auto-t3-idle" value="${draft.t3.idleMinutes}" inputmode="numeric"><span>min</span></div></div>
-            </div>
-            <p class="tc-hint">Idle means no open console or T3 Code client, no install or update running, no first-start install, and no T3 Code restart. It cannot see agent turns already running inside T3 Code, so a turn that outlasts the idle time with every client closed can still be interrupted by a T3 Code update. Updates queue one at a time; a failed update keeps the previous version and retries on the next pass. ${view.lastActivityText}. ${view.busy ? "Busy now: " + view.busy + "." : ""}</p>
+            <p class="tc-dialog-desc">Keep agents, tools and T3 Code current without interrupting work. Each category has its own switch and schedule; installs wait for a quiet period.</p>
+            <section class="tc-auto-group" data-auto-group="providers" data-enabled="${String(draft.providers.enabled)}" aria-labelledby="auto-prov-label">
+              <div class="tc-storage-setting">
+                <div><span class="tc-row-name" id="auto-prov-label">Providers</span>
+                  <p class="tc-hint" id="auto-prov-help">Update installed agents automatically when a newer release is available.</p></div>
+                <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="auto-prov-label" aria-describedby="auto-prov-help" aria-checked="${String(draft.providers.enabled)}" data-auto-switch="providers.enabled"></button></span>
+              </div>
+              <div class="tc-storage-budgets tc-auto-fields" data-auto-fields="providers">
+                <div class="tc-field"><label class="tc-label" for="auto-prov-check">Check every</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="24" step="0.25" id="auto-prov-check" value="${Math.round(draft.providers.checkMinutes / 60 * 100) / 100}" inputmode="decimal"${draft.providers.enabled ? '' : raw(' disabled')}><span>hours</span></div></div>
+                <div class="tc-field"><label class="tc-label" for="auto-prov-idle">Install after idle</label><div class="tc-storage-input"><input class="tc-input" type="number" min="5" max="480" step="5" id="auto-prov-idle" value="${draft.providers.idleMinutes}" inputmode="numeric"${draft.providers.enabled ? '' : raw(' disabled')}><span>min</span></div></div>
+              </div>
+            </section>
+            <section class="tc-auto-group" data-auto-group="toolchains" data-enabled="${String(draft.toolchains.enabled)}" aria-labelledby="auto-tools-label">
+              <div class="tc-storage-setting tc-storage-setting--border">
+                <div><span class="tc-row-name" id="auto-tools-label">Toolchains</span><p class="tc-hint" id="auto-tools-help">Update toolchains, source-control CLIs, and tools you added.</p></div>
+                <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="auto-tools-label" aria-describedby="auto-tools-help" aria-checked="${String(draft.toolchains.enabled)}" data-auto-switch="toolchains.enabled"></button></span>
+              </div>
+              <div class="tc-storage-budgets tc-auto-fields" data-auto-fields="toolchains">
+                <div class="tc-field"><label class="tc-label" for="auto-tools-check">Check every</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="24" step="0.25" id="auto-tools-check" value="${Math.round(draft.toolchains.checkMinutes / 60 * 100) / 100}" inputmode="decimal"${draft.toolchains.enabled ? '' : raw(' disabled')}><span>hours</span></div></div>
+                <div class="tc-field"><label class="tc-label" for="auto-tools-idle">Install after idle</label><div class="tc-storage-input"><input class="tc-input" type="number" min="5" max="480" step="5" id="auto-tools-idle" value="${draft.toolchains.idleMinutes}" inputmode="numeric"${draft.toolchains.enabled ? '' : raw(' disabled')}><span>min</span></div></div>
+              </div>
+            </section>
+            <section class="tc-auto-group" data-auto-group="t3" data-enabled="${String(draft.t3.enabled)}" aria-labelledby="auto-t3-label">
+              <div class="tc-storage-setting tc-storage-setting--border">
+                <div><span class="tc-row-name" id="auto-t3-label">T3 Code</span><p class="tc-hint" id="auto-t3-help">Install within the selected Stable or Nightly channel. Only T3 Code restarts.</p></div>
+                <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="auto-t3-label" aria-describedby="auto-t3-help" aria-checked="${String(draft.t3.enabled)}" data-auto-switch="t3.enabled"></button></span>
+              </div>
+              <div class="tc-storage-budgets tc-auto-fields" data-auto-fields="t3">
+                <div class="tc-field"><label class="tc-label" for="auto-t3-check">Check every</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="24" step="0.25" id="auto-t3-check" value="${Math.round(draft.t3.checkMinutes / 60 * 100) / 100}" inputmode="decimal"${draft.t3.enabled ? '' : raw(' disabled')}><span>hours</span></div></div>
+                <div class="tc-field"><label class="tc-label" for="auto-t3-idle">Install after idle</label><div class="tc-storage-input"><input class="tc-input" type="number" min="5" max="480" step="5" id="auto-t3-idle" value="${draft.t3.idleMinutes}" inputmode="numeric"${draft.t3.enabled ? '' : raw(' disabled')}><span>min</span></div></div>
+              </div>
+            </section>
+            <div class="tc-auto-status" role="status">${icon(view.busy ? 'loader-circle' : 'info')}<div><strong>${view.busy ? 'Waiting for current work' : 'Installs wait for a quiet period'}</strong><span>${view.busy ? view.busy + '. ' : ''}${view.lastActivityText}. Agent turns already running inside T3 Code are not visible here, so choose an idle window that fits how you work.</span></div></div>
             <p class="tc-hint tc-hint--err" id="auto-update-error" role="alert" hidden></p>
           </div>
-          <div class="tc-dialog-foot"><button class="tc-btn tc-btn--ghost" type="button" data-auto-cancel>Cancel</button><button class="tc-btn tc-btn--primary" type="submit" data-auto-save>Save</button></div>
+          <div class="tc-dialog-foot"><button class="tc-btn tc-btn--ghost" type="button" data-auto-cancel>Cancel</button><button class="tc-btn tc-btn--primary" type="submit" data-auto-save>Save preferences</button></div>
         </form>`,
     });
     const panel = layer.panel;
     const message = (text) => { const el = panel.querySelector('#auto-update-error'); if (el) { el.textContent = text; el.hidden = !text; } };
     const get = (path) => path.split('.').reduce((o, k) => o?.[k], draft);
     const set = (path, value) => { const [a, b] = path.split('.'); draft[a][b] = value; };
-    panel.addEventListener('click', (event) => {
-      if (event.target.closest('[data-auto-cancel]') && !saving) layer.close('cancel');
-      const toggle = event.target.closest('[data-auto-switch]');
-      if (toggle && !saving) {
-        const key = toggle.dataset.autoSwitch;
-        set(key, !get(key));
-        toggle.setAttribute('aria-checked', String(get(key)));
+    const confirmT3AutoUpdate = () => Kit.confirm({
+      title: 'Turn on automatic T3 Code updates?',
+      body: 'T3 Code is alpha software, so a future release can include breaking changes. Automatic updates install without asking again whenever the check and idle conditions are met. You can turn this off at any time, or leave it off and update manually after reviewing each release.',
+      consequences: [
+        { icon: 'triangle-alert', text: 'A release may break T3 Code itself or compatibility between T3 Code and this setup console, including provider, device, or settings integrations.' },
+        { icon: 'circle-stop', text: 'Only T3 Code restarts, and active agent turns and terminals stop. Open apps reconnect.' },
+        { icon: 'history', text: 'Idle is based on client and setup-console activity. Agent turns already running inside T3 Code are not visible, so a long-running turn can still be interrupted.' },
+        { icon: 'shield-check', text: 'Updates stay within the selected Stable or Nightly channel. If the new version fails to start, the previous version and database are restored.' },
+      ],
+      confirm: 'Turn on automatic updates', tone: 'primary',
+    });
+    const sync = () => {
+      for (const kind of ['providers', 'toolchains', 't3']) {
+        const group = panel.querySelector('[data-auto-group="' + kind + '"]');
+        if (group) group.dataset.enabled = String(draft[kind].enabled);
+        panel.querySelectorAll('[data-auto-fields="' + kind + '"] input').forEach((el) => { el.disabled = saving || !draft[kind].enabled; });
       }
+    };
+    sync();
+    panel.addEventListener('click', async (event) => {
+      if (event.target.closest('[data-auto-cancel]') && !saving && !confirmingT3) layer.close('cancel');
+      const toggle = event.target.closest('[data-auto-switch]');
+      if (!toggle || saving || confirmingT3) return;
+      const key = toggle.dataset.autoSwitch;
+      if (key === 't3.enabled' && !get(key) && !t3RiskAcknowledged) {
+        confirmingT3 = true;
+        let accepted = false;
+        try { accepted = await confirmT3AutoUpdate(); } finally { confirmingT3 = false; }
+        if (layer.closed) return;
+        if (!accepted) { toggle.focus({ preventScroll: true }); return; }
+        t3RiskAcknowledged = true;
+      }
+      set(key, !get(key));
+      toggle.setAttribute('aria-checked', String(get(key)));
+      sync();
+      if (key === 't3.enabled') toggle.focus({ preventScroll: true });
     });
     panel.querySelector('form').addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -488,12 +528,21 @@
         if (!el.value.trim() || !Number.isFinite(v) || v < 5 || v > 480) { el.setAttribute('aria-invalid', 'true'); message('Idle time must be between 5 and 480 minutes.'); el.focus(); return null; }
         return Math.round(v);
       };
-      const pc = hours('#auto-prov-check'); if (pc === null) return;
-      const pi = mins('#auto-prov-idle'); if (pi === null) return;
-      const tc = hours('#auto-t3-check'); if (tc === null) return;
-      const ti = mins('#auto-t3-idle'); if (ti === null) return;
-      draft.providers.checkMinutes = pc; draft.providers.idleMinutes = pi;
-      draft.t3.checkMinutes = tc; draft.t3.idleMinutes = ti;
+      if (draft.providers.enabled) {
+        const pc = hours('#auto-prov-check'); if (pc === null) return;
+        const pi = mins('#auto-prov-idle'); if (pi === null) return;
+        draft.providers.checkMinutes = pc; draft.providers.idleMinutes = pi;
+      }
+      if (draft.toolchains.enabled) {
+        const tc = hours('#auto-tools-check'); if (tc === null) return;
+        const ti = mins('#auto-tools-idle'); if (ti === null) return;
+        draft.toolchains.checkMinutes = tc; draft.toolchains.idleMinutes = ti;
+      }
+      if (draft.t3.enabled) {
+        const tc = hours('#auto-t3-check'); if (tc === null) return;
+        const ti = mins('#auto-t3-idle'); if (ti === null) return;
+        draft.t3.checkMinutes = tc; draft.t3.idleMinutes = ti;
+      }
       saving = true; message('');
       panel.querySelectorAll('button, input').forEach((el) => { el.disabled = true; });
       const save = panel.querySelector('[data-auto-save]'); if (save) save.textContent = 'Saving…';
@@ -503,11 +552,12 @@
       if (!result.ok) {
         message(result.error || 'Could not save auto-update preferences.');
         panel.querySelectorAll('button, input').forEach((el) => { el.disabled = false; });
-        if (save) save.textContent = 'Save';
+        sync();
+        if (save) save.textContent = 'Save preferences';
         return;
       }
       layer.close('saved');
-      Kit.toast('Auto-update preferences saved', { detail: (draft.providers.enabled ? 'Providers on. ' : 'Providers off. ') + (draft.t3.enabled ? 'T3 Code on.' : 'T3 Code off.') });
+      Kit.toast('Auto-update preferences saved', { detail: (draft.providers.enabled ? 'Providers on. ' : 'Providers off. ') + (draft.toolchains.enabled ? 'Toolchains on. ' : 'Toolchains off. ') + (draft.t3.enabled ? 'T3 Code on.' : 'T3 Code off.') });
       await loadStatus();
     });
   };
@@ -989,21 +1039,9 @@
     const rows = M.agentRows(s, ui, n);
     const needs = rows.filter((r) => r.attention || r.updateAvailable);
     const shown = state.agentFilter === 'attention' ? needs : rows;
-    const filter = html`<div class="tc-seg" role="group" aria-label="Show">${[['all', 'All'], ['attention', 'Needs you']].map(([value, label]) => html`<button type="button" aria-pressed="${String(state.agentFilter === value)}" data-cmd="agents.filter" data-value="${value}">${label}${value === 'attention' && needs.length ? html` <span class="tc-num">${needs.length}</span>` : ''}</button>`)}</div>`;
-    const auto = M.autoUpdateView(s, n);
-    const due = rows.filter((r) => r.updateAvailable);
+    const filter = html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="updates.check" aria-label="Check for provider updates" title="Check for updates">${icon('refresh-cw')}</button><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings" title="Automatic update settings">${icon('settings-2')}</button><div class="tc-seg" role="group" aria-label="Show">${[['all', 'All'], ['attention', 'Needs you']].map(([value, label]) => html`<button type="button" aria-pressed="${String(state.agentFilter === value)}" data-cmd="agents.filter" data-value="${value}">${label}${value === 'attention' && needs.length ? html` <span class="tc-num">${needs.length}</span>` : ''}</button>`)}</div>`;
     return html`
       ${pageNotices('agents')}
-      ${section('ag-updates', 'Updates', html`<div class="tc-group"><div class="tc-list"><div class="tc-row tc-row--compact tc-row--plain" data-key="provider-updates">
-        <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('refresh-cw')}</span>
-        <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Provider updates</span>${auto.policy.providers.enabled ? html`<span class="tc-badge tc-badge--ok">Auto</span>` : ''}${due.length ? html`<span class="tc-badge tc-badge--warn">${due.length} available</span>` : html`<span class="tc-badge">Up to date</span>`}</div>
-          <span class="tc-status tc-status--prose">${auto.providerCheck} · ${auto.providersLine}</span></div>
-        <div class="tc-row-actions tc-row-actions--wrap">
-          <button class="tc-btn tc-btn--sm" type="button" data-cmd="updates.check">${icon('refresh-cw')}Check for updates</button>
-          ${due.length ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="harness.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}
-          <button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings">${icon('settings-2')}Auto-update</button>
-        </div>
-      </div></div></div>`)}
       ${section('ag-title', 'Agents', html`<div class="tc-group">
         ${shown.length ? html`<div class="tc-list">${shown.map((row) => resourceRow(row))}</div>`
           : rows.length ? html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-title">Nothing needs you</span><span class="tc-empty-desc">Every installed agent is signed in and current.</span></div>`
@@ -1045,7 +1083,7 @@
         ${rows.length ? html`<div class="tc-list">${rows.map((row) => resourceRow(row))}</div>`
           : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Toolchain state is not readable right now.</span></div>`}
         <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Available in every directory. A project that pins a version in <code>mise.toml</code> or <code>.tool-versions</code> gets that one instead.</span></div>
-      </div>`, { actions: size ? muted(size) : null })}
+      </div>`, { actions: html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="updates.check" aria-label="Check for toolchain updates" title="Check for updates">${icon('refresh-cw')}</button><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings" title="Automatic update settings">${icon('settings-2')}</button>${size ? muted(size) : ''}` })}
       ${section('pk-title', 'Added tools', html`<div class="tc-group">
         ${shown.length ? html`<div class="tc-list">${shown.map((row) => resourceRow(row))}</div>`
           : added.length ? html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">No added tool matches “${state.toolFilter.trim()}”.</span></div>`
@@ -1054,7 +1092,7 @@
       </div>`, { actions: html`${filter}${addButton}` })}
       ${section('img-title', 'In the image', html`<div class="tc-group"><div class="tc-included">${INCLUDED.filter((i) => !i[3] || browserImage).map(([ic, what, note]) => html`<div>${icon(ic)}<span>${what}</span><span class="tc-included-what">${note}</span></div>`)}</div></div>`,
         { actions: muted('Updated by pulling a new image') })}
-      ${notice(null, 'shield-check', 'Nothing updates on its own', html`mise records exact versions, for added tools too, and never falls back to another tool on <code>PATH</code>. Update is always a button press, here or with <code>mise use</code>.`)}`;
+      ${notice(null, 'shield-check', 'Exact versions stay pinned', html`mise records exact versions, for added tools too, and never falls back to another tool on <code>PATH</code>. Updates happen only when you press Update, run <code>mise use</code>, or opt in to automatic updates.`)}`;
   };
 
   // A first look at what can be added: one press opens the sheet on that tool.
@@ -1245,7 +1283,7 @@
       <div class="tc-runtime-foot"><p class="tc-hint">${view.checkedAt ? html`Checked ${M.relTime(view.checkedAt, now())}. ` : ''}${auto.policy.t3.enabled ? auto.t3Line + '. ' : 'You choose when to install. '}Only T3 Code restarts.${auto.state.lastT3RunAt ? ' Last auto-update ' + M.relTime(auto.state.lastT3RunAt, now()) + '.' : ''}</p>
         <div class="tc-row-actions tc-row-actions--wrap"><button class="tc-btn tc-btn--sm" type="button" data-cmd="t3.check" ${busy ? 'disabled' : ''}>${icon('refresh-cw')}Check for updates</button>${view.available || view.error ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="t3.update" data-channel="${view.error ? view.operation.channel : view.channel}" ${busy || !view.supported || !view.latest ? 'disabled' : ''}>${icon('circle-arrow-up')}${view.error ? 'Retry update' : 'Update and restart'}</button>` : ''}</div>
       </div>
-    </div>`, { actions: html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="auto.settings">${icon('settings-2')}${autoLabel}</button>` });
+    </div>`, { actions: html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${auto.t3Line})" title="Automatic T3 Code updates: ${auto.t3Line}">${icon('settings-2')}${autoLabel}</button>` });
   };
 
   const environmentPage = (s, n) => {
@@ -1353,7 +1391,7 @@
     ${pageNotices('context')}
     ${section('cx-agentsmd', 'Instructions', html`<div class="tc-group">
       <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map(contextProviderRow)}</div>
-      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Choose Shared to use the global file, Separate for that provider's own instructions, or None for no instructions. Separate restores its previous file when available, otherwise starts with a copy of the global file. Installed agents and existing instruction files are listed. Start a new agent session after saving.</span></div>
+      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Shared uses the global file. Separate restores the provider's previous file, or starts from the global file. Start a new agent session after saving.</span></div>
     </div>`)}
     ${M.contextView(s).error ? notice('danger', 'circle-alert', 'Could not read instructions', M.contextView(s).error) : ''}
     ${section('cx-skills', 'Skills', skillsUI.content(), { actions: skillsUI.actions() })}`;
@@ -1377,31 +1415,39 @@
 
   const openContextEditor = async (trigger, provider = null) => {
     if (contextEditor.layer) return;
-    Object.assign(contextEditor, { content: '', loading: true, saving: false, error: null, provider, revision: null, path: '', readError: false });
+    Object.assign(contextEditor, { content: '', original: '', loading: true, saving: false, error: null, provider, revision: null, path: '', readError: false });
     const providerName = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[provider];
     const title = provider ? providerName + ' instructions' : 'Global AGENTS.md';
     const filename = provider === 'claude' ? 'CLAUDE.md' : 'AGENTS.md';
+    const isDirty = () => !contextEditor.loading && !contextEditor.readError && contextEditor.content !== contextEditor.original;
+    const editorMeta = () => contextEditor.loading ? 'Loading…'
+      : M.formatBytes(new TextEncoder().encode(contextEditor.content).length) + ' · ' + (isDirty() ? 'Unsaved changes' : contextEditor.revision ? 'Saved' : 'New file');
     contextEditor.layer = Kit.open({
       kind: 'center',
       panel: { tag: 'div', class: 'tc-sheet tc-context-sheet ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'cx-title' },
       returnTo: trigger,
       backdrop: 'ignore',
       render: () => html`
-        <div class="tc-sheet-head"><span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span><div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="cx-title">${title}</h2><span class="tc-small tc-muted">${provider ? 'Edit existing ' + filename : 'Shared with supported agents on save'}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
+        <div class="tc-sheet-head">${provider ? tile({ mark: provider }, 'lg') : html`<span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span>`}<div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="cx-title">${title}</h2><span class="tc-small tc-muted">${provider ? filename + ' for this provider' : 'One file for providers set to Shared'}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
         <div class="tc-sheet-body">
           ${contextEditor.error ? notice('danger', 'circle-alert', 'Could not load or save instructions', contextEditor.error) : ''}
-          ${provider && contextEditor.path ? html`<span class="tc-hint tc-context-path">${contextEditor.path}</span>` : ''}
-          <div class="tc-context-filetools"><button class="tc-btn tc-btn--sm" type="button" data-sheet="upload"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>Upload .md</button><button class="tc-btn tc-btn--sm" type="button" data-sheet="download"${contextEditor.loading ? raw(' disabled') : ''}>${icon('download')}Download .md</button><input id="cx-file" data-key="cx-file" type="file" accept=".md,text/markdown" aria-label="Upload instructions Markdown" hidden></div>
-          <label class="tc-label" for="cx-input">${contextEditor.loading ? 'Loading instructions…' : 'Markdown'}</label>
-          <textarea class="tc-input tc-input--area" id="cx-input" data-key="cx-input"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''} rows="14" spellcheck="false" placeholder="# Instructions&#10;&#10;- Short sentences. Bullets over paragraphs.">${contextEditor.content}</textarea>
-          <span class="tc-hint">Upload replaces this draft. ${provider ? 'Save updates this existing file, including for any other agents using it. Symlinks stay in place.' : 'Save updates every provider using Shared. Separate files are kept.'} Download includes unsaved edits.</span>
+          ${provider && contextEditor.path ? html`<span class="tc-hint tc-context-path" title="${contextEditor.path}">${contextEditor.path}</span>` : ''}
+          <div class="tc-editor-toolbar"><label class="tc-label" for="cx-input">Markdown</label><div class="tc-editor-tools"><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-sheet="upload" title="Replace this draft from a Markdown file"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${icon('upload')}Upload</button><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-sheet="download" title="Download, including unsaved edits"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${icon('download')}Download</button><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-sheet="copy"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${icon('copy')}Copy</button></div><input id="cx-file" data-key="cx-file" type="file" accept=".md,text/markdown" aria-label="Upload instructions Markdown" hidden></div>
+          <textarea class="tc-input tc-input--area tc-editor-area" id="cx-input" data-key="cx-input" aria-describedby="cx-meta"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''} rows="14" spellcheck="false" placeholder="${provider ? '# ' + providerName + ' instructions\n\nWrite guidance only this provider should follow.' : '# Instructions\n\nWrite guidance that should apply across supported agents.'}">${contextEditor.content}</textarea>
+          <div class="tc-editor-meta"><span id="cx-meta" data-key="cx-meta">${editorMeta()}</span><span>${provider ? 'Saving updates this file wherever it is used. Symlinks stay in place.' : 'Separate provider files are kept.'}<span class="tc-desk-only"> Ctrl/⌘ S to save.</span></span></div>
         </div>
-        <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn" type="button" data-sheet="copy">${icon('copy')}Copy</button><button class="tc-btn tc-btn--primary" type="button" data-sheet="save"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${contextEditor.saving ? 'Saving…' : 'Save'}</button></div>`,
+        <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn tc-btn--primary" type="button" data-sheet="save"${!isDirty() || contextEditor.saving ? raw(' disabled') : ''}>${contextEditor.saving ? 'Saving…' : 'Save'}</button></div>`,
       focus: '#cx-input',
       onClose: () => { contextEditor.layer = null; },
     });
     const layer = contextEditor.layer;
     const panel = layer.panel;
+    const syncEditor = () => {
+      const meta = panel.querySelector('#cx-meta');
+      if (meta) meta.textContent = editorMeta();
+      const save = panel.querySelector('[data-sheet="save"]');
+      if (save) save.disabled = !isDirty() || contextEditor.saving;
+    };
     panel.addEventListener('change', async (e) => {
       if (e.target.id !== 'cx-file' || !e.target.files?.[0]) return;
       const file = e.target.files[0];
@@ -1423,7 +1469,13 @@
       if (area) { area.value = contextEditor.content; area.focus(); }
     });
     panel.addEventListener('input', (e) => {
-      if (e.target.id === 'cx-input') { contextEditor.content = e.target.value; }
+      if (e.target.id === 'cx-input') { contextEditor.content = e.target.value; syncEditor(); }
+    });
+    panel.addEventListener('keydown', (e) => {
+      if (e.target.id === 'cx-input' && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        panel.querySelector('[data-sheet="save"]')?.click();
+      }
     });
     panel.addEventListener('click', async (e) => {
       const action = e.target.closest('[data-sheet]');
@@ -1434,7 +1486,7 @@
       else if (what === 'download') downloadMarkdown(filename, contextEditor.content);
       else if (what === 'copy') Kit.copy(contextEditor.content, action, filename + ' copied');
       else if (what === 'save') {
-        if (contextEditor.loading || contextEditor.saving || contextEditor.readError) return;
+        if (!isDirty() || contextEditor.saving) return;
         contextEditor.saving = true;
         contextEditor.error = null;
         contextEditor.layer.render();
@@ -1456,6 +1508,7 @@
     contextEditor.loading = false;
     if (res.ok) {
       contextEditor.content = res.data.content || '';
+      contextEditor.original = contextEditor.content;
       contextEditor.revision = res.data.revision || null;
       contextEditor.path = res.data.resolvedPath || res.data.path || '';
     } else {
@@ -1533,8 +1586,14 @@
       } else if (route === 'agents' || route === 'toolchains') {
         const rows = route === 'agents' ? M.agentRows(s, ui, n) : [...M.toolchainRows(s, ui, n), ...M.packageRows(s, ui, n)];
         const hasUpdates = rows.some((r) => r.updateAvailable);
-        if (route === 'agents') actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="harness.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="updates.check">${icon('refresh-cw')}Check for updates</button><button class="tc-btn tc-btn--sm" type="button" data-cmd="auto.settings">${icon('settings-2')}Auto-update</button>`;
-        else if (hasUpdates) actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="tools.updateAll">${icon('circle-arrow-up')}Update all</button>`;
+        if (route === 'agents') {
+          const auto = M.autoUpdateView(s, n);
+          actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="harness.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="updates.check">${icon('refresh-cw')}Check for updates</button><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${auto.providersLine})" title="Automatic updates: ${auto.providersLine}">${icon('settings-2')}${auto.policy.providers.enabled ? 'Auto-update on' : 'Auto-update'}</button>`;
+        }
+        else {
+          const auto = M.autoUpdateView(s, n);
+          actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="tools.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="updates.check">${icon('refresh-cw')}Check for updates</button><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${auto.toolchainsLine})" title="Automatic toolchain updates: ${auto.toolchainsLine}">${icon('settings-2')}${auto.policy.toolchains.enabled ? 'Auto-update on' : 'Auto-update'}</button>`;
+        }
       } else if (route === 'sourcecontrol') {
         if (M.managedSourceControlRows(s, ui, n).some((r) => r.updateAvailable)) actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="scm.updateAll">${icon('circle-arrow-up')}Update all</button>`;
       } else if (route === 'ports') {

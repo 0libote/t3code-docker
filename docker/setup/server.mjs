@@ -380,7 +380,7 @@ const recordEvent = (kind, text, detail = null) => {
 
 // --- smart auto-update -------------------------------------------------------
 //
-// Opt-in background updates for providers and T3 Code. The policy lives on
+// Opt-in background updates for providers, toolchains and T3 Code. The policy lives on
 // the state volume (`setup/auto-update.json`); the last check/run times live
 // beside it. Activity is any authed request to this service (an open console
 // polling /status counts, and so does a T3 Code client asking /hello), plus
@@ -388,7 +388,7 @@ const recordEvent = (kind, text, detail = null) => {
 // without any of that. Agent turns inside T3 Code are not directly visible
 // here, so idle tracks client activity, not turn activity.
 let autoPolicy = AutoUpdate.normalizePolicy(null);
-let autoState = { lastProviderCheckAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastT3RunAt: null, lastResult: null };
+let autoState = { lastProviderCheckAt: null, lastToolchainCheckAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastToolchainRunAt: null, lastT3RunAt: null, lastResult: null };
 let lastActivityAt = Date.now();
 let autoTickRunning = false;
 const noteActivity = () => { lastActivityAt = Date.now(); };
@@ -2212,11 +2212,21 @@ const autoTick = async () => {
         autoState = await AutoUpdate.writeUpdateState({ readFile: (await import("node:fs/promises")).readFile, writeFile, mkdir }, STATE_DIR, patch);
       } catch { autoState = { ...autoState, ...patch }; }
     };
-    // Providers: refresh the known newest releases when due.
-    if (autoPolicy.providers.enabled && AutoUpdate.checkDue({ checkMinutes: autoPolicy.providers.checkMinutes, lastCheckAt: autoState.lastProviderCheckAt, now })) {
+    // Providers and toolchains share one latest-release cache. Refresh it
+    // once when either independent kind is due, and stamp both enabled kinds
+    // because that refresh checks every software row.
+    const providerCheckDue = autoPolicy.providers.enabled
+      && AutoUpdate.checkDue({ checkMinutes: autoPolicy.providers.checkMinutes, lastCheckAt: autoState.lastProviderCheckAt, now });
+    const toolchainCheckDue = autoPolicy.toolchains.enabled
+      && AutoUpdate.checkDue({ checkMinutes: autoPolicy.toolchains.checkMinutes, lastCheckAt: autoState.lastToolchainCheckAt, now });
+    if (providerCheckDue || toolchainCheckDue) {
       try {
         await latestCache.refresh({ force: true });
-        await persist({ lastProviderCheckAt: Date.now() });
+        const checkedAt = Date.now();
+        const patch = {};
+        if (autoPolicy.providers.enabled) patch.lastProviderCheckAt = checkedAt;
+        if (autoPolicy.toolchains.enabled) patch.lastToolchainCheckAt = checkedAt;
+        await persist(patch);
       } catch { /* next tick retries */ }
     }
     // T3 Code: ask the registry when due.
@@ -2227,41 +2237,61 @@ const autoTick = async () => {
       } catch { /* next tick retries */ }
     }
     if (busy) return;
-    // Providers: install what the last check found, once idle.
-    if (autoPolicy.providers.enabled) {
-      const idle = AutoUpdate.isIdle({ idleMinutes: autoPolicy.providers.idleMinutes, lastActivityAt, now });
-      if (idle) {
-        try {
-          const manager = await loadHarness();
-          const { harnesses } = await manager.status({ authenticate: false });
-          const toolchains = autoPolicy.providers.includeToolchains ? await manager.toolchains.status() : null;
-          // Version ordering comes from the loaded harness module: a relative
-          // import would only resolve in a checkout, not in the image layout.
-          const compare = harnessModule?.compareVersions;
-          const updates = AutoUpdate.dueUpdates({
-            harnesses: harnesses ?? [],
-            toolchains,
-            latestFor: (key) => latestCache.get(key)?.latestVersion,
-            isNewer: typeof compare === "function" ? (latest, current) => compare(latest, current) > 0 : null,
-            harnessIds: HARNESS_IDS,
-            skipIds: T3_AGENT_IDS,
-          });
-          let started = 0;
-          for (const job of updates) {
-            // Activity can resume mid pass; stop queueing more. Jobs already
-            // queued keep the usual one-at-a-time lifecycle order.
-            if (!AutoUpdate.isIdle({ idleMinutes: autoPolicy.providers.idleMinutes, lastActivityAt, now: Date.now() })) break;
-            const result = await startLifecycle(job.target, "update", { id: job.id });
-            if (result.body?.ok) started++;
-            else if (result.http !== 409) break;
-          }
-          if (started) {
-            await persist({ lastProviderRunAt: Date.now(), lastResult: `Queued ${started} provider update${started === 1 ? "" : "s"}` });
-            recordEvent("auto.providers", `Queued ${started} provider update${started === 1 ? "" : "s"} after idle time`);
-          }
-        } catch { /* next tick retries */ }
+    // Providers and toolchains install independently: either can be enabled,
+    // checked and installed on its own schedule while the other stays manual.
+    let managerPromise = null;
+    const getManager = () => (managerPromise ??= loadHarness());
+    const queueUpdates = async ({ updates, idleMinutes, runField, eventName, noun }) => {
+      let started = 0;
+      for (const job of updates) {
+        // Activity can resume mid pass; stop queueing more. Jobs already
+        // queued keep the usual one-at-a-time lifecycle order.
+        if (!AutoUpdate.isIdle({ idleMinutes, lastActivityAt, now: Date.now() })) break;
+        const result = await startLifecycle(job.target, "update", { id: job.id });
+        if (result.body?.ok) started++;
+        else if (result.http !== 409) break;
       }
+      if (started) {
+        await persist({ [runField]: Date.now() });
+        recordEvent(eventName, `Queued ${started} ${noun} update${started === 1 ? "" : "s"} after idle time`);
+      }
+      return started;
+    };
+    const softwareKinds = [
+      {
+        policy: autoPolicy.providers, runField: "lastProviderRunAt", eventName: "auto.providers", noun: "provider",
+        load: async (manager) => {
+          const { harnesses } = await manager.status({ authenticate: false });
+          return { harnesses: harnesses ?? [], toolchains: null };
+        },
+      },
+      {
+        policy: autoPolicy.toolchains, runField: "lastToolchainRunAt", eventName: "auto.toolchains", noun: "tool",
+        load: async (manager) => ({ harnesses: [], toolchains: await manager.toolchains.status() }),
+      },
+    ];
+    const queued = [];
+    for (const kind of softwareKinds) {
+      if (!kind.policy.enabled) continue;
+      if (!AutoUpdate.isIdle({ idleMinutes: kind.policy.idleMinutes, lastActivityAt, now: Date.now() })) continue;
+      try {
+        const manager = await getManager();
+        const input = await kind.load(manager);
+        // Version ordering comes from the loaded harness module: a relative
+        // import would only resolve in a checkout, not in the image layout.
+        const compare = harnessModule?.compareVersions;
+        const updates = AutoUpdate.dueUpdates({
+          ...input,
+          latestFor: (key) => latestCache.get(key)?.latestVersion,
+          isNewer: typeof compare === "function" ? (latest, current) => compare(latest, current) > 0 : null,
+          harnessIds: HARNESS_IDS,
+          skipIds: T3_AGENT_IDS,
+        });
+        const started = await queueUpdates({ updates, idleMinutes: kind.policy.idleMinutes, runField: kind.runField, eventName: kind.eventName, noun: kind.noun });
+        if (started) queued.push(`${started} ${kind.noun} update${started === 1 ? "" : "s"}`);
+      } catch { /* next tick retries */ }
     }
+    if (queued.length) await persist({ lastResult: `Queued ${queued.join(" and ")}` });
     // T3 Code: install the channel's release once idle. Never switches channels.
     if (autoPolicy.t3.enabled) {
       const idle = AutoUpdate.isIdle({ idleMinutes: autoPolicy.t3.idleMinutes, lastActivityAt, now: Date.now() });
@@ -2499,7 +2529,7 @@ const server = createServer(async (req, res) => {
       try {
         const { writeFile, mkdir, readFile } = await import("node:fs/promises");
         autoPolicy = await AutoUpdate.writePolicy({ readFile, writeFile, mkdir }, STATE_DIR, input);
-        recordEvent("auto.policy", (autoPolicy.providers.enabled || autoPolicy.t3.enabled) ? "Auto-update preferences saved" : "Auto-update turned off");
+        recordEvent("auto.policy", (autoPolicy.providers.enabled || autoPolicy.toolchains.enabled || autoPolicy.t3.enabled) ? "Auto-update preferences saved" : "Auto-update turned off");
         return sendJson(res, 200, { ok: true, policy: autoPolicy });
       } catch (error) {
         return sendJson(res, 500, { ok: false, error: String(error?.message ?? error).slice(0, 300) });

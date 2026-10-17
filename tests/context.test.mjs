@@ -343,7 +343,10 @@ test("provider view rows and palette expose each discovered file", () => {
   const status = { context: { providers: [{ provider: 'claude', path: '/custom/CLAUDE.md', mode: 'separate' }] } };
   const row = M.contextProviderRows(status)[0];
   assert.equal(row.name, 'Claude Code instructions');
-  assert.equal(row.status.text, '/custom/CLAUDE.md');
+  assert.equal(row.mark, 'claude');
+  assert.equal(row.badge, null);
+  assert.equal(row.status.text, 'Separate file');
+  assert.equal(row.status.code, '/custom/CLAUDE.md');
   assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.cmd.cmd === 'context.provider.edit' && i.cmd.id === 'claude'));
 });
 

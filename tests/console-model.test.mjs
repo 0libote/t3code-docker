@@ -1179,18 +1179,24 @@ test('auto-update view summarizes policy, checks and activity', () => {
   const off = M.autoUpdateView({}, NOW);
   assert.equal(off.anyEnabled, false);
   assert.equal(off.providersLine, 'Off');
+  assert.equal(off.toolchainsLine, 'Off');
   assert.equal(off.t3Line, 'Off');
-  assert.equal(off.providerCheck, 'Providers not checked yet');
+  assert.equal(off.providerCheck, 'No automatic check yet');
+  assert.equal(off.toolchainCheck, 'No automatic check yet');
+  assert.equal(off.lastActivityText, 'No activity seen yet');
+  assert.equal(M.autoUpdateView({ autoUpdate: { lastActivityAt: NOW - 10_000 } }, NOW).lastActivityText, 'Active just now');
   const on = M.autoUpdateView({ autoUpdate: {
-    policy: { providers: { enabled: true, checkMinutes: 180, idleMinutes: 30 }, t3: { enabled: false, checkMinutes: 45, idleMinutes: 15 } },
-    state: { lastProviderCheckAt: NOW - 6 * MIN, lastResult: 'Queued 2 provider updates' },
+    policy: { providers: { enabled: false, checkMinutes: 180, idleMinutes: 30 }, toolchains: { enabled: true, checkMinutes: 45, idleMinutes: 15 }, t3: { enabled: false, checkMinutes: 45, idleMinutes: 15 } },
+    state: { lastProviderCheckAt: NOW - 6 * MIN, lastToolchainCheckAt: NOW - 12 * MIN, lastResult: 'Queued 2 tool updates' },
     lastActivityAt: NOW - 2 * 60 * MIN, busy: 'An install or update is already running',
   } }, NOW);
   assert.equal(on.anyEnabled, true);
-  assert.equal(on.providersLine, 'On · check every 3h · update after 30m idle');
+  assert.equal(on.providersLine, 'Off');
+  assert.equal(on.toolchainsLine, 'On · check every 45m · update after 15m idle');
   assert.equal(on.t3Line, 'Off');
-  assert.match(on.providerCheck, /Providers checked 6 min ago/);
+  assert.match(on.providerCheck, /Last automatic check 6 min ago/);
+  assert.match(on.toolchainCheck, /Last automatic check 12 min ago/);
   assert.match(on.lastActivityText, /Last activity 2 hours ago/);
   assert.equal(on.busy, 'An install or update is already running');
-  assert.equal(on.lastResult, 'Queued 2 provider updates');
+  assert.equal(on.lastResult, 'Queued 2 tool updates');
 });
