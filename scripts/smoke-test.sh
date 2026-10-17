@@ -98,10 +98,12 @@ LEGACY_ENV=(-e GOROOT=/usr/local/go -e GOPATH=/home/t3/go
 # ...and the PATH it declared, which the startup-pairing container below runs with.
 LEGACY_PATH=/usr/local/bun/bin:/usr/local/deno/bin:/usr/local/cargo/bin:/usr/local/go/bin:/home/t3/go/bin:/opt/cursor/.local/bin:/opt/npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# Forward an optional CI token by name, without writing it into logs or images.
 docker run -d --name "$NAME" \
   -p "127.0.0.1:${PORT}:3773" \
   -e "T3_PUBLIC_URL=${PUBLIC_URL}" \
   -e "T3_SETUP_KEY=${SETUP_KEY}" \
+  -e GITHUB_TOKEN \
   "${LEGACY_ENV[@]}" \
   "$IMAGE" >/dev/null
 
@@ -1281,7 +1283,7 @@ console_layout_is_clean() {
     -e CHROME_PATH=/usr/bin/chromium \
     -e T3_UI_AUDIT_DEVICE_ID="$T3_LABEL_DEVICE" \
     "$NAME" node /tmp/ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" \
-    >"$UI_AUDIT_LOG" 2>&1
+    >>"$UI_AUDIT_LOG" 2>&1
 }
 check "the console has no layout defects" console_layout_is_clean
 

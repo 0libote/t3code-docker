@@ -41,9 +41,15 @@ const geometry = () => {
   const initial = await fetch(statusUrl, { headers: { 'x-t3-setup-key': key } });
   assert.equal(initial.ok, true, 'console must accept the supplied setup key');
   const fixtureStatus = await initial.json();
+  // Registry failures include long URLs. Keep that state in the viewport
+  // checks even when the live development home has no failed installations.
+  fixtureStatus.harnesses = fixtureStatus.harnesses.map((row) => row.id === 'opencode'
+    ? { ...row, installed: false, inProgress: false, failed: true, operation: 'install',
+      failure: 'GitHub rate limit exceeded: https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting Reference: sha512-' + 'a'.repeat(96) }
+    : row);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/chromium", args: ["--no-sandbox"] });
   try {
-    const runs = [[390, 844], [1100, 1000]];
+    const runs = [[360, 800], [390, 844], [1100, 1000]];
     const widths = process.env.T3_AUTO_UPDATE_UI_WIDTHS?.split(',').map(Number);
     for (const [width, height] of runs.filter(([width]) => !widths || widths.includes(width))) for (const theme of ['light', 'dark']) {
       const context = await browser.newContext({ viewport: { width, height }, colorScheme: theme, reducedMotion: 'reduce' });
