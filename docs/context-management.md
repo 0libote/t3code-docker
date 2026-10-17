@@ -60,9 +60,157 @@ Start a new agent session after saving: an existing session may retain the
 instructions it loaded at startup. Project instructions and provider-specific
 precedence still apply.
 
-Only these three native integrations are included. Other providers, project
-editing, skill management, catalogs, URL imports, saved setups and Cursor rule
+Only these three native instruction integrations are included. Project
+instruction editing, catalogs, URL imports, saved setups and Cursor rule
 translation are deferred to separate proposals.
+
+## Global skill inventory
+
+The **Skills** section provides inventory and basic local file management.
+Select Claude Code, Codex,
+OpenCode, Cursor, Grok Build or Muse Code to inspect known global skill folders.
+Nested `SKILL.md` files, compatibility directories, shared files and broken
+links remain distinct installations. OpenCode's flat global Markdown files
+are included too. Environment overrides for Claude, Codex, XDG and Grok roots
+are honored.
+
+**View** opens raw Markdown in a desktop dialog or phone sheet. Copy and
+download preserve its text; skill Markdown is not rendered as HTML or executed.
+Metadata uses a pinned vendored YAML parser, including quoted names and folded
+descriptions. Parse problems, missing targets and oversized files stay visible.
+Content reads are limited to 64 KiB, frontmatter to 16 KiB. Local scans are
+bounded by entry count, depth, skill count, total bytes and elapsed time.
+Truncated or unavailable locations produce visible scan messages.
+
+The managed Codex executable is queried through its App Server using only
+`initialize` and `skills/list` for inventory; no conversation or model turn is started.
+Native global/system/admin entries include Enabled/Disabled state. Known local
+files absent from that native result remain Unverified. Native discovery has a
+six-second deadline and a 2 MiB output limit; unsupported or unavailable versions
+fall back to the local list with a reason. Custom T3 provider binaries,
+environments and project/session overrides may produce different inventories.
+
+Claude and OpenCode supplement known-folder discovery with native user policies
+and runtime metadata, as described below. Cursor, Grok and Muse still show
+**Unverified** availability. Plugin inventories and configured extra locations
+are outside the basic known-folder inventory.
+
+Inventory loads when Context opens or its provider changes. **Refresh skills**
+rescans after external changes. Concurrent requests share a lookup and results
+are cached for 15 seconds; regular `/status` polling does not scan skills.
+Bodies load separately through authenticated, discovered-installation IDs.
+Details refuse a link retargeted after discovery. No skill files, provider
+settings or persistence mappings change during inventory reads. Native Codex
+startup may maintain its own system-skill cache as usual.
+
+### Add, edit and remove local skills
+
+Claude Code, Codex and OpenCode's own user skill folders support **Add skill**,
+**Edit** and **Remove**. Add accepts a portable folder name and raw Markdown,
+including upload/paste. The frontmatter name must match the new folder name.
+Existing installation names are never overwritten; new files use mode `0600`.
+Codex and OpenCode also offer a **Shared .agents folder** location when adding
+skills. Unmanaged shared installations can be edited or removed; those changes
+affect every provider using the same files. Claude does not discover this shared
+root automatically, so its Add dialog offers only its provider folder.
+These native directories already participate in the image's agent-home
+persistence when `T3_PERSIST_AGENT_CREDENTIALS` is enabled. Custom locations need
+their own persistent mounts.
+
+Editing changes only `SKILL.md`, preserves its existing permissions and follows
+user file/directory symlinks. Supporting scripts and references stay in place.
+Providers using that same target see the change too. Read responses include a
+revision covering content, target identity and permissions; saves reject stale
+revisions, missing targets and retargeted links. A failed save retains the draft
+for download. Save uses a temporary file and atomic rename, with serialization
+per resolved target. An external writer can still race between the final check
+and rename; this is not a filesystem transaction with other applications.
+
+Removal requires confirmation and both a file revision and a bounded supporting
+tree fingerprint. A changed supporting file invalidates the confirmation.
+Ordinary skill folders are moved aside, verified again and removed, including
+their supporting files. Directory/file link removal preserves the linked target.
+Root-level Markdown removal removes only that file. A skill containing a nested
+installation cannot be recursively removed from the console. Changes during the
+move trigger rollback; if the original path is occupied, or removal fails, the
+error identifies the preserved entry for manual recovery.
+
+System, plugin, package-tracked and compatibility installations remain read-only
+here; a provider's own root linked to unmanaged shared storage remains editable.
+A root linked to system/plugin storage cannot create skills. The global skills CLI lock is read only to recognize
+package ownership; the console does not edit its lock or create a T3 manifest.
+Oversized/unreadable locks conservatively disable local changes. When credential
+persistence is enabled, `.agents/skills`, `.local/state/skills` and the optional
+`.agents/.skill-lock.json` are anchored on the state volume. The rest of `.agents`
+stays in place. An absent lock is linked without inventing a JSON document; the
+upstream CLI owns its contents. Existing mounts and symlinks are respected.
+Custom XDG state paths need their own persistent mount. These ownership restrictions
+cover Markdown changes; provider policies can still apply to package-owned skills.
+
+### Native Codex availability
+
+**Enable** and **Disable** appear for user skills verified by the managed Codex
+inventory, including shared and package-tracked user skills. The console sends
+the selected installation's path to Codex's native `skills/config/write` method.
+It changes Codex availability only, leaves Markdown and other providers alone,
+and uses Codex's existing user configuration persistence. System, admin, plugin,
+unavailable and filesystem-only entries do not offer these controls.
+
+Requests carry an opaque revision covering native settings and the selected
+installation/state. The service reloads inventory and checks settings immediately
+before writing, rejects stale requests, and serializes console changes against
+the same config file. Settings reads are bounded to 1 MiB; unsafe or unavailable
+settings leave inventory usable with controls disabled. Configuration contents
+are never included in responses. Codex preserves the configuration through its
+own writer; the console does not parse or rewrite TOML.
+
+Both the write acknowledgement and a freshly started native inventory must
+confirm the requested state before success is reported. Failed or ambiguous
+writes trigger a refresh; they are not automatically rolled back. Native writes
+do not support compare-and-swap, so an external writer can still race the last
+check. Start a new conversation after changing availability: loaded instructions
+can remain in existing conversations, and project/session settings may differ.
+
+### Claude visibility and OpenCode permissions
+
+Claude's **Visibility** menu preserves all four native `skillOverrides` states:
+On, Name only, Manual only and Off. The console edits only the selected name in
+the resolved user `settings.json`, requires strict JSON, and preserves unrelated
+settings, file mode and symlinks. Claude silently ignores commented settings
+files, so JSONC is rejected here. Controls require the tested 2.1 interface
+(2.1.260 or newer); unsupported releases retain the known-folder inventory.
+
+A bounded stream-JSON initialization reads Claude's command metadata without a
+user message or model turn. Project settings are excluded, MCP servers are
+disabled for the check, and hooks are disabled through a settings overlay.
+The UI distinguishes the saved **user policy** from whether the manual command
+is actually listed; frontmatter and managed settings can still restrict use.
+Duplicate names share the same native override. Plugin policies stay with the
+plugin manager.
+
+OpenCode's **Permission** menu offers Allowed, Ask before use and Denied. V1 uses
+`permission.skill` by skill name; V2 uses ordered `permissions` rules and native
+path-derived skill IDs. The editor preserves JSONC comments, unrelated policies
+and wildcard rules, and changes an exact rule or appends one after existing
+matches. When both global JSON and JSONC files exist, it edits JSONC, which loads
+last. `OPENCODE_CONFIG_DIR` and XDG config overrides are honored.
+
+V1 verification uses bounded, sequential native debug reads with external plugins
+disabled. These processes share provider state; concurrent first use can race
+database initialization in a fresh home.
+V2 starts a private loopback metadata server and waits for skill/agent plugins to
+activate before reading inventory. The early empty result from a one-shot API
+request is not authoritative. Only the installation selected by native inventory
+gets a policy control. The UI reports the Build agent's resolved permission
+separately, preserving agent-specific restrictions rather than overriding them.
+Other agents, managed policies and session rules can differ.
+
+Both editors check revisions, serialize writes to the same settings file,
+preserve modes/symlinks and verify through a fresh native process. Invalid syntax,
+duplicate keys or unsupported policy shapes disable controls without rewriting
+settings. A failed verification reports that the policy may already be saved;
+it does not roll back over a possible external change. External applications can
+still race the final check. Start a new conversation to load policy changes.
 
 ## Validation
 
@@ -78,7 +226,39 @@ UI audits run against a disposable console, never a user's agent home:
 node scripts/dev-console.mjs --port 23780
 node scripts/context-api-audit.mjs http://127.0.0.1:23780/__setup/ dev
 node scripts/context-ui-audit.js http://127.0.0.1:23780/__setup/ dev
+node scripts/skills-ui-audit.js http://127.0.0.1:23780/__setup/ dev
 ```
+
+The browser audits need `playwright` or `playwright-core` and Chromium. In an
+image with Playwright under `/opt/t3/node_modules`, set
+`NODE_PATH=/opt/t3/node_modules` for these commands. Skill UI checks use response
+fixtures and never change installed skills. Unit/HTTP tests cover bounded
+discovery, native protocol failure, duplicate names, YAML metadata, cache and
+refresh behavior, authentication, unknown IDs, deleted files and retargeted links.
+Local file checks cover add/edit/remove, stale/concurrent saves, permission and
+symlink preservation, supporting-file conflicts, package ownership, failed
+publication and interrupted-removal rollback. Native control checks cover stale
+settings, native write/verification failures and serialized requests. Browser
+checks cover Markdown upload, draft recovery, save progress, explicit removal
+confirmation, native state failures, busy controls and late provider responses.
+
+The adapters were also checked with Codex 0.163.0 in a disposable home. Native
+enable/disable, stale-request rejection, settings persistence across fresh
+processes, shared-file isolation and unrelated configuration/comment preservation
+passed without inference. Reproduce using the installed executable's absolute
+path (the script creates and removes its own temporary home):
+
+```sh
+node scripts/skills-native-smoke.mjs /absolute/path/to/codex
+node scripts/skills-policy-smoke.mjs claude /absolute/path/to/claude
+node scripts/skills-policy-smoke.mjs opencode /absolute/path/to/opencode
+```
+
+Claude 2.1.302 and OpenCode 1.19.3/2.0.31 passed native policy checks for every
+supported state, conflicts, fresh-process persistence and untouched skill content.
+OpenCode checks also verify comment preservation. Image smoke tests run these
+scripts against the packaged modules and managed binaries; browser images also
+run the Skills UI audit. Cursor/Grok/Muse native activation remains later work.
 
 Runtime discovery was checked on 2026-10-15 with Claude Code 2.1.300,
 Codex 0.162.1 and OpenCode 2.0.29. Each CLI ran in a temporary home, with its

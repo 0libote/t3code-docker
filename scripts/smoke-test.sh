@@ -577,6 +577,15 @@ context_editor_works() {
 }
 check "the Context editor retains drafts and handles loading and failed saves" context_editor_works
 
+skills_editor_works() {
+  [ "$HAS_BROWSER" -eq 1 ] || return 0
+  docker cp scripts/skills-ui-audit.js "$NAME:/tmp/skills-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium \
+    -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/skills-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
+}
+check "the Skills editor handles native policies, shared locations and file changes" skills_editor_works
+
 context_instructions_work() {
   docker cp scripts/context-api-audit.mjs "$NAME:/tmp/context-api-audit.mjs" >/dev/null 2>&1 || return 1
   docker exec "$NAME" node /tmp/context-api-audit.mjs "http://127.0.0.1:3774/" "$SETUP_KEY"
@@ -695,6 +704,27 @@ sys.exit(0 if all(h[i]["runnable"] and h[i]["version"] for i in ("claude", "code
 }
 # Retried: the card's facts refresh on the poll after the last install lands.
 check "every agent is runnable at a recorded version" "retry 10 agents_runnable"
+
+# Exercise the modules actually copied into this image with its exact managed
+# executables. All provider settings/skills live in each script's scratch home;
+# no credential, prompt or model request is needed.
+native_skill_controls_work() {
+  local id executable script
+  docker cp scripts/skills-native-smoke.mjs "$NAME:/tmp/skills-native-smoke.mjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/skills-policy-smoke.mjs "$NAME:/tmp/skills-policy-smoke.mjs" >/dev/null 2>&1 || return 1
+  for id in claude codex opencode; do
+    executable="$(status_json | jq -r --arg id "$id" '.harnesses[] | select(.id == $id) | .executable')"
+    [ -n "$executable" ] && [ "$executable" != null ] || { printf 'No managed executable returned for %s\n' "$id"; return 1; }
+    printf 'Checking native skill controls for %s (%s)\n' "$id" "$executable"
+    if [ "$id" = codex ]; then script=skills-native-smoke.mjs; else script=skills-policy-smoke.mjs; fi
+    if [ "$id" = codex ]; then
+      docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node "/tmp/$script" "$executable" || return 1
+    else
+      docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node "/tmp/$script" "$id" "$executable" || return 1
+    fi
+  done
+}
+check "native skill controls work with the installed Claude, Codex and OpenCode" "native_skill_controls_work >>\"$UI_AUDIT_LOG\" 2>&1"
 
 # T3 learns about each agent through its settings file, as soon as the agent
 # lands. Read it the way T3 does: each points at the agent's launcher, which
@@ -1565,7 +1595,7 @@ docker rm -f "${NAME}-boot" >/dev/null 2>&1 || true
 
 printf '\n%d passed, %d failed\n\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ] && [ -s "$UI_AUDIT_LOG" ]; then
-  printf 'Browser audit output:\n'
+  printf 'Browser/native skill audit output:\n'
   sed 's/^/  /' "$UI_AUDIT_LOG"
   printf '\n'
 fi

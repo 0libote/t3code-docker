@@ -39,7 +39,7 @@ const assert = require('node:assert/strict');
  await page.goto(base + (embedded ? '?embed=t3&theme=' + theme : '') + '#context');
  await page.locator('[data-cmd="context.edit"]').waitFor();
  assert.equal(await page.locator('html').getAttribute('data-theme'),theme);
- assert.equal(await page.locator('#page-context .tc-section').count(),1);
+ assert.equal(await page.locator('#page-context .tc-section').count(),2);
  assert.equal(await page.locator('[data-cmd="context.edit"]').innerText(),'Edit');
  const checkCentered = async () => {
    const box = await page.getByRole('dialog').boundingBox();
