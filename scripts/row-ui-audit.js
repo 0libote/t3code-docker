@@ -5,13 +5,10 @@
 // No scripts or API mutations run in the fixture document.
 // Usage: node scripts/row-ui-audit.js <console-url> <setup-key>
 const assert = require("node:assert/strict");
-const fs = require("node:fs/promises");
-const path = require("node:path");
 let chromium;
 try { ({ chromium } = require("playwright")); } catch { ({ chromium } = require("playwright-core")); }
 const base = process.argv[2] || "http://127.0.0.1:23780/__setup/";
 const key = process.argv[3] || "dev";
-const output = process.env.T3_ROW_UI_OUTPUT || "/tmp/t3-row-ui-audit";
 
 const icon = '<svg class="tc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"/></svg>';
 const settingsIcon = '<svg class="tc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 17H5M19 7h-9"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>';
@@ -60,7 +57,6 @@ const geometry = () => {
 };
 
 (async () => {
-  await fs.mkdir(output, { recursive: true });
   const response = await fetch(base, { headers: { "x-t3-setup-key": key } });
   assert.equal(response.ok, true, "console must serve its document");
   const document = await response.text();
@@ -84,7 +80,6 @@ const geometry = () => {
       await frame.locator("#reported-row").waitFor();
       await frame.evaluate(() => document.fonts.ready);
       const issues = await frame.evaluate(geometry);
-      await frame.locator("#reported-row").screenshot({ path: path.join(output, `${tag}.png`) });
       if (issues.length) failures.push({ tag, issues });
       else console.log(`PASS ${tag}: icon/text alignment, action placement, containment (7 row variants)`);
       await context.close();
