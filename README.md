@@ -1181,6 +1181,14 @@ Issues and pull requests are welcome. Before opening one:
   cache or change preferences. Screenshots go to `/tmp/t3-storage-ui-audit`;
   set `T3_STORAGE_UI_OUTPUT` to change that location. The development console
   isolates its home, mise state, and caches under `/tmp/t3-dev/home`.
+  `node scripts/row-ui-audit.js http://127.0.0.1:23780/__setup/ dev` checks
+  shared row alignment in both themes across phone, tablet, desktop and
+  embedded layouts, including the former Provider updates row as a regression
+  fixture. It uses the running console's styles without running any actions;
+  screenshots go to `/tmp/t3-row-ui-audit` (`T3_ROW_UI_OUTPUT` overrides it).
+  For the live pages in a fresh scratch console, run `scripts/ui-audit.js`
+  with `T3_UI_AUDIT_ROUTES_ONLY=1` to skip overlay/pairing flows that need
+  installed agents and a public URL. `T3_UI_AUDIT_THEME=dark` checks dark mode.
 
 Releases are made from tags. Pushing `vX.Y.Z` builds each image for each
 architecture, tests each one against the exact digest that was pushed, runs the

@@ -17,6 +17,8 @@
  * Code's settings open the console in a dialog.
  *
  * Exits non-zero when it finds something.
+ * T3_UI_AUDIT_ROUTES_ONLY=1 checks pages without opening overlays or pairing.
+ * T3_UI_AUDIT_THEME=light|dark selects the browser's preferred colour scheme.
  */
 // Runs from a checkout with playwright installed, or inside the browser image,
 // which already carries playwright-core and a chromium for the browser MCP.
@@ -272,6 +274,22 @@ const audit = () => {
     }
   }
 
+  // -- 9. row text follows its icon, or the padding of an iconless row -------
+  // An accidental two-column grid can leave the icon at the left and the
+  // description far across the card without overflowing anything.
+  for (const row of document.querySelectorAll(".tc-row")) {
+    const main = row.querySelector(":scope > .tc-row-main");
+    if (!main || !visible(row)) continue;
+    const lead = row.querySelector(":scope > .tc-tile, :scope > .tc-row-lead");
+    const style = getComputedStyle(row);
+    const left = lead && visible(lead)
+      ? box(lead).right + parseFloat(style.columnGap)
+      : box(row).left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+    if (Math.abs(box(main).left - left) > 1) {
+      add("detached-row-text", "text does not follow the leading icon or row padding", main);
+    }
+  }
+
   return findings;
 };
 
@@ -420,6 +438,7 @@ const audit = () => {
       await page.waitForSelector("#page-devices .tc-steps, #page-devices .tc-hint--err", { timeout: 30000 });
     }],
   ];
+  const states = process.env.T3_UI_AUDIT_ROUTES_ONLY === "1" ? STATES.slice(0, ROUTES.length) : STATES;
 
   for (const { url, viewport: [width, height], tag } of RUNS) {
     // Measure a settled page: reduced motion disables the transitions and
@@ -430,6 +449,7 @@ const audit = () => {
       viewport: { width, height },
       deviceScaleFactor: 2,
       reducedMotion: "reduce",
+      colorScheme: process.env.T3_UI_AUDIT_THEME || "light",
     });
     const page = await ctx.newPage();
     // Embedded, the console is in a frame, as in T3 Code's dialog: a host page
@@ -449,7 +469,7 @@ const audit = () => {
       console.log(`  ${label.padEnd(19)} the console in the frame is not embedded, or has no visible close button`);
       found += 1;
     }
-    for (const [state, reach] of STATES) {
+    for (const [state, reach] of states) {
       await reach(target);
       await settle(target);
       const findings = await target.evaluate(audit);
@@ -461,7 +481,7 @@ const audit = () => {
         if (f.where) console.log(`        at ${f.where}`);
       }
     }
-    if (!found) console.log(`  ${label.padEnd(19)} clean (${STATES.length} states)`);
+    if (!found) console.log(`  ${label.padEnd(19)} clean (${states.length} states)`);
     total += found;
     // The link this made is not for anyone; leave no unused link behind.
     await target.evaluate(async () => {
