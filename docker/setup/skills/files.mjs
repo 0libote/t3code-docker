@@ -3,13 +3,13 @@ import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 
-const writableProviders = new Set(["claude", "codex", "opencode"]);
+const writableProviders = new Set(["claude", "codex", "opencode", "cursor", "grok", "muse", "antigravity"]);
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const inside = (parent, file) => { const relative = path.relative(parent, file); return relative !== "" && !relative.startsWith(".." + path.sep) && relative !== ".." && !path.isAbsolute(relative); };
 const stamp = (stat) => [stat.dev, stat.ino, stat.mode, stat.size, stat.mtimeMs].join(":");
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const queues = new Map();
-async function serialized(key, work) {
+export async function serialized(key, work) {
   const previous = queues.get(key) || Promise.resolve();
   const next = previous.catch(() => {}).then(work); queues.set(key, next);
   try { return await next; } finally { if (queues.get(key) === next) queues.delete(key); }
@@ -42,6 +42,9 @@ export async function localSkillPolicy({ provider, roots, home, env, io }) {
   const pluginRoots = await Promise.all([
     path.join(path.resolve(home, env.CLAUDE_CONFIG_DIR || ".claude"), "plugins"),
     path.join(path.resolve(home, env.CODEX_HOME || ".codex"), "plugins"),
+    path.join(path.resolve(home, env.GROK_HOME || ".grok"), "plugins"),
+    path.join(home, ".gemini/antigravity-cli/plugins"),
+    "/etc/codex/skills",
   ].map((file) => io.realpath(file).catch(() => path.resolve(file))));
   const supported = writableProviders.has(provider);
   const protectedTarget = (file) => file.split(path.sep).includes(".system") || pluginRoots.some((directory) => file === directory || inside(directory, file));
@@ -55,7 +58,7 @@ export async function localSkillPolicy({ provider, roots, home, env, io }) {
   const rootFor = (row) => editableRoots.filter((entry) => inside(entry.path, row.path)).sort((a, b) => b.path.length - a.path.length)[0];
   const capabilities = (row) => {
     let reason = null;
-    if (!supported) reason = "Local file management is currently available for Claude Code, Codex and OpenCode.";
+    if (!supported) reason = "Local file management is unavailable for this provider.";
     else if (row.scope !== "user" || row.source === "Plugin" || !rootFor(row)) reason = "Manage this installation through its source provider or package manager.";
     else if (!row.resolvedPath) reason = "The skill's linked target is unavailable.";
     else if (protectedTarget(row.resolvedPath)) reason = "System and plugin skill files are read-only.";
@@ -86,7 +89,7 @@ async function publish(io, file, content, mode, exclusive = false) {
 }
 
 // Fingerprint supporting files without following their links or reading their bodies.
-async function removalPlan(io, row, root) {
+export async function removalPlan(io, row, root) {
   const parent = path.dirname(row.path);
   const fileEntry = await io.lstat(row.path), parentEntry = await io.lstat(parent);
   const kind = fileEntry.isSymbolicLink() || parent === root.path || path.basename(row.path) !== "SKILL.md" ? "file"
@@ -98,7 +101,9 @@ async function removalPlan(io, row, root) {
   const walk = async (file, relative, depth) => {
     if (++count > 1024 || depth > 12) throw fail("unsupported", "This skill contains too many files to remove through the console.");
     const stat = await io.lstat(file);
-    parts.push([relative, stamp(stat), stat.isSymbolicLink() ? await io.readlink(file) : ""]);
+    // Moving the root changes its ctime; descendant ctimes stay stable and
+    // catch in-place edits even when another tool restores the old mtime.
+    parts.push([relative, stamp(stat) + (relative ? ":" + stat.ctimeMs : ""), stat.isSymbolicLink() ? await io.readlink(file) : ""]);
     if (!stat.isDirectory() || stat.isSymbolicLink()) return;
     for await (const child of await io.opendir(file)) {
       if (child.name === "SKILL.md" && relative !== "") throw fail("unsupported", "This folder contains another skill. Remove it directly to preserve the nested installation.");

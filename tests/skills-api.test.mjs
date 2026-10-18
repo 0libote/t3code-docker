@@ -72,6 +72,26 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   assert.equal((await fetch(base + "/context/skills/read?provider=claude&id=" + "a".repeat(32))).status, 401);
   assert.equal((await get("/context/skills?provider=__proto__")).status, 400);
   assert.equal((await get("/context/skills")).status, 400);
+  for (const operation of ["source", "plan", "install", "discard"]) {
+    assert.equal((await fetch(base + "/context/skills/" + operation, { method: "POST" })).status, 401);
+    assert.equal((await post("/context/skills/" + operation, {}, { "sec-fetch-site": "cross-site" })).status, 403);
+    assert.equal((await post("/context/skills/" + operation, null)).status, 400);
+  }
+  assert.equal((await post("/context/skills/source", { source: "file:///etc/passwd" })).status, 400);
+  const importSource = path.join(home, "source/imported/SKILL.md");
+  await fs.mkdir(path.dirname(importSource), { recursive: true });
+  await fs.writeFile(importSource, "---\nname: imported\ndescription: API import\n---\nImport from a snapshot.\n");
+  const preview = await (await post("/context/skills/source", { source: path.dirname(importSource) })).json();
+  assert.equal(preview.ok, true); assert.equal(preview.skills[0].name, "imported");
+  const importPlan = await (await post("/context/skills/plan", { previewId: preview.previewId, skills: ["imported"], providers: ["cursor"] })).json();
+  assert.equal(importPlan.canInstall, true);
+  assert.equal((await post("/context/skills/install", { previewId: preview.previewId, planId: "forged" })).status, 409);
+  const imported = await (await post("/context/skills/install", { previewId: preview.previewId, planId: importPlan.planId, path: other })).json();
+  assert.equal(imported.results[0].status, "installed");
+  assert.match(await fs.readFile(path.join(home, ".cursor/skills/imported/SKILL.md"), "utf8"), /API import/);
+  assert.equal(await fs.readFile(other, "utf8"), "Not a skill");
+  await post("/context/skills/discard", { previewId: preview.previewId });
+  assert.equal((await post("/context/skills/plan", { previewId: preview.previewId, skills: ["imported"], providers: ["cursor"] })).status, 409);
   const result = await (await get("/context/skills?provider=claude")).json();
   assert.equal(result.coverage, "policy"); assert.equal(result.skills.length, 1);
   const row = result.skills[0]; assert.equal(row.name, "one"); assert.ok(!("content" in row));

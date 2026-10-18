@@ -8,8 +8,9 @@ import { listCodexSkills, writeCodexSkillConfig } from "./skills/codex.mjs";
 import { codexConfigPath, configSnapshot, stateRevision, serializeState } from "./skills/state.mjs";
 import { createSkillFileManager, skillRevision } from "./skills/files.mjs";
 import { createSkillPolicies } from "./skills/policies.mjs";
+import { createSkillImporter } from "./skills/imports.mjs";
 
-const PROVIDERS = Object.freeze({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok Build", muse: "Muse Code" });
+const PROVIDERS = Object.freeze({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok Build", muse: "Muse Code", antigravity: "Antigravity" });
 const DEFAULT_LIMITS = { entries: 2048, skills: 256, depth: 8, bytes: 4 * 1024 * 1024, fileBytes: 64 * 1024, milliseconds: 3000 };
 const problem = (code, message) => Object.assign(new Error(message), { code });
 const summaryError = (error) => String(error?.message || error).slice(0, 240);
@@ -30,8 +31,9 @@ export function skillRoots(provider, { home, env = {} }) {
     codex: [own(codex), common, { path: path.join(codex, "skills/.system"), source: "System", scope: "system" }, { path: "/etc/codex/skills", source: "Admin", scope: "admin" }],
     opencode: [own(override("OPENCODE_CONFIG_DIR", path.join(config, "opencode"))), compat(path.join(claude, "skills"), "Claude compatibility"), common],
     cursor: [own(path.join(home, ".cursor")), common, compat(path.join(claude, "skills"), "Claude compatibility"), compat(path.join(codex, "skills"), "Codex compatibility")],
-    grok: [own(override("GROK_HOME", ".grok")), compat(path.join(claude, "skills"), "Claude compatibility"), common],
+    grok: [own(override("GROK_HOME", ".grok")), compat(path.join(claude, "skills"), "Claude compatibility"), common, compat(path.join(home, ".cursor/skills"), "Cursor compatibility")],
     muse: [own(path.join(config, "muse")), common, compat(path.join(claude, "skills"), "Claude compatibility"), compat(path.join(codex, "skills"), "Codex compatibility")],
+    antigravity: [own(path.join(home, ".gemini/config")), compat(path.join(home, ".gemini/antigravity-cli/skills"), "Antigravity CLI")],
   }[provider];
   return roots.filter((root, index) => roots.findIndex((other) => other.path === root.path) === index);
 }
@@ -141,7 +143,7 @@ export async function scanSkillFiles(provider, options) {
   return { skills: [...rows.values()], roots, warnings: [...warnings] };
 }
 
-export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, inspectClaude, inspectOpenCode, getHarness = async () => null, ttlMs = 15000, limits } = {}) {
+export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, inspectClaude, inspectOpenCode, getHarness = async () => null, ttlMs = 15000, limits, resolveSource } = {}) {
   home = path.resolve(home || env.HOME || "/home/t3");
   const cache = new Map();
   const policies = createSkillPolicies({ home, env, io, getHarness, inspectClaude, inspectOpenCode, invalidate: () => cache.clear() });
@@ -265,5 +267,6 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
     return { ...detail, ...await fileManager.removal(provider, detail) };
   };
   const fileManager = createSkillFileManager({ home, env, io, rootsFor: (provider) => skillRoots(provider, { home, env }), metadata: skillMetadata, read, invalidate: () => cache.clear() });
-  return { list, read, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove };
+  const importer = createSkillImporter({ home, env, io, metadata: skillMetadata, policyFor: fileManager.policyFor, invalidate: () => cache.clear(), resolveSource });
+  return { list, read, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer };
 }

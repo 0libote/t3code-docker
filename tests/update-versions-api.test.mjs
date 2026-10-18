@@ -48,11 +48,15 @@ test("version routes refresh reopened pickers and detach reads after a manual ch
       T3_HARNESS_MODULE: harness, T3_INFRA_LAUNCHER: "/bin/false" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  const closed = once(child, "close");
   child.stdout.on("data", (chunk) => { logs += chunk; });
   child.stderr.on("data", (chunk) => { logs += chunk; });
   t.after(async () => {
-    if (child.exitCode === null) { const exit = once(child, "exit"); child.kill(); await exit; }
-    await fs.rm(root, { recursive: true, force: true });
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await closed;
+    // Drain child stdio before teardown; bounded retries handle pending
+    // filesystem work completing as the setup process shuts down.
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 100; i++) {

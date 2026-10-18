@@ -25,6 +25,7 @@ export const CONSOLE_SCRIPTS = [
   "client/model.js",
   "client/kit.js",
   "client/storage.js",
+  "client/skill-import.js",
   "client/skills.js",
   "app.js",
 ];

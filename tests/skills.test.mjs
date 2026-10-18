@@ -24,6 +24,8 @@ test("skill roots follow provider environment overrides and keep supported provi
   assert.equal(roots("grok")[0], "/grok/skills");
   assert.equal(roots("muse")[0], "/config/muse/skills");
   assert.ok(roots("cursor").includes("/fixture/.agents/skills"));
+  assert.ok(roots("grok").includes("/fixture/.cursor/skills"));
+  assert.deepEqual(roots("antigravity"), ["/fixture/.gemini/config/skills", "/fixture/.gemini/antigravity-cli/skills"]);
   assert.throws(() => roots("../escape"), /Unknown/);
 });
 
