@@ -371,7 +371,7 @@
 .tc-notice { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-xl); border: 1px solid var(--border); font-size: 14px; line-height: 20px; color: var(--fg); background: transparent; }
 [data-theme="dark"] .tc-notice { background: oklch(1 0 0 / 0.0256); }
 .tc-notice > .tc-icon { margin-top: 2px; color: var(--fg-muted); }
-.tc-notice-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tc-notice-body { flex: 1; min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px; }
 .tc-notice-title { font-weight: 500; }
 .tc-notice-desc { font-size: 12px; line-height: 18px; opacity: 0.8; }
 .tc-notice--info { border-color: color-mix(in srgb, var(--info) 32%, transparent); background: color-mix(in srgb, var(--info) 4%, transparent); }
