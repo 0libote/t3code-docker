@@ -548,6 +548,7 @@ is "T3 still runs it through the launcher" "$claude_launcher" \
   "$(field '.providerInstances.claudeAgent.config.binaryPath // .providers.claudeAgent.binaryPath // empty' "$(settings_body)")"
 
 section "OpenCode v2 in an isolated home (Stable keeps its v1 provider)"
+docker cp "${ROOT}/scripts/opencode-auth-smoke.mjs" "$NAME:/tmp/opencode-auth-smoke.mjs" >/dev/null
 opencode_v2_out="$(docker exec -i -u t3 \
   -e HOME=/tmp/t3-opencode-v2-e2e \
   -e T3CODE_HOME=/tmp/t3-opencode-v2-e2e/.t3 \
@@ -562,6 +563,7 @@ opencode_v2_out="$(docker exec -i -u t3 \
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHarnessManager } from "/opt/t3-harness/index.mjs";
+import { execFileSync } from "node:child_process";
 const manager = createHarnessManager();
 await mkdir(process.env.HOME, { recursive: true });
 const versions = await manager.versions("opencode");
@@ -578,6 +580,10 @@ const next = await manager.install("opencode", { version: process.env.OPENCODE2_
 assert.equal(next.ok, true, next.error);
 assert.equal(next.harness.miseTool, "npm:@opencode/cli");
 assert.equal(next.harness.verifiedVersion, process.env.OPENCODE2_TEST_VERSION);
+// Exercise credentials on the supported V2 floor with another disposable home.
+console.log(execFileSync(process.execPath, ["/tmp/opencode-auth-smoke.mjs", next.harness.executable], {
+  env: { ...process.env, T3_HARNESS_MODULE: "/opt/t3-harness/index.mjs" }, timeout: 180000, encoding: "utf8",
+}));
 assert.equal(await readFile(credential, "utf8"), saved);
 assert.ok((await manager.latest("opencode")).startsWith("2."));
 const updated = await manager.update("opencode");

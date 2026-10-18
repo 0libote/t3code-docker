@@ -148,7 +148,7 @@ page runs the CLI and reads its output; you never type into a terminal.
 
 Sign-in status uses each CLI's native status interface where available. The
 exceptions below report saved credentials without testing a remote request.
-`ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` in the container environment
+For Claude Code, `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` in the container environment
 both count, as they do for T3 Code:
 
 | Agent | Checked with |
@@ -180,7 +180,8 @@ offline.
 
 OpenCode 1 saves keys in `$XDG_DATA_HOME/opencode/auth.json` (by default
 `~/.local/share/opencode/auth.json`). OpenCode 2 migrates that file once into
-its database. Setup, sign-in checks and `t3-doctor` use the managed release's
+its database (see the [OpenCode provider guide](https://dev.opencode.ai/v2/docs/cli/providers/)).
+Setup, sign-in checks and `t3-doctor` use the managed release's
 store, so an old `auth.json` cannot make a V2 installation appear signed in.
 The whole OpenCode data directory, including database sidecars, persists on
 the home volume. An unreadable store or unknown version is reported without

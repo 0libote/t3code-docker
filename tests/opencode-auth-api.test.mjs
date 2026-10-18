@@ -76,3 +76,31 @@ test('partial native failures invalidate credential lists and never claim succes
   assert.deepEqual(snapshot.configured, ['anthropic']);
   assert.equal(snapshot.credentials.counts.anthropic, 1);
 });
+
+test('unavailable or unknown managed installations cannot mutate either store', { timeout: 15000 }, async (t) => {
+  const f = await authFixture(); t.after(f.close);
+  const legacy = path.join(f.env.XDG_DATA_HOME, 'opencode/auth.json');
+  await fs.mkdir(path.dirname(legacy), { recursive: true });
+  const stale = '{"anthropic":{"type":"api","key":"stale-fixture"}}';
+  await fs.writeFile(legacy, stale);
+  const accounts = '[{"id":"anthropic","connections":[{"type":"credential","id":"cred_existing"}]}]';
+  await fs.writeFile(f.stateFile, accounts);
+  for (const facts of [{ runnable: false, inProgress: true }, { executable: null }, { resolveFails: true }, { installedVersion: null }]) {
+    await f.facts(facts);
+    assert.equal((await f.request('/auth/apikey', { agent: 'opencode', provider: 'anthropic', key: 'new-fixture' })).status, 400);
+    assert.equal((await f.request('/auth/apikey/remove', { agent: 'opencode', provider: 'anthropic' })).status, 400);
+    assert.equal(await fs.readFile(legacy, 'utf8'), stale);
+    assert.equal(await fs.readFile(f.stateFile, 'utf8'), accounts);
+  }
+  await assert.rejects(fs.access(path.join(f.home, 'import-started')), { code: 'ENOENT' });
+});
+
+test('legacy HTTP key changes preserve other providers without running V2 commands', { timeout: 15000 }, async (t) => {
+  const f = await authFixture({ version: '1.19.3' }); t.after(f.close);
+  assert.equal((await f.request('/auth/apikey', { agent: 'opencode', provider: 'anthropic', key: 'one-fixture' })).status, 200);
+  assert.equal((await f.request('/auth/apikey', { agent: 'opencode', provider: 'openai', key: 'two-fixture' })).status, 200);
+  assert.equal((await f.request('/auth/apikey/remove', { agent: 'opencode', provider: 'anthropic' })).status, 200);
+  const legacy = path.join(f.env.XDG_DATA_HOME, 'opencode/auth.json');
+  assert.deepEqual(JSON.parse(await fs.readFile(legacy, 'utf8')), { openai: { type: 'api', key: 'two-fixture' } });
+  await assert.rejects(fs.access(path.join(f.home, 'calls')), { code: 'ENOENT' });
+});

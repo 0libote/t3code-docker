@@ -10,9 +10,9 @@ import { fileURLToPath } from 'node:url';
 export const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function authFixture({ port = 0, version = '2.0.32', executable: nativeExecutable } = {}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 't3-opencode-auth-api-'));
-  const stateFile = path.join(home, 'accounts.json'), modeFile = path.join(home, 'mode.json');
+  const stateFile = path.join(home, 'accounts.json'), modeFile = path.join(home, 'mode.json'), factsFile = path.join(home, 'facts.json');
   const executable = nativeExecutable || path.join(home, 'opencode.mjs');
-  await fs.writeFile(stateFile, '[]'); await fs.writeFile(modeFile, '{}');
+  await fs.writeFile(stateFile, '[]'); await fs.writeFile(modeFile, '{}'); await fs.writeFile(factsFile, '{}');
   if (!nativeExecutable) await fs.writeFile(executable, `#!${process.execPath}
 import * as fs from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -66,14 +66,24 @@ await fs.writeFile(root+'/accounts.next',JSON.stringify(rows));await fs.rename(r
   const harness = path.join(home, 'harness.mjs');
   const source = new URL('../../docker/harness/index.mjs', import.meta.url).href;
   await fs.writeFile(harness, `export * from ${JSON.stringify(source)};
+import {readFile} from 'node:fs/promises';
 const row={id:'opencode',name:'OpenCode',installed:true,configured:true,runnable:true,installedVersion:${JSON.stringify(version)},executable:${JSON.stringify(executable)},authenticated:true};
 export const createHarnessManager=()=>({
- resolve:async(id)=>id==='opencode'?row:{id,runnable:false,installed:false},
+ resolve:async(id)=>{
+  if(id!=='opencode')return {id,runnable:false,installed:false};
+  const facts=JSON.parse(await readFile(${JSON.stringify(factsFile)},'utf8'));
+  if(facts.resolveFails)throw new Error('fixture resolver unavailable');
+  return {...row,...facts};
+ },
  status:async()=>({harnesses:[row],degraded:[]}),invalidateAuth(){},
  latestRelease:async()=>({version:'2.0.32'}),
  toolchains:{status:async()=>({toolchains:[],degraded:[]}),latestRelease:async()=>({version:'1'})},
  packages:{status:async()=>({packages:[],degraded:[]})},paths:{stateDir:${JSON.stringify(home)}}
 });`);
+  const preload = path.join(home, 'catalogue.mjs');
+  await fs.writeFile(preload, `const original=globalThis.fetch;
+globalThis.fetch=(input,init)=>String(input)==='https://models.dev/api.json'
+ ? Promise.resolve(Response.json({anthropic:{name:'Anthropic'},openai:{name:'OpenAI'}})) : original(input,init);`);
   const reservation = createServer().listen(port, '127.0.0.1');
   await once(reservation, 'listening'); port = reservation.address().port;
   await new Promise((resolve) => reservation.close(resolve));
@@ -89,7 +99,7 @@ export const createHarnessManager=()=>({
     T3_SETUP_PORT: String(port), T3_SETUP_KEY: 'auth-fixture', T3_SETUP_KEY_SOURCE: 'env',
     T3_INFRA_LAUNCHER: '/bin/false', T3CODE_PORT: '1', T3_PUBLIC_URL: '' };
   for (const key of Object.keys(env)) if (/TOKEN|API_KEY|^OPENCODE/.test(key)) delete env[key];
-  const child = spawn(process.execPath, [fileURLToPath(new URL('../../docker/setup/server.mjs', import.meta.url))], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['--import', preload, fileURLToPath(new URL('../../docker/setup/server.mjs', import.meta.url))], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const closed = once(child, 'close'); let logs = '';
   child.stdout.on('data', (chunk) => { logs = (logs + chunk).slice(-10000); });
   child.stderr.on('data', (chunk) => { logs = (logs + chunk).slice(-10000); });
@@ -97,6 +107,7 @@ export const createHarnessManager=()=>({
   const request = (route, body, headers = {}) => fetch(base + route, { method: body === undefined ? 'GET' : 'POST',
     headers: { 'x-t3-setup-key': 'auth-fixture', 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
   const mode = async (value) => { await fs.writeFile(modeFile + '.next', JSON.stringify(value)); await fs.rename(modeFile + '.next', modeFile); };
+  const facts = (value) => fs.writeFile(factsFile, JSON.stringify(value));
   const close = async () => {
     await mode({});
     if (child.exitCode === null && child.signalCode === null) child.kill();
@@ -106,7 +117,7 @@ export const createHarnessManager=()=>({
   try {
     for (let i = 0; i < 200; i++) {
       if (child.exitCode !== null || child.signalCode !== null) throw new Error(logs);
-      try { if ((await request('/hello')).ok) return { home, env, base, request, mode, close, executable, stateFile }; } catch {}
+      try { if ((await request('/hello')).ok) return { home, env, base, request, mode, facts, close, executable, stateFile }; } catch {}
       await pause(20);
     }
     throw new Error('Credential fixture did not start: ' + logs);

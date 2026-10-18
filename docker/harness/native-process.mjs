@@ -38,4 +38,3 @@ export async function withNativeProcess(options, args, work) {
     await exited;
   }
 }
-
