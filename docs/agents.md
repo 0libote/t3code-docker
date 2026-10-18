@@ -59,9 +59,11 @@ Typing a prefix such as `2.1` picks the newest release under it.
 **OpenCode's version picker includes both 1.x and 2.x.** OpenCode 1 remains
 the default first-start install. Choose **Install a specific version…** on its
 row and search for `2` to install OpenCode 2 from the official `@opencode/cli`
-package through mise. It requires T3 Code **Nightly** and OpenCode **2.0.20**
-or newer. The two distributions share one row and one active `opencode`
-command; **Update** stays within the major version you selected.
+package through mise. This image requires T3 Code **Nightly** and OpenCode
+**2.0.20** or newer; 2.0.20 added `auth import`, which the setup page uses to
+save keys without a terminal. The two distributions share one row and one
+active `opencode` command; **Update** stays within the major version you
+selected.
 
 Before switching majors, stop running OpenCode sessions and keep a backup of
 its data. OpenCode 2 converts the shared OpenCode database on first use, and
@@ -130,7 +132,7 @@ Each agent offers the sign-in methods it supports:
 | --- | --- | --- |
 | Claude Code | `auth login`: shows a URL, then takes the code back | — |
 | Codex | device code (`login --device-auth`) | stored with `login --with-api-key` |
-| OpenCode | — | choose a provider; the key is written to its `auth.json` |
+| OpenCode | — | choose a provider; stored in `auth.json` on 1.x or SQLite on 2.x |
 | Cursor | browser sign-in, checked until it completes | — |
 | Grok Build | device code: a URL and a code to confirm | — |
 | Muse Code | Meta device code: a URL and a code to confirm | stored with `auth set --api-key-stdin` |
@@ -146,10 +148,9 @@ page runs the CLI and reads its output; you never type into a terminal.
   <img src="media/agent-signin.png" alt="Signing Grok Build in with a device code, from the setup page" width="100%">
 </p>
 
-Sign-in status comes from asking each CLI, not from looking for a credentials
-file, so credentials that never touch disk are recognized too.
-`ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` in the container environment
-both count, as they do for T3 Code:
+Sign-in status uses each agent's CLI check or saved credentials, as listed
+below. For Claude Code, `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` in the
+container environment both count, as they do for T3 Code:
 
 | Agent | Checked with |
 | --- | --- |
@@ -157,7 +158,7 @@ both count, as they do for T3 Code:
 | Codex | `codex login status` |
 | Cursor | `cursor-agent status --format json` |
 | Grok Build | `grok models`, plus `XAI_API_KEY`, as T3 Code does |
-| OpenCode | its `auth.json`, where its keys are stored |
+| OpenCode | `auth.json` on 1.x; `opencode auth list --format json` on 2.x |
 | Muse Code | saved credentials in `~/.config/muse/auth.json`; sign-in is checked on the first message |
 | Antigravity | T3 Code's provider status |
 
@@ -177,6 +178,28 @@ setup page offers the [models.dev](https://models.dev) catalog as a picker,
 with **Other — type an id** for anything not listed. The catalog is fetched
 once and cached on the state volume, so it keeps working after restarts and
 offline.
+
+OpenCode 2 keeps saved accounts in its server's SQLite database. It imports
+supported legacy `auth.json` entries during database migration, then saves
+new and updated credentials in SQLite. Editing `auth.json` after migration
+does not update those accounts. See the official
+[OpenCode 2 provider guide](https://dev.opencode.ai/v2/docs/cli/providers/).
+
+On 2.x, saving a key here adds and selects a new account. **Remove key**
+removes every saved account for that provider, including OAuth accounts;
+accounts for other providers stay. Environment-only connections do not count
+as saved accounts in the setup page and must be removed by unsetting their
+variables. If OpenCode is unavailable during an install or update, retry
+after it finishes; the setup page cannot change its credentials then.
+
+For OpenCode 2 sign-in methods that need a terminal, use the managed CLI:
+
+```bash
+docker compose exec -it t3code t3-login opencode anthropic --method key
+```
+
+Omit the provider and method to open OpenCode's picker. With OpenCode 1,
+`t3-login opencode` runs its interactive picker and ignores extra arguments.
 
 You can also use T3 Code's own provider setup, which opens a terminal on the
 server with the sign-in command ready to run. Both store credentials in the

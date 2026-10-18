@@ -1311,7 +1311,7 @@ const hostOf = (url) => {
 //   cursor  login (NO_OPEN_BROWSER) prints a URL, then polls. No input.
 //   claude  setup-token           prints a URL, then waits for a pasted code.
 //   codex   login --with-api-key  reads the key from stdin. No browser.
-//   opencode                      stores credentials in a JSON file we can write.
+//   opencode                      1.x writes auth.json; 2.x uses auth import.
 //
 // The browser flows are TUIs, so they are run under `script` for a pty and
 // their output is stripped of escapes before anything is scraped out of it.

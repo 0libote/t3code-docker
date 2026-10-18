@@ -6,6 +6,11 @@ T3 Code can drive OpenCode, so DeepSeek works through OpenCode.
 
 ## Install
 
+This configuration is for OpenCode **1.x**, the default first-start install.
+OpenCode 2 uses a different provider configuration; follow its
+[provider guide](https://dev.opencode.ai/v2/docs/providers) instead of
+copying this file.
+
 ```bash
 docker compose exec -u t3 t3code sh -c \
   'mkdir -p ~/.config/opencode &&
