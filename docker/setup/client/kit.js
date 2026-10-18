@@ -79,6 +79,10 @@ const Kit = (() => {
       }
       if (match) {
         if (match === cursor) cursor = cursor.nextSibling;
+        // Keep focus, composition and widget state when the browser supports
+        // moving an existing node without disconnecting it. Both nodes already
+        // belong to this parent, so its moveBefore constraints are satisfied.
+        else if (typeof live.moveBefore === 'function') live.moveBefore(match, cursor);
         else live.insertBefore(match, cursor);
         morphNode(match, n);
       } else {
@@ -103,14 +107,22 @@ const Kit = (() => {
     if (el.__t3 === text) return false;
     el.__t3 = text;
     const active = document.activeElement;
-    const focusKey = active && active !== document.body && el.contains(active) ? (active.id || active.getAttribute('data-key')) : null;
+    const ownsFocus = active && active !== document.body && el.contains(active);
+    const focusKey = ownsFocus ? (active.id || active.getAttribute('data-key')) : null;
+    const selection = ownsFocus && typeof active.selectionStart === 'number'
+      ? [active.selectionStart, active.selectionEnd, active.selectionDirection] : null;
     scratch.innerHTML = text;
     morphChildren(el, scratch.content);
-    // The focused control was replaced rather than morphed: put focus back on
-    // its successor, so a keyboard user does not land on <body>.
-    if (focusKey && !el.contains(active)) {
-      const again = el.querySelector('#' + CSS.escape(focusKey) + ', [data-key="' + CSS.escape(focusKey) + '"]');
-      if (again) again.focus({ preventScroll: true });
+    // insertBefore can blur a control even when its node survives a move.
+    // Restore that same control, or its keyed successor after replacement,
+    // including the editing selection. Never take focus from another layer.
+    if (ownsFocus && document.activeElement !== active) {
+      const again = el.contains(active) ? active : focusKey
+        ? el.querySelector('#' + CSS.escape(focusKey) + ', [data-key="' + CSS.escape(focusKey) + '"]') : null;
+      if (again) {
+        again.focus({ preventScroll: true });
+        if (selection && typeof again.selectionStart === 'number') again.setSelectionRange(...selection);
+      }
     }
     return true;
   };
