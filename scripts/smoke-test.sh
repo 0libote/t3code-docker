@@ -595,6 +595,15 @@ auto_update_settings_work() {
 }
 check "automatic update settings keep categories independent and warn before T3 Code opt-in" auto_update_settings_work
 
+console_drafts_survive_refresh() {
+  [ "$HAS_BROWSER" -eq 1 ] || return 0
+  docker cp scripts/form-drafts-ui-audit.js "$NAME:/tmp/form-drafts-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium \
+    -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/form-drafts-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
+}
+check "console refreshes retain unsaved drafts, focus and selection" console_drafts_survive_refresh
+
 context_instructions_work() {
   docker cp scripts/context-api-audit.mjs "$NAME:/tmp/context-api-audit.mjs" >/dev/null 2>&1 || return 1
   docker exec "$NAME" node /tmp/context-api-audit.mjs "http://127.0.0.1:3774/" "$SETUP_KEY"
