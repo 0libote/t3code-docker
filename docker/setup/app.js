@@ -610,7 +610,7 @@
     </div>`;
 
   const section = (id, title, body, { actions, level } = {}) => html`
-    <section class="tc-section" aria-labelledby="${id}">
+    <section class="tc-section" data-key="${id}" aria-labelledby="${id}">
       <div class="tc-section-head"><${raw(level || 'h2')} class="tc-section-title" id="${id}">${title}</${raw(level || 'h2')}>${actions ? html`<div class="tc-section-actions">${actions}</div>` : ''}</div>
       ${body}
     </section>`;
@@ -842,6 +842,7 @@
   // proves the scan landed. Held here, not in the DOM, so the poll can advance
   // the tracker without repainting the QR underneath it.
   const pair = {
+    label: '',
     ttl: '30d',
     showForm: true,
     minting: false,
@@ -885,8 +886,7 @@
       render();
       return;
     }
-    const input = $('pair-label');
-    const label = input ? input.value.trim() : (pair.minted && pair.minted.label) || '';
+    const label = pair.showForm ? pair.label.trim() : (pair.minted && pair.minted.label) || '';
     pair.minting = true;
     pair.error = null;
     render();
@@ -914,7 +914,7 @@
     };
     pair.showForm = false;
     pair.freshSession = null;
-    if (input) input.value = '';
+    pair.label = '';
     render();
     Kit.announce('Pairing link created. Waiting for the device.');
     loadStatus();
@@ -940,7 +940,7 @@
       <div class="tc-group tc-group--brand" data-key="pair-form"><div class="tc-card-body tc-pair-form">
         <div class="tc-pair-form-intro"><span class="tc-row-name">A single-use link for one device</span><span class="tc-small tc-muted">Scan it with the T3 Code app, open it in a browser, or paste the pair code into the desktop app.</span></div>
         <div class="tc-pair-form-fields">
-          <div class="tc-field"><label class="tc-label" for="pair-label">Label <span class="tc-label-opt">optional</span></label><input id="pair-label" class="tc-input" placeholder="e.g. iPhone" maxlength="64" autocomplete="off" spellcheck="false"></div>
+          <div class="tc-field"><label class="tc-label" for="pair-label">Label <span class="tc-label-opt">optional</span></label><input id="pair-label" class="tc-input" value="${pair.label}" placeholder="e.g. iPhone" maxlength="64" autocomplete="off" spellcheck="false"></div>
           <div class="tc-field"><span class="tc-label" id="ttl-label">Expires in</span><div class="tc-seg" role="group" aria-labelledby="ttl-label">${TTLS.map(([value, label]) => html`<button type="button" aria-pressed="${String(pair.ttl === value)}" data-cmd="pair.ttl" data-value="${value}">${label}</button>`)}</div></div>
         </div>
         <button class="${cx('tc-btn', !noUrl && 'tc-btn--primary')}" type="button" data-cmd="pair.start" data-key="pair-create"${pair.minting || noUrl ? raw(' disabled') : ''}>${pair.minting ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon('link')}Create pairing link<span class="tc-kbd tc-desk-only" aria-hidden="true">P</span></button>
@@ -3462,6 +3462,7 @@
 
   // The added-tools filter: typing narrows the list as it goes.
   document.addEventListener('input', (e) => {
+    if (e.target.id === 'pair-label') { pair.label = e.target.value; return; }
     if (e.target.id !== 'tool-filter') return;
     state.toolFilter = e.target.value;
     render();
