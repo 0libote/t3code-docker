@@ -12,6 +12,38 @@ const key = process.argv[3] || 'dev';
 const firstId = 'a'.repeat(32), secondId = 'b'.repeat(32);
 const body = '---\nname: review\ndescription: Review changes\n---\nText, including </textarea><script>window.skillInjected = true</script>.\n';
 
+// Keep native controls usable in either page theme and in Windows high contrast.
+const checkSelect = async (page, select, theme) => {
+ await select.focus();
+ const normal = await select.evaluate((control) => {
+  const style = getComputedStyle(control), option = getComputedStyle(control.options[0]);
+  const sample = document.createElement('span');
+  sample.style.backgroundColor = 'var(--surface-raised)';
+  control.after(sample);
+  const surface = getComputedStyle(sample).backgroundColor;
+  sample.remove();
+  return { scheme: style.colorScheme, appearance: style.appearance, arrow: style.backgroundImage,
+   foreground: style.color, optionForeground: option.color, optionBackground: option.backgroundColor, surface };
+ });
+ assert.equal(normal.scheme, theme, 'the native popup follows the selected page theme');
+ assert.equal(normal.optionForeground, normal.foreground, 'options keep readable theme text');
+ assert.equal(normal.optionBackground, normal.surface, 'options use the opaque raised surface');
+ assert.ok(normal.arrow !== 'none' || normal.appearance !== 'none', 'the select has a dropdown indicator');
+ await page.emulateMedia({ forcedColors: 'active' });
+ try {
+  const contrast = await select.evaluate((control) => {
+   const style = getComputedStyle(control);
+   return { active: control === document.activeElement, appearance: style.appearance,
+    outline: style.outlineStyle, outlineWidth: parseFloat(style.outlineWidth),
+    background: style.backgroundColor, color: style.color };
+  });
+  assert.equal(contrast.active, true, 'the native control retains keyboard focus');
+  assert.notEqual(contrast.appearance, 'none', 'high contrast keeps the native dropdown indicator');
+  assert.ok(contrast.outline !== 'none' && contrast.outlineWidth >= 2, 'high contrast keeps a visible focus outline');
+  assert.notEqual(contrast.color, contrast.background, 'high contrast keeps text readable');
+ } finally { await page.emulateMedia({ forcedColors: 'none' }); }
+};
+
 (async () => {
  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] });
  try {
@@ -103,6 +135,11 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   await page.locator('#skill-provider').selectOption('claude');
   await page.locator('.tc-skills[data-provider="claude"]').waitFor();
   assert.equal(await page.locator('#skill-provider option').count(), 7);
+  await checkSelect(page, page.locator('#skill-provider'), theme);
+  await page.locator('#skill-provider').press('ArrowDown');
+  await page.locator('.tc-skills[data-provider="codex"]').waitFor();
+  await page.locator('#skill-provider').press('ArrowUp');
+  await page.locator('.tc-skills[data-provider="claude"]').waitFor();
   assert.equal(await page.locator('.tc-skill-row .tc-badge').first().innerText(), 'Unverified');
   assert.equal(await page.locator('[data-cmd="skills.state"]').count(), 0);
   const beforeStatus = inventoryRequests;
@@ -194,6 +231,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   await page.getByRole('alertdialog').getByRole('button', { name: 'Remove skill', exact: true }).click();
   await page.getByRole('dialog').waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Add skill', exact: true }).click();
+  await checkSelect(page, page.locator('#skill-target'), theme);
   await page.locator('#skill-target').selectOption('shared');
   await page.locator('#skill-slug').fill('added-skill');
   assert.ok((await page.locator('#skill-content').inputValue()).includes('added-skill'));
@@ -215,6 +253,7 @@ const body = '---\nname: review\ndescription: Review changes\n---\nText, includi
   for (const [nativeProvider, count, chosen] of [['claude', 4, 'off'], ['opencode', 3, 'deny']]) {
    await page.locator('#skill-provider').selectOption(nativeProvider);
    await page.locator('[data-skill-policy]').first().waitFor();
+   await checkSelect(page, page.locator('[data-skill-policy]').first(), theme);
    assert.equal(await page.locator('[data-skill-policy]').first().locator('option').count(), count);
    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
    gateState = true;

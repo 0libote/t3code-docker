@@ -43,6 +43,11 @@ Each of these is a bug in the handoff, not a restyle. Keep them when syncing.
    the same component, `.tc-empty--compact` with an icon squeezed its title
    into a one-word column on a phone; it now stacks the title over its line
    beside the icon.
+5. **Native select menus did not follow the page theme.** Controls declare
+   their colour scheme and options use opaque theme surfaces and text colours.
+   The dark input rule sets `background-color` so it preserves `.tc-select`'s
+   chevron. In forced colours, selects use their native indicator and a system
+   focus outline, since that mode removes gradients and shadows.
 
 ## Local additions
 
