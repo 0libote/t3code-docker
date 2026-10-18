@@ -283,7 +283,18 @@ html.tc-locked { overflow: hidden; }
 }
 .tc-status.tc-status--prose { display: block; }
 /* A status line's words wrap beside their dot instead of dropping under it. */
-.tc-status-text { flex: 1 1 0%; min-width: 0; }
+.tc-status-text { flex: 1 1 0%; min-width: 0; overflow-wrap: anywhere; }
+.tc-row-details { position: relative; display: inline; padding: 0; margin-left: 4px; border: 0; border-radius: 2px; background: none; color: var(--fg); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.tc-row-details::after { content: ""; position: absolute; inset: -13px -4px; }
+.tc-row-details:hover { color: var(--accent-text); }
+.tc-row-details:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.tc-update-check--label { min-width: 168px; }
+.tc-update-check > .tc-spinner { width: 16px; height: 16px; flex: 0 0 16px; }
+.tc-check-failures { list-style: none; padding: 0; margin: var(--space-4) 0 0; }
+.tc-check-failures > li { padding: var(--space-3) 0; border-top: 1px solid var(--hairline); font-size: 14px; }
+.tc-check-failures strong { display: block; margin-bottom: var(--space-2); font-weight: 500; }
+.tc-check-failures summary { width: fit-content; min-height: 24px; padding: 3px 0; color: var(--fg-muted); cursor: pointer; font-size: 12px; line-height: 18px; }
+.tc-error-detail { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; padding: var(--space-3); margin: var(--space-3) 0 0; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-md); user-select: text; }
 .tc-version-arrow { color: var(--fg-subtle); }
 
 /* An operation inside a row (Updating): narration, figure, bar. */
@@ -349,6 +360,9 @@ html.tc-locked { overflow: hidden; }
   animation: tc-slide-in var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1); }
 .tc-layer--center { align-items: center; justify-content: center; padding: 16px; }
 .tc-layer--center > .tc-dialog { position: relative; z-index: 1; animation: tc-pop var(--dur-base) ease-out; max-height: calc(100% - 32px); overflow: auto; }
+.tc-layer--center > .tc-error-dialog { display: flex; flex-direction: column; overflow: hidden; }
+.tc-error-dialog .tc-dialog-body { min-height: 0; overflow-y: auto; }
+.tc-error-dialog .tc-dialog-foot { flex: none; }
 .tc-layer--palette { align-items: flex-start; justify-content: center; padding: 10vh 16px 16px; }
 .tc-layer--palette > .tc-palette { position: relative; z-index: 1; animation: tc-pop var(--dur-base) ease-out; }
 .tc-palette .tc-listbox { max-height: min(400px, 56vh); }

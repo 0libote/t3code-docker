@@ -144,11 +144,16 @@ const run = async (base) => {
     expect(await page.locator(".t3-setup-pill").getAttribute("href") === "/__setup/", "the pill opens the console's own page");
 
     console.log("Pairing");
-    await page.goto(base + "/pair#token=" + encodeURIComponent(CREDENTIAL));
-    // T3's root now redirects an unpaired browser to /pair, so the goto above
-    // can be a same-document hash change that never remounts its pairing form.
-    // Reload, as opening the pairing link in a fresh browser would load it.
-    await page.reload({ waitUntil: "domcontentloaded" });
+    // Leave T3 first so the link loads a new document, even when the unpaired
+    // page is already at /pair. Reloading after opening the link can interrupt
+    // authentication after T3 has removed the credential from its URL.
+    await page.goto("about:blank");
+    const [pairingResponse] = await Promise.all([
+      page.waitForResponse((response) => response.url() === base + "/api/auth/browser-session"
+        && response.request().method() === "POST"),
+      page.goto(base + "/pair#token=" + encodeURIComponent(CREDENTIAL)),
+    ]);
+    expect(pairingResponse.ok(), "the pairing link exchanges successfully", `HTTP ${pairingResponse.status()}`);
     await page.waitForURL((url) => !url.pathname.startsWith("/pair"), { timeout: 30000, waitUntil: "commit" });
     await visit(page, base + "/");
     await page.waitForFunction(() => !document.querySelector(".t3-setup-pill"), null, { timeout: 10000 }).catch(() => null);
@@ -419,7 +424,8 @@ const audit = async (router) => {
     await run(base);
     console.log(`\n${passed} checks passed`);
   } catch (error) {
-    console.error(`\nFAIL ${error.finding ? error.message : error.stack || error}`);
+    const detail = String(error.finding ? error.message : error.stack || error).replaceAll(CREDENTIAL, "[redacted]");
+    console.error(`\nFAIL ${detail}`);
     code = 1;
   }
   router.close();

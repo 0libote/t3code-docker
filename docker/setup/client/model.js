@@ -118,6 +118,7 @@ const T3Model = (() => {
     return { ...runtime, busy, phaseText: busy ? phases[op.phase] : null,
       available: Boolean(release && isNewer(release, runtime.version)),
       latest: release || null,
+      verified: Boolean(release && runtime.checkedAt && !runtime.checkError),
       error: op && ['failed', 'rolled-back', 'interrupted'].includes(op.phase) ? op.error : null };
   };
 
@@ -207,6 +208,26 @@ const T3Model = (() => {
     : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
   const hostOf = (url) => {
     try { return new URL(url).host; } catch { return ''; }
+  };
+
+  /** Keep opaque diagnostics out of a row; the full text stays available. */
+  const rowError = (row, source = 'status') => {
+    const detail = source === 'notice' ? row.notice?.tone === 'danger' ? row.notice.text : ''
+      : row.status?.dot === 'danger' ? row.status.text : '';
+    if (!detail || (detail.length <= 100 && !/https?:\/\/|\n|\S{48}/.test(detail))) return null;
+    const operation = /^(Install failed|Update failed|Uninstall failed|Not runnable):/.exec(detail)?.[1] || 'Operation failed';
+    const reason = /rate.?limit|too many requests|\b429\b/i.test(detail) ? 'Source rate limit reached'
+      : /timed? ?out|ETIMEDOUT/i.test(detail) ? 'Connection timed out'
+        : /ENOTFOUND|ECONNREFUSED|network unreachable|could not resolve/i.test(detail) ? 'Could not reach the source' : null;
+    return { text: reason || operation, title: row.name + ': ' + operation.toLowerCase(), detail };
+  };
+
+  const updateCheckView = (status, scope, requesting = false) => {
+    const updates = status?.updates || {};
+    const failures = Object.entries(updates.errors || {}).filter(([key]) => scope === 'harness' ? key.startsWith('harness:') : !key.startsWith('harness:'));
+    const checking = requesting || updates.refreshing;
+    return { failures, checking, manual: requesting || updates.manual,
+      label: checking ? 'Checking for updates' : failures.length ? 'Review update checks' : 'Check for updates' };
   };
 
   // ---------------------------------------------------------- operations --
@@ -609,7 +630,7 @@ const T3Model = (() => {
       row.status.text = (meta.detail ? meta.detail + ' · ' : 'Installed · ') + latest + ' is available';
       row.action = { cmd: cmd('update'), label: 'Update' };
     } else {
-      row.status.text = [meta.detail || 'Installed', follows ? 'follows ' + follows : held ? held.text : latest ? 'up to date' : null].filter(Boolean).join(' · ');
+      row.status.text = [meta.detail || 'Installed', follows ? 'follows ' + follows : held ? held.text : status.updates?.errors?.[target + ':' + t.id] ? 'Update check failed' : latest ? 'up to date' : null].filter(Boolean).join(' · ');
     }
     row.held = held;
     if (updateAvailable) row.menu.push({ cmd: cmd('update'), label: 'Update to ' + latest, icon: 'circle-arrow-up' });
@@ -1291,6 +1312,17 @@ const T3Model = (() => {
     return { running, queued, finished: finished.slice(0, 4) };
   };
 
+  /** Failed or untried first-start installs that still need attention. */
+  const setupFailures = (status) => {
+    const setup = status?.setup;
+    if (!setup) return [];
+    return (setup.items || []).filter((item) => item.state === 'failed' || (setup.state === 'finished' && item.state === 'pending'))
+      .filter((item) => {
+        const rows = item.kind === 'agent' ? status.harnesses || [] : [...(status.toolchains || []), ...(status.sourceControl || [])];
+        return !rows.some((row) => row.id === item.id && row.installed);
+      });
+  };
+
   /** The banner under the top bar while the first start installs. */
   const setupBanner = (status) => {
     const setup = (status && status.setup) || null;
@@ -1733,11 +1765,11 @@ const T3Model = (() => {
     AGENTS, TOOLCHAINS, SOURCE_CONTROL, DONE, WORKING, FAILED,
     compareVersions, isNewer,
     relTime, absTime, shortDate, duration, countdown, formatBytes, listOf, hostOf, plural, toMs, imageLabel,
-    progressOf, progressText,
+    progressOf, progressText, rowError, updateCheckView,
     agentRow, agentRows, toolRow, toolchainRow, toolchainRows, sourceControlRows, managedSourceControlRows, packageRows, portRows, looksLikeDatabase,
     monogram, managedOn, isVersionSpec, isToolSpec, specPrefix, SPEC_SAMPLES, searchRegistry, resolveRelease, matchReleases, releaseIndex, heldRelease, versionOf, toolName, SUGGESTED_TOOLS,
     deviceRows, linkRows, deviceKind, deviceName,
-    readiness, readySummary, needsYou, activity, setupBanner,
+    readiness, readySummary, needsYou, activity, setupBanner, setupFailures,
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
     navBadges, attentionCount, summaries, runtimeView, autoUpdateView,

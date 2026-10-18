@@ -82,6 +82,12 @@ enabled category checks every 3 hours and installs only after 30 minutes
 without activity (no open console or T3 Code client, no install/update
 running).
 
+Update checks show progress in the existing toolbar without moving the agent
+list. If a source cannot be verified, **Review checks** shows which sources
+failed, with technical details you can copy and a **Check again** action.
+The last known releases stay visible. Long install errors have a short row
+summary and a **Details** action for the full diagnostic.
+
 T3 Code runs each agent through a small launcher the setup service writes in
 `~/.local/share/t3-harness/launchers`. It runs the exact release installed here.
 For providers with an in-app updater, T3 Code's own **Update** in
