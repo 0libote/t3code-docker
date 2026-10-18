@@ -621,6 +621,13 @@ html.tc-locked { overflow: hidden; }
 .tc-import-skill summary { cursor: pointer; }
 .tc-import-markdown { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; font-size: 12px; line-height: 1.5; }
 .tc-import-confirm { display: flex; gap: var(--space-2); align-items: flex-start; font-size: 13px; }
+.tc-skill-import .tc-sheet-body > * { flex-shrink: 0; }
+.tc-import-providers { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.tc-import-providers label { display: flex; align-items: center; gap: var(--space-2); min-height: 36px; cursor: pointer; }
+.tc-import-providers input { flex-shrink: 0; accent-color: var(--accent); }
+@media (min-width: 640px) {
+  .tc-import-providers { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 .tc-skill-import .tc-sheet-foot { flex-wrap: wrap; }
 .tc-section-head:has(> #cx-skills) { flex-wrap: wrap; }
 .tc-section-head:has(> #cx-skills) .tc-section-actions { flex-wrap: wrap; max-width: 100%; }

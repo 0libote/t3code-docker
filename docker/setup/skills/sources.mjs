@@ -32,16 +32,18 @@ export async function runSourceGit(command, args, { env, signal, maxBuffer, dire
   return new Promise((resolve, reject) => {
     const grouped = process.platform !== "win32";
     const child = spawn(command, args, { env, detached: grouped, stdio: ["ignore", "pipe", "ignore"] });
-    let failure = null, bytes = 0, checking = false;
+    let failure = null, bytes = 0, checking = false, finished = false;
     const chunks = [];
-    const stop = (error) => { failure ||= error; try { if (grouped) process.kill(-child.pid, "SIGKILL"); else child.kill("SIGKILL"); } catch {} };
+    const stop = (error) => { if (finished) return; failure ||= error; try { if (grouped) process.kill(-child.pid, "SIGKILL"); else child.kill("SIGKILL"); } catch {} };
     const abort = () => stop(fail("unavailable", "Reading the Git source timed out."));
     child.stdout.on("data", (chunk) => { bytes += chunk.length; if (bytes > maxBuffer) stop(fail("too_large", "The Git source exceeds its output or file limit.")); else chunks.push(chunk); });
     const timer = setInterval(async () => {
       if (checking) return; checking = true;
       try { await checkStorage(directory); } catch (error) { stop(error); } finally { checking = false; }
     }, 250);
-    const clear = () => { clearInterval(timer); signal.removeEventListener("abort", abort); };
+    // A storage scan already in flight may finish after close. It must not
+    // signal a completed process group, whose PID could have been reused.
+    const clear = () => { finished = true; clearInterval(timer); signal.removeEventListener("abort", abort); };
     signal.addEventListener("abort", abort, { once: true }); if (signal.aborted) abort();
     child.once("error", (error) => { clear(); reject(error); });
     child.once("close", async (code) => {

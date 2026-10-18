@@ -256,7 +256,11 @@ is refused without opening the large file. The complete Git/SSH process group is
 killed on timeout/limit failure.
 No preview or clone enters `/status` polling. Source snapshots expire after ten
 minutes (at most three per setup process); expired entries are pruned on the next
-import operation. Snapshots are discarded on close and lost on server restart. Catalog link lists are capped at 256 entries.
+import operation. Closing a source or destination read releases its snapshot when
+the read finishes; it cannot overwrite a newer dialog or its draft. Reads can
+finish in the background for up to the source timeout. Closing is disabled only
+during installation. Snapshots are lost on server restart. Catalog link lists
+are capped at 256 entries.
 
 Installation uses only that immutable preview, never re-fetches the source, and
 accepts opaque preview/plan IDs instead of caller-supplied destination paths.
@@ -358,6 +362,11 @@ node scripts/context-api-audit.mjs http://127.0.0.1:23780/__setup/ dev
 node scripts/context-ui-audit.js http://127.0.0.1:23780/__setup/ dev
 node scripts/skills-ui-audit.js http://127.0.0.1:23780/__setup/ dev
 ```
+
+The skills UI audit saves screenshots in `/tmp/t3-skills-ui-audit`; set
+`T3_SKILLS_UI_OUTPUT` to choose another directory. It checks keyboard focus across
+import stages, dismissal of slow reads, late-response isolation, replacement
+consent and partial results at phone, tablet and desktop sizes in both themes.
 
 The browser audits need `playwright` or `playwright-core` and Chromium. In an
 image with Playwright under `/opt/t3/node_modules`, set
