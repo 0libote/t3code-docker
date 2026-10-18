@@ -13,7 +13,7 @@
 #
 # Build:  docker build -t t3code:browser .
 #         docker build --target core -t t3code:core .
-# `full` and `slim` remain as aliases at the end, so an older .env still builds.
+# `browser` is the last stage, so a plain `docker build` gets it.
 # See README.md for the runtime contract.
 
 ARG NODE_IMAGE=node:24-trixie-slim
@@ -399,11 +399,3 @@ ENV T3_IMAGE_VERSION=${IMAGE_VERSION} \
 # (docker/user-env.sh reads it).
 RUN printf 'version=%s\nvariant=%s\n' "$IMAGE_VERSION" "$IMAGE_VARIANT" > /etc/t3code-image
 LABEL org.opencontainers.image.version="${IMAGE_VERSION}"
-
-# ---------------------------------------------------------------------------
-# The names the targets had before they stopped baking agents in, so a .env
-# that still says T3_BUILD_TARGET=full (or slim) keeps building. Same images;
-# `full` is last so a plain `docker build` gets it, and it is `browser`.
-# ---------------------------------------------------------------------------
-FROM core AS slim
-FROM browser AS full
