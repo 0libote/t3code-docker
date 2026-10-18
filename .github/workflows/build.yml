@@ -291,13 +291,11 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.slug }}
           # `flavor: suffix` would apply to every tag, turning the bare `core`
-          # tag into `core-core`. Spell each one out instead. `browser` is the
-          # successor to `full` and `core` to `slim`, so the old names keep
-          # pulling current images: an upgraded container reinstalls its
-          # agents and toolchains on first start instead of losing them.
-          #   browser -> :browser :full :latest :1.2.3 :1.2
-          #              :1.2.3-browser :1.2-browser :1.2.3-full :1.2-full
-          #   core    -> :core :slim :1.2.3-core :1.2-core :1.2.3-slim :1.2-slim
+          # tag into `core-core`. Spell each one out instead. The retired
+          # `full` and `slim` aliases are no longer published; tags already
+          # pushed under those names stay where they are.
+          #   browser -> :browser :latest :1.2.3 :1.2 :1.2.3-browser :1.2-browser
+          #   core    -> :core :1.2.3-core :1.2-core
           # A prerelease tag (v1.2.3-rc.1) publishes only its own version tags:
           # the floating names stay on the last release, and metadata-action
           # already skips {{major}}.{{minor}} for a prerelease.
@@ -306,9 +304,6 @@ jobs:
             type=raw,value=${{ matrix.target }},enable=${{ !contains(github.ref_name, '-') }}
             type=semver,pattern={{version}},suffix=-${{ matrix.target }}
             type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.target }}
-            type=raw,value=${{ matrix.target == 'browser' && 'full' || 'slim' }},enable=${{ !contains(github.ref_name, '-') }}
-            type=semver,pattern={{version}},suffix=-${{ matrix.target == 'browser' && 'full' || 'slim' }}
-            type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.target == 'browser' && 'full' || 'slim' }}
             type=raw,value=latest,enable=${{ matrix.target == 'browser' && !contains(github.ref_name, '-') }}
             type=semver,pattern={{version}},enable=${{ matrix.target == 'browser' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ matrix.target == 'browser' }}
