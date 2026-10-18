@@ -40,7 +40,7 @@ Usage: t3-login <harness>
 
   claude     Claude Code        -> claude auth login
   codex      Codex              -> codex login
-  opencode   OpenCode           -> opencode auth login
+  opencode   OpenCode           -> opencode auth login [target] [--method id]
   cursor     Cursor CLI         -> cursor-agent login
   grok       Grok Build         -> grok login
   muse       Muse Code          -> muse login
@@ -48,6 +48,10 @@ Usage: t3-login <harness>
 
 Run this with a TTY:  docker compose exec -it t3code t3-login claude
 Then enable the provider in T3 Code under Settings > Providers.
+
+OpenCode 2.x takes the integration and method on the command line
+(`t3-login opencode anthropic --method key`); with 1.x extra arguments are
+left off and the interactive picker runs.
 
 Each agent signs in with its managed executable. Default agents install in
 the background on first start; optional agents install from Setup > Agents
@@ -74,6 +78,14 @@ harness_exec() { # id
   return 0
 }
 
+# Major version of the managed OpenCode release ("1", "2", ...); fails when
+# the version cannot be read, so callers can avoid guessing its login syntax.
+opencode_major() { # bin
+  local out
+  out="$(timeout 10s "$1" --version 2>/dev/null | head -1)" || return 1
+  if [[ "$out" =~ ([0-9]+)\.[0-9]+\.[0-9]+ ]]; then printf '%s' "${BASH_REMATCH[1]}"; else return 1; fi
+}
+
 harness="${1:-}"
 case "$harness" in
   claude|codex|opencode|cursor|grok|muse)
@@ -97,6 +109,21 @@ case "$harness" in
   -h|--help|"") usage; [ -n "$harness" ] && exit 0 || exit 2 ;;
   *) printf 't3-login: unknown harness %s\n\n' "$harness" >&2; usage >&2; exit 2 ;;
 esac
+
+# OpenCode 2.x accepts the integration and login flags on the command line;
+# 1.x only runs its interactive picker, so extra arguments stay off there.
+if [ "$harness" = "opencode" ] && [ "$#" -gt 1 ]; then
+  if ! major="$(opencode_major "$bin")"; then
+    echo "t3-login: could not check OpenCode’s version; login arguments were not forwarded" >&2
+    exit 1
+  fi
+  if [ "$major" -ge 2 ]; then
+    cmd_extra=("${@:2}")
+    cmd=("$bin" "${args[@]}" "${cmd_extra[@]}")
+  else
+    echo "t3-login: OpenCode 1.x takes no login arguments; running the interactive picker" >&2
+  fi
+fi
 
 if [ ! -t 0 ]; then
   echo "t3-login: no TTY. Re-run with: docker compose exec -it t3code t3-login $harness" >&2

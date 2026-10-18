@@ -164,7 +164,7 @@ function createWorld(fs, { arch = "x64" } = {}) {
       claude: ["2.1.270", "2.1.271", "2.1.273"],
       opencode: ["1.14.0", "1.18.31"],
       "aqua:anomalyco/opencode": ["1.14.0", "1.18.31"],
-      "npm:@opencode/cli": ["2.0.17", "2.0.18", "2.0.27"],
+      "npm:@opencode/cli": ["2.0.17", "2.0.18", "2.0.19", "2.0.20", "2.0.27"],
     },
     // Published, but younger than mise's minimum release age: listed and
     // resolved only when a call asks past it (`--minimum-release-age 0s`).
@@ -446,6 +446,54 @@ test("Muse treats saved credentials as unverified and ignores inherited API keys
   assert.equal(await detectAuth(ctx, entry, facts), null, "an unreadable file is unknown");
 });
 
+test("OpenCode reads 1.x from auth.json and 2.x from auth list", async () => {
+  const fs = new MemoryFs();
+  const entry = getHarness("opencode");
+  const file = path.join(HOME, entry.credentials.paths[0]);
+  const list = (connections) => JSON.stringify([{ id: "anthropic", name: "Anthropic", connections }]);
+  const v2 = (stdout, code = 0) => ({
+    home: HOME,
+    fs,
+    env: {},
+    timeouts: { probe: 5000 },
+    run: async (argv) => {
+      assert.deepEqual(argv.slice(1), ["auth", "list", "--format", "json", "--standalone"]);
+      return code === 0
+        ? { code: 0, signal: null, stdout, stderr: "", error: null }
+        : { code, signal: null, stdout: "", stderr: "boom", error: null };
+    },
+  });
+  const bin = { executable: "/mise/opencode", runnable: true };
+
+  // 1.x behavior is unchanged and version-gated, not assumed.
+  fs.seedFile(file, JSON.stringify({ anthropic: { type: "api", key: "sk-1" } }));
+  assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, { ...bin, version: "1.18.31" }), true);
+  fs.seedFile(file, "{}");
+  assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, { ...bin, version: "1.18.31" }), false);
+  // An unknown version cannot turn a stale legacy file into a signed-in verdict.
+  fs.seedFile(file, JSON.stringify({ anthropic: { type: "api", key: "sk-1" } }));
+  assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, bin), null);
+
+  // 2.x asks the CLI: stored accounts sign in, nothing stored signs out.
+  const stored = list([{ type: "credential", id: "cred_1", label: "API key", method: "key" }]);
+  assert.equal(await detectAuth(v2(stored), entry, { ...bin, version: "2.0.27" }), true);
+  assert.equal(await detectAuth(v2("[]"), entry, { ...bin, version: "2.0.27" }), false);
+  // A stale migrated file must not sign a logged-out 2.x back in.
+  fs.seedFile(file, JSON.stringify({ anthropic: { type: "api", key: "sk-stale" } }));
+  assert.equal(await detectAuth(v2("[]"), entry, { ...bin, version: "2.0.27" }), false);
+  // Environment connections are not stored accounts.
+  const envOnly = list([{ type: "env", name: "ANTHROPIC_API_KEY" }]);
+  assert.equal(await detectAuth(v2(envOnly), entry, { ...bin, version: "2.0.27" }), false);
+  // A CLI that errors or prints garbage is unknown, never signed in.
+  assert.equal(await detectAuth(v2("", 1), entry, { ...bin, version: "2.0.27" }), null);
+  assert.equal(await detectAuth(v2("not json"), entry, { ...bin, version: "2.0.27" }), null);
+  // An unrunnable 2.x answers without spawning anything.
+  assert.equal(
+    await detectAuth({ ...v2(stored), run: async () => { throw new Error("must not run"); } }, entry, { executable: bin.executable, runnable: false, version: "2.0.27" }),
+    false,
+  );
+});
+
 test("architecture normalization maps dpkg and node spellings", () => {
   assert.equal(normalizeArch("amd64"), "x64");
   assert.equal(normalizeArch("x86_64"), "x64");
@@ -517,6 +565,23 @@ test("install rejects a version below the OpenCode minimum without touching mise
   assert.equal(result.code, "version-below-minimum");
   assert.equal(world.calls.some((call) => call.includes(" use ")), false);
   assert.equal((await manager.resolve("opencode")).installed, false);
+});
+
+test("OpenCode v2 keeps the native key API floor for installs and existing selections", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  for (const version of ["2.0.17"]) {
+    const result = await manager.install("opencode", { version });
+    assert.equal(result.code, "version-below-minimum", version);
+  }
+  assert.deepEqual(world.useSpecs, [], "unsupported versions never reach mise use");
+  // An older version already selected on the volume must be unrunnable too.
+  await world.run(["mise", "use", "--global", "npm:@opencode/cli@2.0.17"]);
+  assert.equal((await manager.resolve("opencode", { authenticate: false })).runnable, false);
+  const result = await manager.install("opencode", { version: "2.0.18" });
+  assert.equal(result.ok, true);
+  assert.equal(result.harness.runnable, true);
 });
 
 test("OpenCode v2 is an explicit distribution switch with scoped postinstall and one active selection", async () => {
@@ -1926,7 +1991,7 @@ test("an agent's releases list newest first, marking the ones mise still holds b
   assert.ok(world.calls.some((call) => call.includes("ls-remote --json --minimum-release-age 0s claude")), "asks past the release age");
   // OpenCode's releases below T3's minimum are listed, and say so.
   const opencode = await manager.versions("opencode");
-  assert.deepEqual(opencode.releases.map((r) => [r.version, r.supported]), [["2.0.27", true], ["2.0.18", true], ["2.0.17", false], ["1.18.31", true], ["1.14.0", false]]);
+  assert.deepEqual(opencode.releases.map((r) => [r.version, r.supported]), [["2.0.27", true], ["2.0.20", true], ["2.0.19", true], ["2.0.18", true], ["2.0.17", false], ["1.18.31", true], ["1.14.0", false]]);
   assert.equal(opencode.latest, "1.18.31", "the default stays on v1");
   assert.equal(opencode.releases[0].requiresNightly, true);
   await assert.rejects(manager.versions("nope"), /unknown harness/);

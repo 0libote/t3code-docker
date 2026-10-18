@@ -31,6 +31,7 @@ import { createAntigravity } from "./antigravity.mjs";
 import { createT3Sessions } from "./t3-session.mjs";
 import { createDeviceLabels } from "./device-labels.mjs";
 import * as Context from "./context.mjs";
+import { createOpenCodeAuth } from "./opencode-auth.mjs";
 import { createSkillsService } from "./skills.mjs";
 import { clientAddress } from "./client-address.mjs";
 import { newKey, readKeyFile, writeKeyFile } from "./setup-key.mjs";
@@ -701,16 +702,9 @@ const providerCache = createProviderCache({
 
 const providersSnapshot = () => providerCache.snapshot();
 
-/** Which providers already hold a key, so the picker can say so. */
-const configuredProviders = async () => {
-  try {
-    const { readFile } = await import("node:fs/promises");
-    const auth = JSON.parse(await readFile(`${process.env.HOME}/.local/share/opencode/auth.json`, "utf8"));
-    return Object.keys(auth ?? {});
-  } catch {
-    return [];
-  }
-};
+// Keep the provider catalog responsive while one shared credential read warms.
+const openCodeCredentials = createListCache({ read: () => openCodeAuth.list(), ttlMs: 15_000, retryMs: 30_000 });
+
 
 // The first-start preinstall runs in its own process, so the harness card's
 // cache does not hear about an agent it just installed. Any change in its
@@ -1293,7 +1287,7 @@ const hostOf = (url) => {
 //   cursor  login (NO_OPEN_BROWSER) prints a URL, then polls. No input.
 //   claude  setup-token           prints a URL, then waits for a pasted code.
 //   codex   login --with-api-key  reads the key from stdin. No browser.
-//   opencode                      stores credentials in a JSON file we can write.
+//   opencode                      uses its managed major version’s credential store.
 //
 // The browser flows are TUIs, so they are run under `script` for a pty and
 // their output is stripped of escapes before anything is scraped out of it.
@@ -1570,50 +1564,25 @@ const setApiKey = async (agentId, key, providerId) => {
     return { ok: true };
   }
 
-  // OpenCode reads credentials from a file, which is far steadier than driving
-  // its picker; verified by writing one and having `opencode auth list` see it.
   if (agent.apiKey.kind === "opencode") {
-    // Dots are in the catalog too (wafer.ai), and this only ever becomes a key
-    // in a JSON object, never a path segment.
-    if (!OPENCODE_PROVIDER.test(String(providerId ?? "")))
-      throw new Error("Choose a provider (e.g. anthropic, openai, deepseek)");
-    const dir = `${process.env.HOME}/.local/share/opencode`;
-    await mkdir(dir, { recursive: true });
-    let current = {};
-    try { current = JSON.parse(await readFile(`${dir}/auth.json`, "utf8")); } catch {}
-    current[providerId] = { type: "api", key };
-    await writeOpenCodeAuth(dir, current);
-    await refreshSignInState(agentId);
+    const result = await openCodeAuth.saveKey(providerId, key);
     recordEvent("signin.ok", `Added a ${providerId} key to OpenCode`);
-    return { ok: true };
+    return result;
   }
+
   throw new Error("unsupported");
 };
 
-const OPENCODE_PROVIDER = /^[a-z0-9][a-z0-9._-]{0,39}$/;
+const openCodeAuth = createOpenCodeAuth({
+  home: process.env.HOME || "/home/t3", env: process.env,
+  resolve: async () => (await loadHarness()).resolve("opencode", { authenticate: false }),
+  onChange: async () => { openCodeCredentials.invalidate(); await refreshSignInState("opencode"); },
+});
 
-// Written whole to a temporary file and renamed over the old one, so a reader
-// - OpenCode itself, mid-request - never sees half a file.
-const writeOpenCodeAuth = async (dir, value) => {
-  const file = `${dir}/auth.json`;
-  const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`;
-  await writeFile(tmp, JSON.stringify(value, null, 2), { mode: 0o600 });
-  const { rename } = await import("node:fs/promises");
-  await rename(tmp, file);
-};
-
-/** Delete one provider's entry from OpenCode's auth.json; the rest stay. */
+/** Remove all saved sign-ins for one provider; other providers stay. */
 const removeApiKey = async (agentId, providerId) => {
   if (agentId !== "opencode") throw new Error(`${agentId} keeps no per-provider keys here`);
-  if (!OPENCODE_PROVIDER.test(String(providerId ?? ""))) throw new Error("Choose a provider to remove");
-  const dir = `${process.env.HOME}/.local/share/opencode`;
-  let current = {};
-  try { current = JSON.parse(await readFile(`${dir}/auth.json`, "utf8")); } catch { return { ok: true, removed: false }; }
-  if (!current || typeof current !== "object" || !(providerId in current)) return { ok: true, removed: false };
-  delete current[providerId];
-  await writeOpenCodeAuth(dir, current);
-  await refreshSignInState(agentId);
-  return { ok: true, removed: true };
+  return openCodeAuth.removeProvider(providerId);
 };
 
 const send = (res, code, body, headers = {}) => {
@@ -2752,9 +2721,16 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "GET" && route === "/providers") {
       const snap = await providersSnapshot();
+      if (raw.searchParams.get("refresh") === "1") openCodeCredentials.invalidate();
+      const saved = openCodeCredentials.snapshot();
+      const rows = saved.value || [];
+      const counts = new Map();
+      for (const entry of rows) counts.set(entry.integration, (counts.get(entry.integration) || 0) + 1);
       return sendJson(res, 200, {
         providers: snap.list,
-        configured: await configuredProviders(),
+        configured: [...counts.keys()].sort(),
+        credentials: { available: saved.at !== null, refreshing: saved.refreshing, stale: saved.stale, error: saved.error,
+          counts: Object.fromEntries(counts) },
         cache: { at: snap.at, stale: snap.stale, source: snap.source, refreshing: snap.refreshing },
       });
     }

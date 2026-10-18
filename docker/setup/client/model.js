@@ -423,7 +423,7 @@ const T3Model = (() => {
       if (isKey) {
         const names = (ui && ui.providerNames) || [];
         row.status.text = names.length
-          ? plural(names.length, 'provider key') + ' · ' + names.join(', ')
+          ? plural(names.length, 'saved provider') + ' · ' + names.join(', ')
           : 'Signed in · ' + methodText(h);
       } else {
         row.status.text = 'Signed in · ' + (updateAvailable ? latest + ' is available' : methodText(h));

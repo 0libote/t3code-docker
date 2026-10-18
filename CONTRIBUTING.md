@@ -25,6 +25,19 @@ Issues and pull requests are welcome. Before opening one:
   set `T3_STORAGE_UI_OUTPUT` to change that location. The development console
   isolates its home, mise state, and caches under `/tmp/t3-dev/home`.
 
+For OpenCode credential changes, run
+`node scripts/opencode-auth-smoke.mjs /absolute/path/to/opencode` against both
+1.x and 2.x (including 2.0.18, the supported V2 floor). It uses an isolated
+home and disposable keys, and checks save, account selection, provider
+isolation and removal without a model request. The image smoke suite runs it
+against the installed release. `node scripts/opencode-auth-ui-audit.mjs`
+starts its own disposable setup server and credential CLI, then checks drafts,
+slow and failed reads, account removal, keyboard focus and late writes in
+light/dark, mobile, desktop and embedded-query layouts. It requires Playwright
+and Chromium; set `CHROME_PATH` if needed. Screenshots go to
+`/tmp/t3-opencode-auth-ui` (`T3_AUTH_UI_OUTPUT` overrides it). These audits
+never read or change your real OpenCode credentials.
+
 Releases are made from tags. Pushing `vX.Y.Z` builds each image for each
 architecture, tests each one against the exact digest that was pushed, runs the
 agent lifecycle test and measures the image size on amd64, and then combines

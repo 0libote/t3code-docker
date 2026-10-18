@@ -43,3 +43,5 @@ export {
   parseDuration, parseRegistry, parseReleases, parseToolInfo, parseToolSpec,
 } from "./packages.mjs";
 export { compareVersions, meetsMinimum } from "./version.mjs";
+
+export { createOpenCodeAuth, openCodeMajor, parseAuthList, hasStoredCredentials, storedCredentials, storedIntegrationIds } from "./opencode-auth.mjs";

@@ -256,10 +256,10 @@ test("OpenCode v2 releases can be found by major prefix, preserving release-age 
   assert.equal(M.resolveRelease(releases, "1"), "1.19.0");
 });
 
-test("OpenCode names its provider keys when it has them", () => {
+test("OpenCode names saved providers without calling browser accounts API keys", () => {
   const s = statusWith();
-  assert.equal(row(s, "opencode", { providerNames: ["Anthropic", "DeepSeek"] }).status.text, "2 provider keys · Anthropic, DeepSeek");
-  assert.equal(row(s, "opencode", { providerNames: ["Anthropic"] }).status.text, "1 provider key · Anthropic");
+  assert.equal(row(s, "opencode", { providerNames: ["Anthropic", "DeepSeek"] }).status.text, "2 saved providers · Anthropic, DeepSeek");
+  assert.equal(row(s, "opencode", { providerNames: ["Anthropic"] }).status.text, "1 saved provider · Anthropic");
 });
 
 test("work in flight replaces the verb with progress and, for our own work, Cancel", () => {

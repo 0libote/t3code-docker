@@ -166,12 +166,14 @@ head_ "Harnesses"
 # particular has no shim on PATH (its package would shadow node), so asking
 # PATH would say it is missing when it is installed.
 declare -A runnable=()
+opencode_version=""
 harness_rows="$(t3-harness list 2>/dev/null || true)"
 if [ -z "$harness_rows" ]; then
   bad "manager" "t3-harness list returned nothing"
 fi
 while IFS=$'\t' read -r id version state; do
   [ -n "$id" ] || continue
+  if [ "$id" = opencode ]; then opencode_version="$version"; fi
   case "$state" in
     runnable*) ok "$id" "$version"; runnable[$id]=1 ;;
     *"…")      warn "$id" "$state" ;;
@@ -199,9 +201,40 @@ cred() {
   local name="$1" path="$2"
   if [ -e "$path" ]; then ok "$name" "signed in ($path)"; else warn "$name" "not signed in"; fi
 }
+# The runnable managed executable for a harness, or nothing.
+managed_bin() { # id
+  local resolved=""
+  if [ -r "${T3_PROVIDER_CLI:=/opt/t3-provider/cli.mjs}" ] && [ -x "${T3_INFRA_NODE:=/usr/local/bin/node}" ]; then
+    resolved="$("$T3_INFRA_NODE" "$T3_PROVIDER_CLI" resolve "$1" 2>/dev/null || true)"
+  fi
+  if [ -n "$resolved" ] && [ -x "$resolved" ]; then printf '%s' "$resolved"; fi
+  return 0
+}
+# Use the same bounded credential reader as setup, with the managed binary
+# and recorded version. No duplicated database parsing or raw CLI diagnostics.
+cred_opencode() {
+  local bin verdict
+  bin="$(managed_bin opencode)"
+  if [ -z "$bin" ]; then warn "opencode" "sign-in state not readable"; return; fi
+  verdict="$(T3_OC_BINARY="$bin" T3_OC_VERSION="$opencode_version" "$T3_INFRA_NODE" --input-type=module -e '
+    try {
+      const { createOpenCodeAuth } = await import(process.env.T3_HARNESS_MODULE || "/opt/t3-harness/index.mjs");
+      const auth = createOpenCodeAuth({ home: process.env.HOME, env: process.env,
+        resolve: async () => ({ executable: process.env.T3_OC_BINARY, installedVersion: process.env.T3_OC_VERSION, runnable: true }) });
+      const ids = [...new Set((await auth.list()).map((row) => row.integration))].sort().map((id) => JSON.stringify(id).slice(1, -1).slice(0, 80));
+      console.log(ids.length ? `signed in (${ids.length} provider${ids.length === 1 ? "" : "s"}: ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? `, +${ids.length - 5} more` : ""})` : "not signed in");
+    } catch { console.log("unreadable"); }
+  ' 2>/dev/null || echo unreadable)"
+  case "$verdict" in
+    "signed in"*) ok "opencode" "$verdict" ;;
+    "not signed in") warn "opencode" "$verdict" ;;
+    *) warn "opencode" "sign-in state not readable" ;;
+  esac
+}
+
 cred claude   "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"
 cred codex    "$HOME/.codex/auth.json"
-cred opencode "$HOME/.local/share/opencode/auth.json"
+cred_opencode
 for h in cursor grok muse; do
   case "$h" in
     cursor) dir="$HOME/.cursor" ;;

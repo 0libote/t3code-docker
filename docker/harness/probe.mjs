@@ -27,6 +27,11 @@ export async function probeVersion(ctx, entry, executable) {
   return { ok: true, version, error: null };
 }
 
+// Shared with setup and diagnostics, including the native list schema.
+export { openCodeMajor, parseAuthList as parseOpenCodeAuthList, storedCredentials as openCodeStoredCredentials,
+  storedIntegrationIds as openCodeStoredIntegrationIds, hasStoredCredentials as openCodeHasStoredCredentials } from './opencode-auth.mjs';
+import { openCodeMajor, parseAuthList, hasStoredCredentials, readLegacyAuth } from './opencode-auth.mjs';
+
 /** Which credential sources exist for a harness: environment keys and files. */
 export async function credentialSurface(ctx, entry) {
   const env = entry.credentials.env.filter((key) => Boolean(ctx.env[key]?.trim?.()));
@@ -42,7 +47,7 @@ export async function credentialSurface(ctx, entry) {
  * Sign-in verdict. `null` is a real answer: it means the question could not be
  * answered from a file or a bounded probe, and must not be read as "signed in".
  */
-export async function detectAuth(ctx, entry, { executable, runnable }) {
+export async function detectAuth(ctx, entry, { executable, runnable, version = null }) {
   switch (entry.auth) {
     case "claude": {
       if (hasEnv(ctx, "ANTHROPIC_API_KEY") || hasEnv(ctx, "CLAUDE_CODE_OAUTH_TOKEN")) return true;
@@ -61,14 +66,16 @@ export async function detectAuth(ctx, entry, { executable, runnable }) {
       return null;
     }
     case "opencode": {
-      const file = path.join(ctx.home, entry.credentials.paths[0]);
-      if (!(await ctx.fs.exists(file))) return false;
-      try {
-        const parsed = JSON.parse(await ctx.fs.readFile(file, "utf8"));
-        return parsed && typeof parsed === "object" && Object.keys(parsed).length > 0;
-      } catch {
-        return null;
+      const major = openCodeMajor(version);
+      if (major === null) return null;
+      if (major >= 2) {
+        if (!runnable) return false;
+        const result = await probeCommand(ctx, executable, ["auth", "list", "--format", "json", "--standalone"]);
+        if (result.error || result.code !== 0) return null;
+        try { return hasStoredCredentials(parseAuthList(result.stdout)); } catch { return null; }
       }
+      try { return Object.keys(await readLegacyAuth({ home: ctx.home, env: ctx.env, io: ctx.fs })).length > 0; }
+      catch { return null; }
     }
     case "grok": {
       if (hasEnv(ctx, "XAI_API_KEY")) return true;
