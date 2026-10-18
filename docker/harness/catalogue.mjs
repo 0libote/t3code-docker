@@ -9,7 +9,8 @@
  * not select one. T3's provider contract requires this minimum version.
  */
 export const MINIMUM_OPENCODE_VERSION = "1.14.19";
-export const MINIMUM_OPENCODE2_VERSION = "2.0.18";
+// 2.0.20 introduced `auth import`, used for headless API-key saves.
+export const MINIMUM_OPENCODE2_VERSION = "2.0.20";
 
 /**
  * Canonical Cursor executable. `agent` is an alias only the vendor installer

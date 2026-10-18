@@ -557,7 +557,7 @@ opencode_v2_out="$(docker exec -i -u t3 \
   -e MISE_DATA_DIR=/tmp/t3-opencode-v2-e2e/.local/share/mise \
   -e MISE_STATE_DIR=/tmp/t3-opencode-v2-e2e/.local/state/mise \
   -e MISE_CACHE_DIR=/tmp/t3-opencode-v2-e2e/.cache/mise \
-  -e "OPENCODE2_TEST_VERSION=${T3C_E2E_OPENCODE2_VERSION:-2.0.18}" \
+  -e "OPENCODE2_TEST_VERSION=${T3C_E2E_OPENCODE2_VERSION:-2.0.20}" \
   "$NAME" /usr/local/bin/node --input-type=module - 2>&1 <<'NODE'
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";

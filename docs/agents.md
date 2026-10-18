@@ -59,7 +59,7 @@ Typing a prefix such as `2.1` picks the newest release under it.
 **OpenCode's version picker includes both 1.x and 2.x.** OpenCode 1 remains
 the default first-start install. Choose **Install a specific version…** on its
 row and search for `2` to install OpenCode 2 from the official `@opencode/cli`
-package through mise. It requires T3 Code **Nightly** and OpenCode **2.0.18**
+package through mise. It requires T3 Code **Nightly** and OpenCode **2.0.20**
 or newer. The two distributions share one row and one active `opencode`
 command; **Update** stays within the major version you selected.
 

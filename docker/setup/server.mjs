@@ -721,6 +721,7 @@ const configuredProviders = async () => {
       return [];
     }
   }
+  if (store !== 1) return [];
   try {
     const auth = JSON.parse(await readFile(`${process.env.HOME}/.local/share/opencode/auth.json`, "utf8"));
     return Object.keys(auth ?? {});
@@ -1595,7 +1596,7 @@ const setApiKey = async (agentId, key, providerId) => {
     if (!isOpenCodeProviderId(providerId))
       throw new Error("Choose a provider (e.g. anthropic, openai, deepseek)");
     const { executable, store } = await openCodeStore();
-    if (!executable) throw new Error("OpenCode is not installed");
+    if (!executable || !store) throw new Error(OPENCODE_UNAVAILABLE);
     if (store === 2) {
       await openCodeImportKey(executable, providerId, key);
       await refreshSignInState(agentId);
@@ -1616,6 +1617,7 @@ const setApiKey = async (agentId, key, providerId) => {
 };
 
 const OPENCODE_AUTH_TIMEOUT_MS = 90_000;
+const OPENCODE_UNAVAILABLE = "OpenCode is unavailable; finish any install/update or install a supported version";
 
 // Run one headless OpenCode `auth` command against the managed executable,
 // with the key on stdin where one is needed so no secret touches the
@@ -1648,8 +1650,9 @@ const runOpenCode = (executable, args, { input = null, timeoutMs = OPENCODE_AUTH
 
 // The managed OpenCode executable and which credential store it uses:
 // 2 for the `auth` commands (SQLite), 1 for auth.json. An unknown version is
-// capability-probed once: a binary answering `auth list --format json` is
-// treated as 2, anything else as 1.
+// capability-probed: a binary answering `auth list --format json` is treated
+// as 2. A failed probe leaves the store unknown; it cannot prove a legacy
+// file is authoritative, particularly after a v2 migration.
 const openCodeStore = async () => {
   let facts = null;
   try {
@@ -1662,7 +1665,7 @@ const openCodeStore = async () => {
     await openCodeStoredList(facts.executable);
     return { executable: facts.executable, store: 2 };
   } catch {
-    return { executable: facts.executable, store: 1 };
+    return { executable: facts.executable, store: null };
   }
 };
 
@@ -1692,6 +1695,7 @@ const removeApiKey = async (agentId, providerId) => {
   if (agentId !== "opencode") throw new Error(`${agentId} keeps no per-provider keys here`);
   if (!isOpenCodeProviderId(providerId)) throw new Error("Choose a provider to remove");
   const { executable, store } = await openCodeStore();
+  if (!executable || !store) throw new Error(OPENCODE_UNAVAILABLE);
   if (store === 2) {
     const targets = storedCredentials(await openCodeStoredList(executable))
       .filter((credential) => credential.integration === providerId);

@@ -164,7 +164,7 @@ function createWorld(fs, { arch = "x64" } = {}) {
       claude: ["2.1.270", "2.1.271", "2.1.273"],
       opencode: ["1.14.0", "1.18.31"],
       "aqua:anomalyco/opencode": ["1.14.0", "1.18.31"],
-      "npm:@opencode/cli": ["2.0.17", "2.0.18", "2.0.27"],
+      "npm:@opencode/cli": ["2.0.17", "2.0.18", "2.0.19", "2.0.20", "2.0.27"],
     },
     // Published, but younger than mise's minimum release age: listed and
     // resolved only when a call asks past it (`--minimum-release-age 0s`).
@@ -567,6 +567,23 @@ test("install rejects a version below the OpenCode minimum without touching mise
   assert.equal((await manager.resolve("opencode")).installed, false);
 });
 
+test("OpenCode v2 requires auth import support before installing or running", async () => {
+  const fs = new MemoryFs();
+  const world = createWorld(fs);
+  const manager = managerFor(world);
+  for (const version of ["2.0.18", "2.0.19"]) {
+    const result = await manager.install("opencode", { version });
+    assert.equal(result.code, "version-below-minimum", version);
+  }
+  assert.deepEqual(world.useSpecs, [], "unsupported versions never reach mise use");
+  // An older version already selected on the volume must be unrunnable too.
+  await world.run(["mise", "use", "--global", "npm:@opencode/cli@2.0.19"]);
+  assert.equal((await manager.resolve("opencode", { authenticate: false })).runnable, false);
+  const result = await manager.install("opencode", { version: "2.0.20" });
+  assert.equal(result.ok, true);
+  assert.equal(result.harness.runnable, true);
+});
+
 test("OpenCode v2 is an explicit distribution switch with scoped postinstall and one active selection", async () => {
   const fs = new MemoryFs();
   const world = createWorld(fs);
@@ -580,7 +597,7 @@ test("OpenCode v2 is an explicit distribution switch with scoped postinstall and
   assert.equal(switched.harness.miseTool, "npm:@opencode/cli");
   assert.equal(switched.harness.installedVersion, "2.0.27");
   assert.equal(switched.harness.verifiedVersion, "2.0.27");
-  assert.equal(switched.harness.minimumVersion, "2.0.18");
+  assert.equal(switched.harness.minimumVersion, "2.0.20");
   assert.equal(switched.harness.executable, world.execPath("npm:@opencode/cli", "2.0.27"));
   assert.equal(world.useSpecs[1], "npm:@opencode/cli[allow_builds=@opencode/cli]@2.0.27");
   assert.ok(world.calls.some(call => call.includes("which --tool npm:@opencode/cli[allow_builds=@opencode/cli]@2.0.27 opencode")));
@@ -1974,7 +1991,7 @@ test("an agent's releases list newest first, marking the ones mise still holds b
   assert.ok(world.calls.some((call) => call.includes("ls-remote --json --minimum-release-age 0s claude")), "asks past the release age");
   // OpenCode's releases below T3's minimum are listed, and say so.
   const opencode = await manager.versions("opencode");
-  assert.deepEqual(opencode.releases.map((r) => [r.version, r.supported]), [["2.0.27", true], ["2.0.18", true], ["2.0.17", false], ["1.18.31", true], ["1.14.0", false]]);
+  assert.deepEqual(opencode.releases.map((r) => [r.version, r.supported]), [["2.0.27", true], ["2.0.20", true], ["2.0.19", false], ["2.0.18", false], ["2.0.17", false], ["1.18.31", true], ["1.14.0", false]]);
   assert.equal(opencode.latest, "1.18.31", "the default stays on v1");
   assert.equal(opencode.releases[0].requiresNightly, true);
   await assert.rejects(manager.versions("nope"), /unknown harness/);
