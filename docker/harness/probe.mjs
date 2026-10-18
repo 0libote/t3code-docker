@@ -27,66 +27,11 @@ export async function probeVersion(ctx, entry, executable) {
   return { ok: true, version, error: null };
 }
 
-/**
- * OpenCode's major version decides where credentials live. 1.x keeps provider
- * keys in an auth.json file; 2.x stores accounts (API keys, OAuth grants, ...)
- * in its SQLite database and only imports auth.json once during migration.
- * Null means the version is unknown, which reads like 1.x: the file check is
- * cheap and bounded, while the 2.x check has to start the CLI's server.
- */
-export function openCodeMajor(version) {
-  const match = /^v?(\d+)\./.exec(String(version ?? "").trim());
-  return match ? Number(match[1]) : null;
-}
+// Shared with setup and diagnostics, including the native list schema.
+export { openCodeMajor, parseAuthList as parseOpenCodeAuthList, storedCredentials as openCodeStoredCredentials,
+  storedIntegrationIds as openCodeStoredIntegrationIds, hasStoredCredentials as openCodeHasStoredCredentials } from './opencode-auth.mjs';
+import { openCodeMajor, parseAuthList, hasStoredCredentials, readLegacyAuth } from './opencode-auth.mjs';
 
-/** Parse `opencode auth list --format json`, tolerating log chatter before it. */
-export function parseOpenCodeAuthList(text) {
-  const start = String(text ?? "").indexOf("[");
-  if (start < 0) throw new Error("OpenCode returned no list");
-  const list = JSON.parse(String(text).slice(start));
-  if (!Array.isArray(list)) throw new Error("OpenCode returned an invalid list");
-  return list;
-}
-
-/**
- * Whether the list holds at least one stored account. Environment connections
- * (`type: "env"`) are deliberately not counted: they are not credentials this
- * setup manages, and the 1.x file check they replace never saw them either.
- */
-export function openCodeHasStoredCredentials(list) {
-  return (list ?? []).some((integration) =>
-    (integration?.connections ?? []).some((connection) => connection?.type === "credential"));
-}
-
-/** Stored accounts as { integration, id, label }, for removal one by one. */
-export function openCodeStoredCredentials(list) {
-  return (list ?? []).flatMap((integration) =>
-    (integration?.connections ?? [])
-      .filter((connection) => connection?.type === "credential")
-      .map((connection) => ({
-        integration: integration.id,
-        id: connection.id,
-        label: connection.label ?? null,
-      })));
-}
-
-/** Integration ids holding at least one stored account, sorted. */
-export function openCodeStoredIntegrationIds(list) {
-  return [...new Set(
-    openCodeStoredCredentials(list).map((credential) => credential.integration).filter(Boolean),
-  )].sort();
-}
-
-/** Sign-in verdict for OpenCode 2.x: ask the CLI about its database. */
-async function detectOpenCodeAccounts(ctx, executable) {
-  const result = await probeCommand(ctx, executable, ["auth", "list", "--format", "json"]);
-  if (result.error || result.code !== 0) return null;
-  try {
-    return openCodeHasStoredCredentials(parseOpenCodeAuthList(result.combined));
-  } catch {
-    return null;
-  }
-}
 /** Which credential sources exist for a harness: environment keys and files. */
 export async function credentialSurface(ctx, entry) {
   const env = entry.credentials.env.filter((key) => Boolean(ctx.env[key]?.trim?.()));
@@ -121,20 +66,16 @@ export async function detectAuth(ctx, entry, { executable, runnable, version = n
       return null;
     }
     case "opencode": {
-      // 2.x keeps accounts in its database, where the legacy file is stale
-      // after the one-time migration import; only 1.x is read from the file.
-      if (openCodeMajor(version) >= 2) {
+      const major = openCodeMajor(version);
+      if (major === null) return null;
+      if (major >= 2) {
         if (!runnable) return false;
-        return detectOpenCodeAccounts(ctx, executable);
+        const result = await probeCommand(ctx, executable, ["auth", "list", "--format", "json", "--standalone"]);
+        if (result.error || result.code !== 0) return null;
+        try { return hasStoredCredentials(parseAuthList(result.stdout)); } catch { return null; }
       }
-      const file = path.join(ctx.home, entry.credentials.paths[0]);
-      if (!(await ctx.fs.exists(file))) return false;
-      try {
-        const parsed = JSON.parse(await ctx.fs.readFile(file, "utf8"));
-        return parsed && typeof parsed === "object" && Object.keys(parsed).length > 0;
-      } catch {
-        return null;
-      }
+      try { return Object.keys(await readLegacyAuth({ home: ctx.home, env: ctx.env, io: ctx.fs })).length > 0; }
+      catch { return null; }
     }
     case "grok": {
       if (hasEnv(ctx, "XAI_API_KEY")) return true;

@@ -768,6 +768,7 @@ native_skill_controls_work() {
   docker cp scripts/skills-native-smoke.mjs "$NAME:/tmp/skills-native-smoke.mjs" >/dev/null 2>&1 || return 1
   docker cp scripts/skills-policy-smoke.mjs "$NAME:/tmp/skills-policy-smoke.mjs" >/dev/null 2>&1 || return 1
   docker cp scripts/skills-import-smoke.mjs "$NAME:/tmp/skills-import-smoke.mjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/opencode-auth-smoke.mjs "$NAME:/tmp/opencode-auth-smoke.mjs" >/dev/null 2>&1 || return 1
   for id in claude codex opencode; do
     executable="$(status_json | jq -r --arg id "$id" '.harnesses[] | select(.id == $id) | .executable')"
     [ -n "$executable" ] && [ "$executable" != null ] || { printf 'No managed executable returned for %s\n' "$id"; return 1; }
@@ -779,6 +780,9 @@ native_skill_controls_work() {
       docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node "/tmp/$script" "$id" "$executable" || return 1
     fi
     docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node /tmp/skills-import-smoke.mjs "$id" "$executable" || return 1
+    if [ "$id" = opencode ]; then
+      docker exec -u t3 -e T3_HARNESS_MODULE=/opt/t3-harness/index.mjs "$NAME" node /tmp/opencode-auth-smoke.mjs "$executable" || return 1
+    fi
   done
 }
 check "native skill controls work with the installed Claude, Codex and OpenCode" "native_skill_controls_work >>\"$UI_AUDIT_LOG\" 2>&1"
@@ -878,9 +882,14 @@ check "an API key signs Codex in" codex_key_stored
 
 opencode_key_stored() {
   auth_post '{"agent":"opencode","provider":"deepseek","key":"sk-smoke"}' /auth/apikey | grep -q '"ok":true' &&
-  docker exec -u t3 "$NAME" sh -c 'grep -q deepseek ~/.local/share/opencode/auth.json'
+  docker exec -u t3 "$NAME" node --input-type=module -e '
+    const {createHarnessManager,createOpenCodeAuth}=await import("/opt/t3-harness/index.mjs");
+    const manager=createHarnessManager();
+    const auth=createOpenCodeAuth({home:process.env.HOME,env:process.env,resolve:()=>manager.resolve("opencode",{authenticate:false})});
+    if(!(await auth.list()).some(row=>row.integration==="deepseek"))process.exit(1);
+  '
 }
-check "an API key is written for OpenCode" opencode_key_stored
+check "an API key is saved to the selected OpenCode credential store" opencode_key_stored
 
 check "an unknown agent is refused" \
   "auth_post '{\"agent\":\"bogus\",\"key\":\"x\"}' /auth/apikey | grep -q error"

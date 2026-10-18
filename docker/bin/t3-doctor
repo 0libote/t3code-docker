@@ -210,49 +210,28 @@ managed_bin() { # id
   if [ -n "$resolved" ] && [ -x "$resolved" ]; then printf '%s' "$resolved"; fi
   return 0
 }
-# OpenCode 2.x keeps accounts in its database, where auth.json is stale after
-# the one-time migration import; 1.x (or an unreadable version) is read from
-# the file, as before.
+# Use the same bounded credential reader as setup, with the managed binary
+# and recorded version. No duplicated database parsing or raw CLI diagnostics.
 cred_opencode() {
-  local major="${opencode_version%%.*}"
-  major="${major#v}"
-  if [[ $major =~ ^[0-9]+$ ]] && [ "$major" -ge 2 ]; then
-    local bin list verdict
-    bin="$(managed_bin opencode)"
-    if [ -n "$bin" ]; then
-      if command -v timeout >/dev/null 2>&1; then
-        list="$(timeout 30s "$bin" auth list --format json 2>/dev/null || true)"
-      else
-        list="$("$bin" auth list --format json 2>/dev/null || true)"
-      fi
-      if [ -n "$list" ]; then
-        verdict="$(printf '%s' "$list" | "$T3_INFRA_NODE" -e '
-          let s = "";
-          process.stdin.on("data", (c) => { s += c; }).on("end", () => {
-            try {
-              const at = s.indexOf("[");
-              if (at < 0) throw new Error("no list");
-              const ids = [...new Set(JSON.parse(s.slice(at)).flatMap((i) =>
-                (((i && i.connections) || []).filter((c) => c && c.type === "credential").map(() => i.id))
-              ).filter(Boolean))].sort();
-              process.stdout.write(ids.length
-                ? `signed in (${ids.length} provider${ids.length === 1 ? "" : "s"}: ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? `, +${ids.length - 5} more` : ""})`
-                : "not signed in");
-            } catch { process.stdout.write("unreadable"); }
-          });' 2>/dev/null || echo unreadable)"
-        case "$verdict" in
-          "signed in"*) ok "opencode" "$verdict" ;;
-          "not signed in") warn "opencode" "$verdict" ;;
-          *) warn "opencode" "sign-in state not readable" ;;
-        esac
-        return
-      fi
-    fi
-    warn "opencode" "sign-in state not readable"
-  else
-    cred opencode "$HOME/.local/share/opencode/auth.json"
-  fi
+  local bin verdict
+  bin="$(managed_bin opencode)"
+  if [ -z "$bin" ]; then warn "opencode" "sign-in state not readable"; return; fi
+  verdict="$(T3_OC_BINARY="$bin" T3_OC_VERSION="$opencode_version" "$T3_INFRA_NODE" --input-type=module -e '
+    try {
+      const { createOpenCodeAuth } = await import(process.env.T3_HARNESS_MODULE || "/opt/t3-harness/index.mjs");
+      const auth = createOpenCodeAuth({ home: process.env.HOME, env: process.env,
+        resolve: async () => ({ executable: process.env.T3_OC_BINARY, installedVersion: process.env.T3_OC_VERSION, runnable: true }) });
+      const ids = [...new Set((await auth.list()).map((row) => row.integration))].sort().map((id) => JSON.stringify(id).slice(1, -1).slice(0, 80));
+      console.log(ids.length ? `signed in (${ids.length} provider${ids.length === 1 ? "" : "s"}: ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? `, +${ids.length - 5} more` : ""})` : "not signed in");
+    } catch { console.log("unreadable"); }
+  ' 2>/dev/null || echo unreadable)"
+  case "$verdict" in
+    "signed in"*) ok "opencode" "$verdict" ;;
+    "not signed in") warn "opencode" "$verdict" ;;
+    *) warn "opencode" "sign-in state not readable" ;;
+  esac
 }
+
 cred claude   "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"
 cred codex    "$HOME/.codex/auth.json"
 cred_opencode

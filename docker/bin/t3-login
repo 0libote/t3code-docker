@@ -79,10 +79,10 @@ harness_exec() { # id
 }
 
 # Major version of the managed OpenCode release ("1", "2", ...); fails when
-# the version cannot be read, in which case callers keep the 1.x behavior.
+# the version cannot be read, so callers can avoid guessing its login syntax.
 opencode_major() { # bin
   local out
-  out="$("$1" --version 2>/dev/null | head -1)" || return 1
+  out="$(timeout 10s "$1" --version 2>/dev/null | head -1)" || return 1
   if [[ "$out" =~ ([0-9]+)\.[0-9]+\.[0-9]+ ]]; then printf '%s' "${BASH_REMATCH[1]}"; else return 1; fi
 }
 
@@ -113,7 +113,11 @@ esac
 # OpenCode 2.x accepts the integration and login flags on the command line;
 # 1.x only runs its interactive picker, so extra arguments stay off there.
 if [ "$harness" = "opencode" ] && [ "$#" -gt 1 ]; then
-  if [ "$(opencode_major "$bin" || echo 1)" -ge 2 ] 2>/dev/null; then
+  if ! major="$(opencode_major "$bin")"; then
+    echo "t3-login: could not check OpenCode’s version; login arguments were not forwarded" >&2
+    exit 1
+  fi
+  if [ "$major" -ge 2 ]; then
     cmd_extra=("${@:2}")
     cmd=("$bin" "${args[@]}" "${cmd_extra[@]}")
   else

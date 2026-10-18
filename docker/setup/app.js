@@ -250,15 +250,31 @@
   });
 
   // OpenCode's row names its provider keys, and the key sheet lists them.
-  let providersAsked = false;
-  const loadProviders = async () => {
-    const res = await api('/providers');
-    if (res.ok) {
-      state.providers = res.data;
-      const names = new Map((res.data.providers || []).map((p) => [p.id, p.name]));
-      ui.providerNames = (res.data.configured || []).map((id) => names.get(id) || id);
-    }
-    return state.providers;
+  let providersAsked = false, providersPending = null, providersTimer = null, providersRead = 0;
+  const loadProviders = (refresh = false) => {
+    if (providersPending && !refresh) return providersPending;
+    clearTimeout(providersTimer);
+    const read = ++providersRead;
+    providersPending = (async () => {
+      const res = await api('/providers' + (refresh ? '?refresh=1' : ''));
+      if (read !== providersRead) return state.providers;
+      providersPending = null;
+      if (res.ok) {
+        state.providers = res.data;
+        const names = new Map((res.data.providers || []).map((p) => [p.id, p.name]));
+        ui.providerNames = (res.data.configured || []).map((id) => names.get(id) || id);
+      } else {
+        state.providers = { ...(state.providers || {}), credentials: { ...(state.providers?.credentials || {}),
+          stale: true, refreshing: false, error: 'Saved sign-ins could not be checked. Try again.' } };
+      }
+      // Native account reads warm in the background. Follow their progress
+      // without clearing drafts or starting another native process per poll.
+      if (state.providers?.credentials?.refreshing) providersTimer = setTimeout(() => {
+        loadProviders().then(() => { render(); renderKeySheet(); });
+      }, 1000);
+      return state.providers;
+    })();
+    return providersPending;
   };
   const loadProvidersOnce = () => {
     if (providersAsked) return;
@@ -2107,7 +2123,7 @@
   };
 
   // ------------------------------------------------------------- API keys --
-  const keySheet = { layer: null, agent: null, query: '', provider: null, other: false, reveal: false, saving: false, error: null, active: 0 };
+  const keySheet = { layer: null, agent: null, query: '', provider: null, other: false, reveal: false, saving: false, removing: null, error: null, active: 0 };
   const HUES = ['--id-claude', '--id-codex', '--id-opencode', '--id-grok', '--id-cursor'];
   const hueOf = (id) => HUES[[...String(id)].reduce((a, c) => (a + c.charCodeAt(0)) % HUES.length, 0)];
   const initials = (name) => {
@@ -2137,9 +2153,12 @@
     const configured = new Set(providers.configured || []);
     const names = new Map((providers.providers || []).map((p) => [p.id, p.name]));
     const chosen = keySheet.provider;
+    const credentials = providers.credentials || (state.providers ? {} : { available: false, refreshing: true });
+    const addsAccount = isOpenCode && /^v?2\./.test(harness('opencode')?.version || '');
+    const disabled = keySheet.saving ? raw(' disabled') : '';
     const keyStep = (n, active) => html`<div class="tc-sheet-step"${active ? raw(' data-state="active"') : ''}><span class="tc-step-mark">${String(n)}</span><div class="tc-sheet-step-body"><label class="tc-sheet-step-title" for="apikey">API key</label>
-      <div class="tc-inputwrap"><input id="apikey" name="key" class="tc-input tc-input--mono" type="${keySheet.reveal ? 'text' : 'password'}" placeholder="sk-…" autocomplete="off" spellcheck="false" autocapitalize="off"><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--xs" type="button" data-sheet="reveal" aria-label="${keySheet.reveal ? 'Hide' : 'Show'} API key" aria-pressed="${String(keySheet.reveal)}">${icon(keySheet.reveal ? 'eye-off' : 'eye')}</button></div>
-      ${keySheet.error ? html`<p class="tc-hint tc-hint--err" role="alert">${keySheet.error}</p>` : html`<span class="tc-hint">Stored on the state volume, never in the image.</span>`}</div></div>`;
+      <div class="tc-inputwrap"><input id="apikey" name="key" class="tc-input tc-input--mono"${disabled} type="${keySheet.reveal ? 'text' : 'password'}" placeholder="sk-…" autocomplete="off" spellcheck="false" autocapitalize="off"><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--xs" type="button" data-sheet="reveal"${disabled} aria-label="${keySheet.reveal ? 'Hide' : 'Show'} API key" aria-pressed="${String(keySheet.reveal)}">${icon(keySheet.reveal ? 'eye-off' : 'eye')}</button></div>
+      ${keySheet.error ? html`<p class="tc-hint tc-hint--err" role="alert" id="key-error" tabindex="-1">${keySheet.error}</p>` : html`<span class="tc-hint">${addsAccount ? 'Adds and selects a new saved account. Other accounts are kept.' : 'Stored on the state volume, never in the image.'}</span>`}</div></div>`;
     let steps;
     if (isOpenCode) {
       const matches = providerMatches();
@@ -2153,23 +2172,29 @@
       });
       options.push(html`<li class="tc-option" role="option" id="prov-opt-${matches.length}" data-provider="__other" data-index="${matches.length}" aria-selected="${String(keySheet.active === matches.length)}">${icon('plus')}<span>Other — type an id</span></li>`);
       const providerStep = keySheet.other
-        ? html`<div class="tc-field"><input id="prov-other" class="tc-input tc-input--mono" placeholder="Provider id, e.g. deepseek" autocomplete="off" spellcheck="false" autocapitalize="off"><button class="tc-btn tc-btn--ghost tc-btn--xs tc-self-start" type="button" data-sheet="list">Back to the list</button></div>`
+        ? html`<div class="tc-field"><input id="prov-other" class="tc-input tc-input--mono"${disabled} placeholder="Provider id, e.g. deepseek" autocomplete="off" spellcheck="false" autocapitalize="off"><button class="tc-btn tc-btn--ghost tc-btn--xs tc-self-start" type="button" data-sheet="list"${disabled}>Back to the list</button></div>`
         : html`<div class="tc-combobox">
-            <div class="tc-palette-input">${icon('search', 'tc-muted')}<input id="prov" role="combobox" aria-expanded="true" aria-controls="provl" aria-autocomplete="list" aria-activedescendant="prov-opt-${keySheet.active}" placeholder="Search providers" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
+            <div class="tc-palette-input">${icon('search', 'tc-muted')}<input id="prov" role="combobox"${disabled} aria-expanded="true" aria-controls="provl" aria-autocomplete="list" aria-activedescendant="prov-opt-${keySheet.active}" placeholder="Search providers" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
             <ul class="tc-listbox" id="provl" role="listbox" aria-label="Providers">${options}</ul>
           </div><span class="tc-hint">${chosen ? html`Selected: <strong>${names.get(chosen) || chosen}</strong> <span class="tc-mono">${chosen}</span>` : freshness}</span>`;
       steps = html`
         <div class="tc-sheet-step" data-state="${chosen ? 'done' : 'active'}"><span class="tc-step-mark">${chosen ? icon('check') : '1'}</span><div class="tc-sheet-step-body"><label class="tc-sheet-step-title" for="${keySheet.other ? 'prov-other' : 'prov'}">Provider</label>${providerStep}</div></div>
         ${keyStep(2, Boolean(chosen))}
-        ${configured.size ? html`<div class="tc-stack tc-saved-keys-wrap"><span class="tc-small tc-muted">Saved keys</span><div class="tc-group"><div class="tc-list">${[...configured].map((id) => html`
-          <div class="tc-row tc-row--compact tc-row--key" data-key="saved-${id}"><span class="tc-tile tc-tile--sm" style="--_tile: var(${hueOf(id)})" aria-hidden="true">${initials(names.get(id) || id)}</span><div class="tc-row-main"><span class="tc-row-name">${names.get(id) || id}</span></div><button class="tc-btn tc-btn--ghost tc-btn--ghost-muted tc-btn--xs" type="button" data-sheet="remove" data-provider="${id}" aria-label="Remove the ${names.get(id) || id} key">Remove</button></div>`)}</div></div></div>` : ''}`;
+        <div class="tc-stack tc-saved-keys-wrap"><span class="tc-small tc-muted">Saved sign-ins</span>
+          ${credentials.refreshing ? html`<span class="tc-hint tc-saved-read" role="status"><span class="tc-spinner" aria-hidden="true"></span>Checking saved sign-ins…</span>` : ''}
+          ${credentials.error ? html`<div class="tc-hint" role="status">Could not check saved sign-ins. ${credentials.available ? 'The last checked providers are shown.' : ''}<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-sheet="retry-providers"${disabled}>Try again</button></div>` : ''}
+          ${configured.size ? html`<div class="tc-group"><div class="tc-list">${[...configured].map((id) => html`
+            <div class="tc-row tc-row--compact tc-row--key" data-key="saved-${id}"><span class="tc-tile tc-tile--sm" style="--_tile: var(${hueOf(id)})" aria-hidden="true">${initials(names.get(id) || id)}</span><div class="tc-row-main"><span class="tc-row-name">${names.get(id) || id}</span>${credentials.counts?.[id] ? html`<span class="tc-small tc-muted">${credentials.counts[id]} saved ${credentials.counts[id] === 1 ? 'account' : 'accounts'}</span>` : ''}</div><button class="tc-btn tc-btn--ghost tc-btn--ghost-muted tc-btn--xs" type="button" data-sheet="remove" data-provider="${id}" aria-label="Remove saved sign-ins for ${names.get(id) || id}"${keySheet.saving || credentials.error || credentials.available === false ? raw(' disabled') : ''}>${keySheet.removing === id ? 'Removing…' : 'Remove'}</button></div>`)}</div></div>` : credentials.available !== false && !credentials.refreshing && !credentials.error ? html`<span class="tc-hint">No saved sign-ins yet.</span>` : ''}
+          <span class="tc-hint">Remove clears every saved account for that provider.</span>
+        </div>`;
+
     } else {
       steps = keyStep(1, true);
     }
     return html`
-      <div class="tc-sheet-head">${tile(meta, 'lg')}<div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="key-title">${isOpenCode ? 'Add a provider key' : 'Use an API key'}</h2><span class="tc-small tc-muted">${isOpenCode ? html`Stored with OpenCode on the volume` : html`Runs <code>${meta.keyCommand}</code>; the key goes in on stdin`}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
-      <div class="tc-sheet-body">${steps}</div>
-      <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn tc-btn--primary" type="submit" data-key="key-save" disabled>${keySheet.saving ? html`<span class="tc-spinner" aria-hidden="true"></span>Saving` : 'Save key'}</button></div>`;
+      <div class="tc-sheet-head">${tile(meta, 'lg')}<div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="key-title" tabindex="-1">${isOpenCode ? 'Add a provider key' : 'Use an API key'}</h2><span class="tc-small tc-muted">${isOpenCode ? html`Stored with OpenCode on the volume` : html`Runs <code>${meta.keyCommand}</code>; the key goes in on stdin`}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close"${disabled}>${icon('x')}</button></div>
+      <div class="tc-sheet-body" aria-busy="${String(keySheet.saving)}">${steps}</div>
+      <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close"${disabled}>Cancel</button><button class="tc-btn tc-btn--primary" type="submit" data-key="key-save" disabled>${keySheet.saving ? html`<span class="tc-spinner" aria-hidden="true"></span>${keySheet.removing ? 'Removing…' : 'Saving…'}` : 'Save key'}</button></div>`;
   };
 
   /** Save stays disabled until every step is filled; this reads the live fields. */
@@ -2183,9 +2208,15 @@
     if (save) save.disabled = keySheet.saving || !(key && key.value.trim() && provider);
   };
 
-  const renderKeySheet = () => { if (keySheet.layer) { keySheet.layer.render(); syncKeySave(); } };
+  const renderKeySheet = () => {
+    const layer = keySheet.layer;
+    if (!layer || layer.closed) return;
+    layer.render(); syncKeySave();
+    if (!layer.panel.contains(document.activeElement) || document.activeElement.matches(':disabled')) layer.panel.querySelector('#key-title').focus({ preventScroll: true });
+  };
 
   const chooseProvider = (id) => {
+    if (keySheet.saving) return;
     if (id === '__other') {
       keySheet.other = true;
       keySheet.provider = null;
@@ -2207,8 +2238,7 @@
 
   const openKeySheet = async (id, trigger) => {
     if (keySheet.layer) return;
-    Object.assign(keySheet, { agent: id, query: '', provider: null, other: false, reveal: false, saving: false, error: null, active: 0 });
-    if (id === 'opencode' && !state.providers) await loadProviders();
+    Object.assign(keySheet, { agent: id, query: '', provider: null, other: false, reveal: false, saving: false, removing: null, error: null, active: 0 });
     keySheet.layer = Kit.open({
       kind: 'sheet',
       panel: { tag: 'form', class: 'tc-sheet ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'key-title', novalidate: true },
@@ -2216,10 +2246,12 @@
       backdrop: 'ignore',
       render: keySheetBody,
       focus: id === 'opencode' ? '#prov' : '#apikey',
+      onEscape: () => { if (!keySheet.saving) keySheet.layer?.close('cancel'); },
       onClose: () => { keySheet.layer = null; },
     });
     syncKeySave();
-    const panel = keySheet.layer.panel;
+    const layer = keySheet.layer, panel = layer.panel;
+    if (id === 'opencode') void loadProviders().then(() => { if (keySheet.layer === layer) renderKeySheet(); });
     panel.addEventListener('input', (e) => {
       if (e.target.id === 'prov') {
         keySheet.query = e.target.value;
@@ -2249,6 +2281,7 @@
       }
     });
     panel.addEventListener('click', async (e) => {
+      if (keySheet.saving || keySheet.layer !== layer) return;
       const option = e.target.closest('.tc-option[data-provider]');
       if (option) { chooseProvider(option.getAttribute('data-provider')); return; }
       const action = e.target.closest('[data-sheet]');
@@ -2257,25 +2290,29 @@
       if (what === 'close') keySheet.layer.close('cancel');
       else if (what === 'reveal') { keySheet.reveal = !keySheet.reveal; renderKeySheet(); }
       else if (what === 'list') { keySheet.other = false; renderKeySheet(); }
+      else if (what === 'retry-providers') { await loadProviders(true); if (keySheet.layer === layer) renderKeySheet(); }
       else if (what === 'remove') {
         const provider = action.getAttribute('data-provider');
         const label = ((state.providers.providers || []).find((p) => p.id === provider) || {}).name || provider;
         const ok = await Kit.confirm({
-          title: 'Remove the ' + label + ' key?',
-          body: 'OpenCode stops using ' + label + ' until you add a key for it again. Nothing else changes.',
-          confirm: 'Remove key',
+          title: 'Remove ' + label + ' sign-ins?',
+          body: 'Removes all saved OpenCode accounts for ' + label + ', including API keys and browser sign-ins. Other providers and environment credentials stay in place.',
+          confirm: 'Remove sign-ins',
         });
-        if (!ok) return;
+        if (!ok || keySheet.layer !== layer) return;
+        keySheet.saving = true; keySheet.removing = provider; renderKeySheet();
         const res = await api('/auth/apikey/remove', { body: { agent: 'opencode', provider } });
-        if (!res.ok) Kit.toast('Could not remove the key', { tone: 'danger', detail: res.error });
-        else Kit.toast('Removed the ' + label + ' key');
-        await loadProviders();
-        renderKeySheet();
-        loadStatus();
+        if (!res.ok) Kit.toast('Could not remove saved sign-ins', { tone: 'danger', detail: res.error });
+        else Kit.toast('Removed saved ' + label + ' sign-ins');
+        await loadProviders(true); loadStatus();
+        if (keySheet.layer !== layer) return;
+        keySheet.saving = false; keySheet.removing = null; renderKeySheet();
       }
     });
     panel.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (keySheet.saving || keySheet.layer !== layer) return;
+      const agent = keySheet.agent;
       const key = panel.querySelector('#apikey').value.trim();
       const other = panel.querySelector('#prov-other');
       const provider = keySheet.agent === 'opencode' ? (keySheet.other ? other && other.value.trim() : keySheet.provider) : undefined;
@@ -2283,20 +2320,22 @@
       keySheet.saving = true;
       keySheet.error = null;
       renderKeySheet();
-      const res = await api('/auth/apikey', { body: { agent: keySheet.agent, key, provider } });
+      const res = await api('/auth/apikey', { body: { agent, key, provider } });
+      if (agent === 'opencode') await loadProviders(true);
+      loadStatus();
+      if (keySheet.layer !== layer) return;
       keySheet.saving = false;
-      if (!keySheet.layer) return;
       if (!res.ok) {
         // Leave a failed attempt on screen with the key still in it.
         keySheet.error = res.error;
         renderKeySheet();
+        panel.querySelector('#key-error')?.focus({ preventScroll: true });
         return;
       }
       const label = provider ? (((state.providers || {}).providers || []).find((p) => p.id === provider) || {}).name || provider : null;
       keySheet.layer.close('saved');
       Kit.toast(label ? 'Saved the ' + label + ' key' : 'API key saved');
-      if (keySheet.agent === 'opencode') await loadProviders();
-      loadStatus();
+
     });
   };
 

@@ -1,5 +1,8 @@
 // Bounded metadata-only provider processes. No user message, turn or inference.
-import { spawn, execFile } from "node:child_process";
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+const processModule = new URL("../../harness/native-process.mjs", import.meta.url);
+const { withNativeProcess } = await import(existsSync(processModule) ? processModule.href : "file:///opt/t3-harness/native-process.mjs");
 import { randomBytes } from "node:crypto";
 
 export function nativeCommand({ executable, home, env, timeoutMs = 10000 }, args) {
@@ -9,40 +12,6 @@ export function nativeCommand({ executable, home, env, timeoutMs = 10000 }, args
   }));
 }
 
-async function withNativeProcess(options, args, work) {
-  const child = spawn(options.executable, args, { cwd: options.home, env: options.env, detached: true, stdio: ["pipe", "pipe", "ignore"] });
-  const abort = new AbortController(), lines = [], readers = [];
-  let bytes = 0, buffer = "", failure;
-  const fail = (error) => { failure ||= error; abort.abort(error); for (const reader of readers.splice(0)) reader.reject(error); };
-  const timer = setTimeout(() => fail(new Error("Native skill discovery timed out.")), options.timeoutMs || 12000);
-  child.on("error", () => fail(new Error("Could not start native skill discovery.")));
-  child.on("close", () => fail(new Error("The native provider closed its metadata connection.")));
-  child.stdin.on("error", () => fail(new Error("The native provider closed its metadata input.")));
-  child.stdout.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => {
-    bytes += Buffer.byteLength(chunk);
-    if (bytes > 4 * 1024 * 1024) return fail(new Error("Native skill discovery exceeded its output limit."));
-    buffer += chunk;
-    let end;
-    while ((end = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
-      if (readers.length) readers.shift().resolve(line); else lines.push(line);
-    }
-  });
-  const nextLine = () => failure ? Promise.reject(failure) : lines.length ? Promise.resolve(lines.shift()) : new Promise((resolve, reject) => readers.push({ resolve, reject }));
-  try {
-    return await Promise.race([
-      work({ child, nextLine, signal: abort.signal }),
-      new Promise((_, reject) => abort.signal.addEventListener("abort", () => reject(abort.signal.reason), { once: true })),
-    ]);
-  } finally {
-    clearTimeout(timer); abort.abort(); child.stdin.destroy();
-    const kill = (signal) => { try { process.kill(-child.pid, signal); } catch { child.kill(signal); } };
-    kill("SIGTERM");
-    const force = setTimeout(() => kill("SIGKILL"), 1000); force.unref();
-    child.once("close", () => clearTimeout(force));
-  }
-}
 
 export function inspectClaudeSkills(options) {
   return withNativeProcess({ ...options, env: { ...options.env, DISABLE_AUTOUPDATER: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } }, [

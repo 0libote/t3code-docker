@@ -457,7 +457,7 @@ test("OpenCode reads 1.x from auth.json and 2.x from auth list", async () => {
     env: {},
     timeouts: { probe: 5000 },
     run: async (argv) => {
-      assert.deepEqual(argv.slice(1), ["auth", "list", "--format", "json"]);
+      assert.deepEqual(argv.slice(1), ["auth", "list", "--format", "json", "--standalone"]);
       return code === 0
         ? { code: 0, signal: null, stdout, stderr: "", error: null }
         : { code, signal: null, stdout: "", stderr: "boom", error: null };
@@ -470,9 +470,9 @@ test("OpenCode reads 1.x from auth.json and 2.x from auth list", async () => {
   assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, { ...bin, version: "1.18.31" }), true);
   fs.seedFile(file, "{}");
   assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, { ...bin, version: "1.18.31" }), false);
-  // An unknown version keeps the old file check.
+  // An unknown version cannot turn a stale legacy file into a signed-in verdict.
   fs.seedFile(file, JSON.stringify({ anthropic: { type: "api", key: "sk-1" } }));
-  assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, bin), true);
+  assert.equal(await detectAuth({ ...v2("[]"), run: async () => { throw new Error("must not run"); } }, entry, bin), null);
 
   // 2.x asks the CLI: stored accounts sign in, nothing stored signs out.
   const stored = list([{ type: "credential", id: "cred_1", label: "API key", method: "key" }]);

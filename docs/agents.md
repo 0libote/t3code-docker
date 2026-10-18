@@ -130,7 +130,7 @@ Each agent offers the sign-in methods it supports:
 | --- | --- | --- |
 | Claude Code | `auth login`: shows a URL, then takes the code back | — |
 | Codex | device code (`login --device-auth`) | stored with `login --with-api-key` |
-| OpenCode | — | choose a provider; the key is written to its `auth.json` |
+| OpenCode | use `t3-login opencode` for the CLI's other methods | choose a provider; saved through the active major version's native store |
 | Cursor | browser sign-in, checked until it completes | — |
 | Grok Build | device code: a URL and a code to confirm | — |
 | Muse Code | Meta device code: a URL and a code to confirm | stored with `auth set --api-key-stdin` |
@@ -146,8 +146,8 @@ page runs the CLI and reads its output; you never type into a terminal.
   <img src="media/agent-signin.png" alt="Signing Grok Build in with a device code, from the setup page" width="100%">
 </p>
 
-Sign-in status comes from asking each CLI, not from looking for a credentials
-file, so credentials that never touch disk are recognized too.
+Sign-in status uses each CLI's native status interface where available. The
+exceptions below report saved credentials without testing a remote request.
 `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` in the container environment
 both count, as they do for T3 Code:
 
@@ -157,7 +157,7 @@ both count, as they do for T3 Code:
 | Codex | `codex login status` |
 | Cursor | `cursor-agent status --format json` |
 | Grok Build | `grok models`, plus `XAI_API_KEY`, as T3 Code does |
-| OpenCode | its `auth.json`, where its keys are stored |
+| OpenCode | 1.x: its `auth.json`; 2.x: `auth list --format json --standalone` for saved accounts |
 | Muse Code | saved credentials in `~/.config/muse/auth.json`; sign-in is checked on the first message |
 | Antigravity | T3 Code's provider status |
 
@@ -177,6 +177,32 @@ setup page offers the [models.dev](https://models.dev) catalog as a picker,
 with **Other — type an id** for anything not listed. The catalog is fetched
 once and cached on the state volume, so it keeps working after restarts and
 offline.
+
+OpenCode 1 saves keys in `$XDG_DATA_HOME/opencode/auth.json` (by default
+`~/.local/share/opencode/auth.json`). OpenCode 2 migrates that file once into
+its database. Setup, sign-in checks and `t3-doctor` use the managed release's
+store, so an old `auth.json` cannot make a V2 installation appear signed in.
+The whole OpenCode data directory, including database sidecars, persists on
+the home volume. An unreadable store or unknown version is reported without
+replacing the file or falling back to the other major version's store.
+
+In OpenCode 2, **Save key** uses its native key connection API to add and select
+a new account, keeping existing accounts. Custom providers must already be
+configured in OpenCode and support a key connection. **Saved sign-ins** shows
+an account count per provider; **Remove** confirms that it removes every saved
+account for that provider, including browser sign-ins. Other providers and
+environment credentials are kept. The list refreshes in the background while
+the provider picker remains usable, and refreshes preserve your draft key.
+These checks confirm local storage, not that the provider will accept the key.
+
+From a terminal with a TTY, OpenCode 2 also accepts an integration and method:
+
+```bash
+docker compose exec -it t3code t3-login opencode anthropic --method key
+```
+
+OpenCode 1 uses its interactive picker instead. If the managed version cannot
+be checked, extra login arguments are rejected rather than guessed.
 
 You can also use T3 Code's own provider setup, which opens a terminal on the
 server with the sign-in command ready to run. Both store credentials in the

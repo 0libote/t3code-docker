@@ -31,14 +31,7 @@ import { createAntigravity } from "./antigravity.mjs";
 import { createT3Sessions } from "./t3-session.mjs";
 import { createDeviceLabels } from "./device-labels.mjs";
 import * as Context from "./context.mjs";
-import {
-  buildImportEntry,
-  isOpenCodeProviderId,
-  openCodeMajor,
-  parseAuthList,
-  storedCredentials,
-  storedIntegrationIds,
-} from "./opencode-auth.mjs";
+import { createOpenCodeAuth } from "./opencode-auth.mjs";
 import { createSkillsService } from "./skills.mjs";
 import { clientAddress } from "./client-address.mjs";
 import { newKey, readKeyFile, writeKeyFile } from "./setup-key.mjs";
@@ -709,25 +702,9 @@ const providerCache = createProviderCache({
 
 const providersSnapshot = () => providerCache.snapshot();
 
-/** Which providers already hold a key, so the picker can say so. */
-const configuredProviders = async () => {
-  const { executable, store } = await openCodeStore();
-  if (store === 2) {
-    try {
-      return storedIntegrationIds(await openCodeStoredList(executable));
-    } catch {
-      // A 2.x database that will not answer leaves nothing to report; the
-      // legacy file is stale after migration and must not stand in for it.
-      return [];
-    }
-  }
-  try {
-    const auth = JSON.parse(await readFile(`${process.env.HOME}/.local/share/opencode/auth.json`, "utf8"));
-    return Object.keys(auth ?? {});
-  } catch {
-    return [];
-  }
-};
+// Keep the provider catalog responsive while one shared credential read warms.
+const openCodeCredentials = createListCache({ read: () => openCodeAuth.list(), ttlMs: 15_000, retryMs: 30_000 });
+
 
 // The first-start preinstall runs in its own process, so the harness card's
 // cache does not hear about an agent it just installed. Any change in its
@@ -1587,128 +1564,25 @@ const setApiKey = async (agentId, key, providerId) => {
     return { ok: true };
   }
 
-  // OpenCode 1.x reads credentials from a file, which is far steadier than
-  // driving its picker; verified by writing one and having `opencode auth
-  // list` see it. 2.x stores accounts in its database instead, where the
-  // headless path is `auth import`: its key prompt always needs a TTY.
   if (agent.apiKey.kind === "opencode") {
-    if (!isOpenCodeProviderId(providerId))
-      throw new Error("Choose a provider (e.g. anthropic, openai, deepseek)");
-    const { executable, store } = await openCodeStore();
-    if (!executable) throw new Error("OpenCode is not installed");
-    if (store === 2) {
-      await openCodeImportKey(executable, providerId, key);
-      await refreshSignInState(agentId);
-      recordEvent("signin.ok", `Added a ${providerId} key to OpenCode`);
-      return { ok: true };
-    }
-    const dir = `${process.env.HOME}/.local/share/opencode`;
-    await mkdir(dir, { recursive: true });
-    let current = {};
-    try { current = JSON.parse(await readFile(`${dir}/auth.json`, "utf8")); } catch {}
-    current[providerId] = { type: "api", key };
-    await writeOpenCodeAuth(dir, current);
-    await refreshSignInState(agentId);
+    const result = await openCodeAuth.saveKey(providerId, key);
     recordEvent("signin.ok", `Added a ${providerId} key to OpenCode`);
-    return { ok: true };
+    return result;
   }
+
   throw new Error("unsupported");
 };
 
-const OPENCODE_AUTH_TIMEOUT_MS = 90_000;
+const openCodeAuth = createOpenCodeAuth({
+  home: process.env.HOME || "/home/t3", env: process.env,
+  resolve: async () => (await loadHarness()).resolve("opencode", { authenticate: false }),
+  onChange: async () => { openCodeCredentials.invalidate(); await refreshSignInState("opencode"); },
+});
 
-// Run one headless OpenCode `auth` command against the managed executable,
-// with the key on stdin where one is needed so no secret touches the
-// filesystem. Rejects with the CLI's own last words on a nonzero exit.
-const runOpenCode = (executable, args, { input = null, timeoutMs = OPENCODE_AUTH_TIMEOUT_MS } = {}) =>
-  new Promise((resolve, reject) => {
-    const child = spawn(executable, args, {
-      env: process.env, stdio: ["pipe", "pipe", "pipe"],
-    });
-    let out = "";
-    let err = "";
-    const timer = setTimeout(() => {
-      try { child.kill("SIGKILL"); } catch {}
-      reject(new Error(`opencode ${args.join(" ")} timed out`));
-    }, timeoutMs);
-    timer.unref?.();
-    child.stdout.on("data", (chunk) => { out += chunk; });
-    child.stderr.on("data", (chunk) => { err += chunk; });
-    child.on("error", (error) => { clearTimeout(timer); reject(error); });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve({ stdout: out, stderr: err });
-      else {
-        reject(new Error(stripAnsi(`${out}\n${err}`).trim().split("\n").slice(-3).join(" ").slice(0, 300)
-          || `opencode ${args.join(" ")} failed with code ${code}`));
-      }
-    });
-    child.stdin.end(input ?? undefined);
-  });
-
-// The managed OpenCode executable and which credential store it uses:
-// 2 for the `auth` commands (SQLite), 1 for auth.json. An unknown version is
-// capability-probed once: a binary answering `auth list --format json` is
-// treated as 2, anything else as 1.
-const openCodeStore = async () => {
-  let facts = null;
-  try {
-    facts = await (await loadHarness()).resolve("opencode", { authenticate: false });
-  } catch { /* no managed answer */ }
-  if (!facts?.runnable || !facts?.executable) return { executable: null, store: null };
-  const major = openCodeMajor(facts.installedVersion ?? facts.recordedVersion);
-  if (major !== null) return { executable: facts.executable, store: major >= 2 ? 2 : 1 };
-  try {
-    await openCodeStoredList(facts.executable);
-    return { executable: facts.executable, store: 2 };
-  } catch {
-    return { executable: facts.executable, store: 1 };
-  }
-};
-
-const openCodeStoredList = async (executable) =>
-  parseAuthList((await runOpenCode(executable, ["auth", "list", "--format", "json"])).stdout);
-
-const openCodeImportKey = async (executable, providerId, key) => {
-  const entry = buildImportEntry(providerId, key);
-  await runOpenCode(executable, ["auth", "import"], { input: JSON.stringify([entry]) });
-  // An import keeps the destination's current selection; the key just saved
-  // is the one the setup page means, as overwriting auth.json did on 1.x.
-  await runOpenCode(executable, ["auth", "switch", providerId, entry.id]);
-};
-
-// Written whole to a temporary file and renamed over the old one, so a reader
-// - OpenCode itself, mid-request - never sees half a file.
-const writeOpenCodeAuth = async (dir, value) => {
-  const file = `${dir}/auth.json`;
-  const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`;
-  await writeFile(tmp, JSON.stringify(value, null, 2), { mode: 0o600 });
-  const { rename } = await import("node:fs/promises");
-  await rename(tmp, file);
-};
-
-/** Delete one provider's OpenCode credentials; the rest stay. */
+/** Remove all saved sign-ins for one provider; other providers stay. */
 const removeApiKey = async (agentId, providerId) => {
   if (agentId !== "opencode") throw new Error(`${agentId} keeps no per-provider keys here`);
-  if (!isOpenCodeProviderId(providerId)) throw new Error("Choose a provider to remove");
-  const { executable, store } = await openCodeStore();
-  if (store === 2) {
-    const targets = storedCredentials(await openCodeStoredList(executable))
-      .filter((credential) => credential.integration === providerId);
-    for (const target of targets) {
-      await runOpenCode(executable, ["auth", "logout", providerId, target.id]);
-    }
-    await refreshSignInState(agentId);
-    return { ok: true, removed: targets.length > 0 };
-  }
-  const dir = `${process.env.HOME}/.local/share/opencode`;
-  let current = {};
-  try { current = JSON.parse(await readFile(`${dir}/auth.json`, "utf8")); } catch { return { ok: true, removed: false }; }
-  if (!current || typeof current !== "object" || !(providerId in current)) return { ok: true, removed: false };
-  delete current[providerId];
-  await writeOpenCodeAuth(dir, current);
-  await refreshSignInState(agentId);
-  return { ok: true, removed: true };
+  return openCodeAuth.removeProvider(providerId);
 };
 
 const send = (res, code, body, headers = {}) => {
@@ -2847,9 +2721,16 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "GET" && route === "/providers") {
       const snap = await providersSnapshot();
+      if (raw.searchParams.get("refresh") === "1") openCodeCredentials.invalidate();
+      const saved = openCodeCredentials.snapshot();
+      const rows = saved.value || [];
+      const counts = new Map();
+      for (const entry of rows) counts.set(entry.integration, (counts.get(entry.integration) || 0) + 1);
       return sendJson(res, 200, {
         providers: snap.list,
-        configured: await configuredProviders(),
+        configured: [...counts.keys()].sort(),
+        credentials: { available: saved.at !== null, refreshing: saved.refreshing, stale: saved.stale, error: saved.error,
+          counts: Object.fromEntries(counts) },
         cache: { at: snap.at, stale: snap.stale, source: snap.source, refreshing: snap.refreshing },
       });
     }

@@ -1,13 +1,4 @@
-// Unit tests for OpenCode credential handling across its two storages.
-//
-//   node --test tests/opencode-auth.test.mjs
-//
-// OpenCode 1.x keeps provider keys in auth.json; 2.x stores accounts in its
-// database and answers `auth list --format json`. The setup service
-// (docker/setup/opencode-auth.mjs) and the harness probe
-// (docker/harness/probe.mjs) each implement the list shapes because neither
-// can import the other in the image; these tests pin both to the same
-// behavior so the mirror cannot drift silently.
+// Shared OpenCode credential schema and version handling for setup and probes.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -41,9 +32,9 @@ test("auth list output parses past log chatter, on both sides", () => {
   assert.deepEqual(setup.parseAuthList(TEXT), LIST);
   assert.deepEqual(probe.parseOpenCodeAuthList(TEXT), LIST);
   assert.deepEqual(setup.parseAuthList("[]"), []);
-  assert.throws(() => setup.parseAuthList("no authenticated integrations\n"), /no list/);
-  assert.throws(() => probe.parseOpenCodeAuthList("{\"not\":\"a list\"}"), /no list/);
-  assert.throws(() => setup.parseAuthList("[bad"), SyntaxError);
+  assert.throws(() => setup.parseAuthList("no authenticated integrations\n"), /unreadable/);
+  assert.throws(() => probe.parseOpenCodeAuthList("{\"not\":\"a list\"}"), /unreadable/);
+  assert.throws(() => setup.parseAuthList("[bad"), /unreadable/);
 });
 
 test("only stored accounts count, on both sides", () => {
@@ -71,17 +62,4 @@ test("provider ids accept the catalog's spellings and nothing path-like", () => 
   for (const id of ["", "../x", "/abs", "a/b", "UPPER", "has space", "a".repeat(41)]) {
     assert.equal(setup.isOpenCodeProviderId(id), false, id);
   }
-});
-
-test("import entries carry the key as a stored account", () => {
-  const first = setup.buildImportEntry("anthropic", "sk-ant-test");
-  const second = setup.buildImportEntry("anthropic", "sk-ant-test");
-  assert.equal(first.integrationID, "anthropic");
-  assert.equal(first.label, "API key");
-  assert.equal(first.active, true);
-  assert.deepEqual(first.value, { type: "key", key: "sk-ant-test" });
-  assert.match(first.id, /^cred_setup_[0-9a-f]+$/);
-  assert.notEqual(first.id, second.id, "ids stay unique across imports");
-  // The shape `auth import` decodes: no extra fields, nothing missing.
-  assert.deepEqual(Object.keys(first).sort(), ["active", "id", "integrationID", "label", "value"]);
 });
