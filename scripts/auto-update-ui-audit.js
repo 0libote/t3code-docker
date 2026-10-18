@@ -41,12 +41,16 @@ const geometry = () => {
   const initial = await fetch(statusUrl, { headers: { 'x-t3-setup-key': key } });
   assert.equal(initial.ok, true, 'console must accept the supplied setup key');
   const fixtureStatus = await initial.json();
-  // Registry failures include long URLs. Keep that state in the viewport
-  // checks even when the live development home has no failed installations.
+  // Model a failed first install independently of the live home's versions
+  // and startup work. CI may already have OpenCode installed or queued; those
+  // facts would otherwise turn this fixture into a different row state.
+  const failure = 'GitHub rate limit exceeded: https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting Reference: sha512-' + 'a'.repeat(96);
   fixtureStatus.harnesses = fixtureStatus.harnesses.map((row) => row.id === 'opencode'
-    ? { ...row, installed: false, inProgress: false, failed: true, operation: 'install',
-      failure: 'GitHub rate limit exceeded: https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting Reference: sha512-' + 'a'.repeat(96) }
+    ? { ...row, installed: false, installedVersion: null, version: null, inProgress: false, failed: true, operation: 'install', failure }
     : row);
+  if (fixtureStatus.operations) delete fixtureStatus.operations['harness:opencode'];
+  if (fixtureStatus.setup?.items) fixtureStatus.setup.items = fixtureStatus.setup.items.map((item) => item.kind === 'agent' && item.id === 'opencode'
+    ? { ...item, state: 'failed', error: failure, progress: null } : item);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/chromium", args: ["--no-sandbox"] });
   try {
     const runs = [[320, 740, false], [360, 800, false], [390, 844, false], [1100, 1000, false], [390, 844, true], [1198, 878, true]];
@@ -173,7 +177,9 @@ const geometry = () => {
 
       // Long diagnostics stay available without consuming the agent list.
       const failedRow = page.locator('[data-key="row-harness:opencode"]');
-      assert.ok(await failedRow.evaluate((el) => el.getBoundingClientRect().height) <= 110, 'opaque failure row stays compact');
+      await failedRow.getByRole('button', { name: 'Error details for OpenCode' }).waitFor();
+      const failedHeight = await failedRow.evaluate((el) => el.getBoundingClientRect().height);
+      assert.ok(failedHeight <= 110, `${tag}: opaque failed-install row is ${failedHeight}px (maximum 110px)`);
       await failedRow.getByRole('button', { name: 'Error details for OpenCode' }).click();
       const errorDialog = page.getByRole('dialog', { name: 'OpenCode: install failed' });
       await errorDialog.waitFor();
