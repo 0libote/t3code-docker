@@ -10,7 +10,9 @@ import {
   busyReason,
   describeKind,
   dueUpdates,
+  checkSoftwareUpdates,
 } from "../docker/setup/auto-update.mjs";
+import { createLatestCache } from "../docker/setup/latest.mjs";
 
 describe("auto-update policy", () => {
   it("defaults every independent kind to off with 3h checks and 30m idle", () => {
@@ -53,10 +55,103 @@ describe("auto-update policy", () => {
     const state = await readUpdateState(fs, "/state");
     assert.equal(state.lastToolchainCheckAt, 1234);
     assert.equal(state.lastToolchainRunAt, null);
+    assert.equal(state.lastProviderAttemptAt, 1234);
+    assert.equal(state.lastToolchainAttemptAt, 1234);
   });
 
   it("rejects non-objects to defaults", () => {
     assert.deepEqual(normalizePolicy(null), JSON.parse(JSON.stringify(DEFAULT_POLICY)));
+  });
+
+  it("does not turn an explicitly incomplete toolchain check into provider success", async () => {
+    const state = await readUpdateState({ readFile: async () => JSON.stringify({ lastProviderCheckAt: 1234, lastToolchainCheckAt: null, lastToolchainAttemptAt: 1234 }) }, "/state");
+    assert.equal(state.lastToolchainCheckAt, null);
+    assert.equal(state.lastToolchainAttemptAt, 1234);
+  });
+});
+
+describe("scheduled software checks", () => {
+  const world = () => {
+    const w = { clock: 1_800_000_000_000, state: {}, patches: [], calls: [], failed: true, saved: null };
+    w.policy = normalizePolicy({ providers: { enabled: true }, toolchains: { enabled: true } });
+    w.cache = createLatestCache({
+      keys: () => ["harness:claude", "harness:codex", "toolchain:go"],
+      lookup: async (key) => {
+        w.calls.push(key);
+        if (key === "harness:claude" && w.failed) throw new Error("rate limited");
+        return "2";
+      },
+      read: async () => w.saved || "{}", write: async (text) => { w.saved = text; }, now: () => w.clock,
+    });
+    w.tick = () => checkSoftwareUpdates({ policy: w.policy, state: w.state, cache: w.cache, now: () => w.clock,
+      persist: async (patch) => { w.patches.push(patch); Object.assign(w.state, patch); } });
+    return w;
+  };
+
+  it("keeps healthy sources on schedule and retries only the failed source", async () => {
+    const w = world();
+    const start = w.clock;
+    await w.tick();
+    assert.equal(w.state.lastProviderAttemptAt, start);
+    assert.equal(w.state.lastProviderCheckAt, undefined);
+    assert.equal(w.state.lastToolchainCheckAt, start);
+    w.clock += 5 * 60_000;
+    await w.tick();
+    assert.deepEqual(w.calls, ["harness:claude", "harness:codex", "toolchain:go", "harness:claude"]);
+    assert.equal(w.state.lastProviderAttemptAt, start, "retries do not postpone the next scheduled pass");
+    assert.equal(w.patches.length, 1, "continued failure writes no successful-check timestamp");
+    w.failed = false;
+    w.clock += 5 * 60_000;
+    await w.tick();
+    assert.equal(w.state.lastProviderCheckAt, w.clock, "recovery verifies the provider group");
+    assert.equal(w.state.lastToolchainCheckAt, start, "an unrelated retry does not refresh its timestamp");
+    w.clock += 60 * 60_000;
+    await w.tick();
+    assert.equal(w.calls.length, 5, "healthy results are not forced at each auto-update tick");
+    assert.equal(w.patches.length, 2);
+    w.clock = start + 180 * 60_000;
+    await w.tick();
+    assert.equal(w.calls.length, 8, "the next full pass follows the configured cadence");
+  });
+
+  it("preserves failure backoff and attempt times across a restart", async () => {
+    const w = world();
+    await w.tick();
+    const restored = await readUpdateState({ readFile: async () => JSON.stringify(w.state) }, "/state");
+    const calls = [];
+    const cache = createLatestCache({ keys: () => ["harness:claude", "harness:codex", "toolchain:go"],
+      lookup: async (key) => { calls.push(key); throw new Error("offline"); }, read: async () => w.saved, write: async () => {}, now: () => w.clock });
+    const tick = () => checkSoftwareUpdates({ policy: w.policy, state: restored, cache, now: () => w.clock, persist: async () => assert.fail("no successful verification") });
+    await tick();
+    assert.deepEqual(calls, [], "restart does not bypass failure backoff");
+    w.clock += 5 * 60_000;
+    await tick();
+    assert.deepEqual(calls, ["harness:claude"]);
+  });
+
+  it("does nothing when automation is off, and joins no partial background pass", async () => {
+    const w = world();
+    w.policy = normalizePolicy(null);
+    await w.tick();
+    assert.deepEqual(w.calls, []);
+    w.policy.providers.enabled = true;
+    const refresh = w.cache.refresh;
+    w.cache.refreshing = () => true;
+    w.cache.refresh = () => assert.fail("a running TTL pass cannot count as a scheduled check");
+    await w.tick();
+    assert.equal(w.patches.length, 0);
+    w.cache.refresh = refresh;
+  });
+
+  it("tracks success only for enabled groups", async () => {
+    const w = world();
+    w.policy.providers.enabled = false;
+    await w.tick();
+    assert.equal(w.state.lastToolchainCheckAt, w.clock);
+    assert.equal(w.state.lastProviderAttemptAt, undefined);
+    w.clock += 5 * 60_000;
+    await w.tick();
+    assert.equal(w.calls.length, 3, "a disabled group's failure does not trigger automatic retries");
   });
 });
 

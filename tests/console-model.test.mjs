@@ -24,6 +24,32 @@ const NOW = Date.parse("2026-10-02T12:00:00Z");
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
 
+test("update check controls distinguish background work, manual work, and scoped failures", () => {
+  const status = { updates: { refreshing: false, errors: { 'harness:claude': 'offline', 'toolchain:go': 'rate limit' } } };
+  assert.equal(M.updateCheckView(status, 'harness').label, 'Review update checks');
+  assert.deepEqual(plain(M.updateCheckView(status, 'toolchain').failures), [['toolchain:go', 'rate limit']]);
+  status.updates.refreshing = true;
+  assert.equal(M.updateCheckView(status, 'harness').checking, true);
+  assert.equal(Boolean(M.updateCheckView(status, 'harness').manual), false, 'a background check can be followed by a manual one');
+  status.updates.manual = true;
+  assert.equal(M.updateCheckView(status, 'harness').manual, true);
+  assert.equal(M.updateCheckView(null, 'harness', true).manual, true);
+  assert.equal(M.updateCheckView(null, 'harness').label, 'Check for updates');
+});
+
+test("opaque row failures have a concise summary without losing their diagnostic", () => {
+  const detail = 'Install failed: GitHub rate limit exceeded: https://example.com/' + 'a'.repeat(120);
+  const row = { name: 'OpenCode', status: { dot: 'danger', text: detail } };
+  assert.deepEqual(plain(M.rowError(row)), { text: 'Source rate limit reached', title: 'OpenCode: install failed', detail });
+  assert.equal(row.status.text, detail, 'model facts stay intact for other surfaces');
+  assert.equal(M.rowError({ status: { dot: 'danger', text: 'Install failed: disk is full' } }), null, 'short actionable errors stay visible');
+  assert.equal(M.rowError({ status: { dot: 'ok', text: detail } }), null);
+  const notice = { ...row, notice: { tone: 'danger', text: 'Update failed: Connection timed out\n' + 'x'.repeat(120) } };
+  assert.equal(M.rowError(notice, 'notice').text, 'Connection timed out');
+  assert.equal(M.rowError(notice).text, 'Source rate limit reached', 'each diagnostic is summarized independently');
+  assert.equal(M.rowError({ ...row, notice: { tone: 'danger', text: 'Try again' } }).detail, detail, 'a short notice does not hide a long status diagnostic');
+});
+
 test("storage view handles loading, unknown sizes, disk pressure, and job progress", () => {
   assert.equal(M.storageView({}, NOW).loading, true);
   const view = M.storageView({ storage: { at: NOW, disk: { usedPercent: 99, availableBytes: 1000 },
@@ -659,6 +685,27 @@ test("the first-start banner names what is still installing", () => {
   assert.equal(M.setupBanner({ setup: { state: "finished", items: [] } }), null);
 });
 
+test("setup failures keep untried installs and stop reporting recovered rows", () => {
+  const error = 'Full diagnostic\nhttps://example.test/' + 'a'.repeat(200);
+  const status = {
+    setup: { state: 'finished', items: [
+      { kind: 'agent', id: 'opencode', name: 'OpenCode', state: 'failed', error },
+      { kind: 'agent', id: 'claude', name: 'Claude Code', state: 'failed', error: 'old failure' },
+      { kind: 'toolchain', id: 'go', name: 'Go', state: 'pending' },
+      { kind: 'source-control', id: 'gh', name: 'GitHub CLI', state: 'failed' },
+    ] },
+    harnesses: [{ id: 'opencode', installed: false }, { id: 'claude', installed: true }],
+    toolchains: [{ id: 'go', installed: false }], sourceControl: [{ id: 'gh', installed: true }],
+  };
+  assert.deepEqual(plain(M.setupFailures(status)).map((item) => item.id), ['opencode', 'go']);
+  assert.equal(M.setupFailures(status)[0].error, error, 'diagnostics are never truncated');
+  status.setup.state = 'running';
+  assert.deepEqual(plain(M.setupFailures(status)).map((item) => item.id), ['opencode'], 'pending work is not a failure while startup runs');
+  status.harnesses[0].installed = true;
+  assert.deepEqual(plain(M.setupFailures(status)), []);
+  assert.deepEqual(plain(M.setupFailures(null)), []);
+});
+
 test("a query finds items by the words people use, in any order", () => {
   const items = M.paletteItems(statusWith({ harnesses: [harness("grok", { signedIn: false })] }), null, ui(), NOW);
   const top = (q) => M.searchPalette(items, q)[0]?.label;
@@ -1199,4 +1246,24 @@ test('auto-update view summarizes policy, checks and activity', () => {
   assert.match(on.lastActivityText, /Last activity 2 hours ago/);
   assert.equal(on.busy, 'An install or update is already running');
   assert.equal(on.lastResult, 'Queued 2 tool updates');
+});
+
+
+test("runtime freshness requires a successful check for the selected channel", () => {
+  const s = { t3: { runtime: { channel: 'stable', version: '0.0.45', releases: { stable: { version: '0.0.45' } }, checkedAt: NOW } } };
+  assert.equal(M.runtimeView(s).verified, true);
+  s.t3.runtime.checkError = 'offline';
+  assert.equal(M.runtimeView(s).verified, false);
+  s.t3.runtime.releases.stable.version = '0.0.46';
+  assert.equal(M.runtimeView(s).available, true, 'retain known updates when offline');
+  s.t3.runtime.checkError = null;
+  s.t3.runtime.checkedAt = null;
+  assert.equal(M.runtimeView(s).verified, false);
+});
+
+test("tool rows do not call a failed update check up to date", () => {
+  const s = { toolchains: [{ id: 'go', installed: true, version: '1.27.1', latestVersion: '1.27.1' }], updates: { errors: { 'toolchain:go': 'offline' } } };
+  assert.match(M.toolchainRows(s, ui(), NOW)[0].status.text, /Update check failed/);
+  s.toolchains[0].latestVersion = '1.27.2';
+  assert.equal(M.toolchainRows(s, ui(), NOW)[0].updateAvailable, true);
 });

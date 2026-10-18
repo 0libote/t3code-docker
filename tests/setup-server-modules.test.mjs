@@ -111,7 +111,7 @@ test("projects are the git repositories T3 Code registers on start", async () =>
 
 // -------------------------------------------------------------------- latest --
 
-const latestWorld = ({ answers = {}, saved = null } = {}) => {
+const latestWorld = ({ answers = {}, saved = null, ttlMs = 1000 } = {}) => {
   const world = { lookups: [], written: null, clock: 1_000_000 };
   world.cache = createLatestCache({
     keys: () => Object.keys(answers),
@@ -126,7 +126,7 @@ const latestWorld = ({ answers = {}, saved = null } = {}) => {
       return saved;
     },
     write: async (text) => { world.written = text; },
-    ttlMs: 1000,
+    ttlMs,
     now: () => world.clock,
   });
   return world;
@@ -175,7 +175,7 @@ test("a failed lookup keeps the last answer instead of forgetting the update", a
 
 test("concurrent callers share one pass", async () => {
   const world = latestWorld({ answers: { "harness:claude": "1", "harness:codex": "2" } });
-  await Promise.all([world.cache.refresh(), world.cache.refresh(), world.cache.refresh({ force: true })]);
+  await Promise.all([world.cache.refresh({ force: true }), world.cache.refresh(), world.cache.refresh({ force: true })]);
   assert.equal(world.lookups.length, 2);
 });
 
@@ -186,6 +186,178 @@ test("one key can be looked up now, outside the schedule, and a failure changes 
   assert.deepEqual(JSON.parse(world.written).versions["package:jq"], { version: "1.8.2", at: 1_000_000 });
   await world.cache.refreshOne("package:bad");
   assert.equal(world.cache.get("package:bad").latestVersion, null);
+});
+
+test("failed rows retry independently while successful rows stay cached", async () => {
+  const answers = { "harness:claude": new Error("offline"), "toolchain:go": "1" };
+  const world = latestWorld({ answers, ttlMs: 3_600_000 });
+  await world.cache.refresh();
+  assert.equal(world.cache.errors()["harness:claude"], "offline");
+  assert.equal(await world.cache.refresh(), false, "failures have a short retry backoff");
+  const retry = latestWorld({ answers, saved: world.written, ttlMs: 3_600_000 });
+  await retry.cache.load();
+  assert.equal(retry.cache.errors()["harness:claude"], "offline", "restart keeps the warning");
+  retry.clock += 60_000;
+  answers["harness:claude"] = "2";
+  await retry.cache.refresh();
+  assert.deepEqual(retry.lookups, ["harness:claude"]);
+  assert.equal(retry.cache.get("harness:claude").latestVersion, "2");
+  assert.deepEqual(retry.cache.errors(), {});
+});
+
+test("a failed forced lookup retains the last successful version and timestamp", async () => {
+  const answers = { "harness:claude": "1" };
+  const world = latestWorld({ answers });
+  await world.cache.refresh();
+  const before = world.cache.get("harness:claude");
+  world.clock += 500;
+  answers["harness:claude"] = new Error("offline");
+  await world.cache.refresh({ force: true });
+  assert.deepEqual(world.cache.get("harness:claude"), before);
+  assert.equal(world.cache.errors()["harness:claude"], "offline");
+  // A manual retry bypasses the failure backoff as well as the success TTL.
+  answers["harness:claude"] = "2";
+  await world.cache.refresh({ force: true });
+  assert.equal(world.cache.get("harness:claude").latestVersion, "2");
+  assert.deepEqual(world.cache.errors(), {});
+});
+
+test("a manual check queues one fresh pass behind a background check", async () => {
+  let unblock, started;
+  const gate = new Promise((resolve) => { started = resolve; });
+  let version = "1", calls = 0;
+  const cache = createLatestCache({
+    keys: () => ["harness:claude"], read: async () => "{}", write: async () => {},
+    lookup: async (key, { fresh }) => {
+      assert.equal(fresh, true);
+      calls++;
+      const answer = version;
+      if (calls === 1) { started(); await new Promise((resolve) => { unblock = resolve; }); }
+      return answer;
+    },
+  });
+  const background = cache.refresh({ force: true, manual: false });
+  await gate;
+  version = "2";
+  const manual = cache.refresh({ force: true });
+  const secondClick = cache.refresh({ force: true });
+  unblock();
+  await Promise.all([background, manual, secondClick]);
+  assert.equal(calls, 2);
+  assert.equal(cache.get("harness:claude").latestVersion, "2");
+  assert.equal(cache.refreshing(), false);
+});
+
+test("new keys are checked immediately even after a recent successful pass", async () => {
+  const answers = { "harness:claude": "1" };
+  const world = latestWorld({ answers });
+  await world.cache.refresh();
+  answers["package:jq"] = "2";
+  await world.cache.refresh();
+  assert.deepEqual(world.lookups, ["harness:claude", "package:jq"]);
+});
+
+for (const olderFails of [false, true]) {
+  test(`a superseded ${olderFails ? "failure" : "success"} cannot replace a newer targeted result`, async () => {
+    let release, started;
+    const gate = new Promise((resolve) => { started = resolve; });
+    let calls = 0, saved;
+    const cache = createLatestCache({
+      keys: () => ["package:jq"], read: async () => "{}", write: async (text) => { saved = JSON.parse(text); },
+      lookup: async () => {
+        if (++calls > 1) return "2.0.0";
+        started();
+        await new Promise((resolve) => { release = resolve; });
+        if (olderFails) throw new Error("obsolete failure");
+        return "1.0.0";
+      },
+    });
+    const background = cache.refresh();
+    await gate;
+    try { await cache.refreshOne("package:jq"); }
+    finally { release(); await background; }
+    assert.equal(cache.get("package:jq").latestVersion, "2.0.0");
+    assert.deepEqual(cache.errors(), {});
+    assert.equal(saved.versions["package:jq"].version, "2.0.0");
+    assert.deepEqual(saved.failures, {});
+  });
+}
+
+test("an older success cannot clear a newer targeted failure", async () => {
+  let release, started;
+  const gate = new Promise((resolve) => { started = resolve; });
+  let calls = 0;
+  const cache = createLatestCache({
+    keys: () => ["package:jq"], read: async () => JSON.stringify({ versions: { "package:jq": { version: "1.8.0", at: 1 } } }), write: async () => {},
+    lookup: async () => {
+      if (++calls > 1) throw new Error("current failure");
+      started(); await new Promise((resolve) => { release = resolve; }); return "1.9.0";
+    },
+  });
+  const background = cache.refresh({ force: true, manual: false });
+  await gate;
+  try { await cache.refreshOne("package:jq"); }
+  finally { release(); await background; }
+  assert.equal(cache.get("package:jq").latestVersion, "1.8.0");
+  assert.deepEqual(cache.errors(), { "package:jq": "current failure" });
+});
+
+test("overlapping saves cannot leave an older snapshot on disk", async () => {
+  let release, started;
+  const gate = new Promise((resolve) => { started = resolve; });
+  let writes = 0, saved, version = "1";
+  const cache = createLatestCache({
+    keys: () => ["package:jq"], read: async () => "{}", lookup: async () => version,
+    write: async (text) => {
+      if (++writes === 1) { started(); await new Promise((resolve) => { release = resolve; }); }
+      saved = JSON.parse(text);
+    },
+  });
+  const first = cache.refreshOne("package:jq");
+  await gate;
+  version = "2";
+  const second = cache.refreshOne("package:jq");
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(cache.get("package:jq").latestVersion, "2");
+  } finally { release(); await Promise.all([first, second]); }
+  assert.equal(saved.versions["package:jq"].version, "2");
+});
+
+test("failure-only retries do not recheck successful rows past their TTL", async () => {
+  const answers = { "harness:claude": new Error("offline"), "toolchain:go": "1" };
+  const world = latestWorld({ answers, ttlMs: 1000 });
+  await world.cache.refresh();
+  world.clock += 60_000;
+  await world.cache.refresh({ failedOnly: true });
+  assert.deepEqual(world.lookups, ["harness:claude", "toolchain:go", "harness:claude"]);
+  assert.equal(await world.cache.refresh({ failedOnly: true }), false, "failure backoff still applies");
+});
+
+test("slow lookups allow other rows to finish with at most three in flight", async () => {
+  let unblock, started;
+  const gate = new Promise((resolve) => { started = resolve; });
+  let active = 0, maximum = 0;
+  const cache = createLatestCache({
+    keys: () => ["slow", "a", "b", "c", "d"], read: async () => "{}", write: async () => {},
+    lookup: async (key) => {
+      maximum = Math.max(maximum, ++active);
+      if (key === "slow") { started(); await new Promise((resolve) => { unblock = resolve; }); }
+      else await new Promise((resolve) => setImmediate(resolve));
+      active--;
+      return "2";
+    },
+  });
+  const pass = cache.refresh();
+  await gate;
+  const deadline = Date.now() + 1000;
+  try {
+    while (!cache.get("d").latestVersion && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(cache.get("d").latestVersion, "2", "later rows finish before the slow source");
+    assert.equal(cache.refreshing(), true);
+    assert.equal(cache.get("slow").latestVersion, null);
+    assert.equal(maximum, 3);
+  } finally { unblock(); await pass; }
 });
 
 // ----------------------------------------------------------- client address --
