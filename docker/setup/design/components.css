@@ -175,6 +175,12 @@
 .tc-input, .tc-select { color-scheme: light; }
 [data-theme="dark"] .tc-input, [data-theme="dark"] .tc-select { color-scheme: dark; }
 .tc-input option, .tc-select option, .tc-input optgroup, .tc-select optgroup { background: var(--surface-raised); color: var(--fg); }
+/* Forced colours remove the painted chevron and shadow-based focus ring.
+   Keep the native indicator and a system-colour outline in high contrast. */
+@media (forced-colors: active) {
+  .tc-select { appearance: auto; background-image: none; padding-right: 11px; }
+  .tc-select:focus { outline: 2px solid Highlight; outline-offset: 2px; }
+}
 
 /* copy field */
 .tc-copyfield { display: flex; align-items: center; min-width: 0; gap: 2px; padding: 2px 2px 2px 0;
