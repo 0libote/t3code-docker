@@ -360,6 +360,9 @@ html.tc-locked { overflow: hidden; }
   animation: tc-slide-in var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1); }
 .tc-layer--center { align-items: center; justify-content: center; padding: 16px; }
 .tc-layer--center > .tc-dialog { position: relative; z-index: 1; animation: tc-pop var(--dur-base) ease-out; max-height: calc(100% - 32px); overflow: auto; }
+.tc-layer--center > .tc-error-dialog { display: flex; flex-direction: column; overflow: hidden; }
+.tc-error-dialog .tc-dialog-body { min-height: 0; overflow-y: auto; }
+.tc-error-dialog .tc-dialog-foot { flex: none; }
 .tc-layer--palette { align-items: flex-start; justify-content: center; padding: 10vh 16px 16px; }
 .tc-layer--palette > .tc-palette { position: relative; z-index: 1; animation: tc-pop var(--dur-base) ease-out; }
 .tc-palette .tc-listbox { max-height: min(400px, 56vh); }

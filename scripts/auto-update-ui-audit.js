@@ -20,7 +20,7 @@ const freshPolicy = () => ({
 
 const geometry = () => {
   const issues = [];
-  if (document.documentElement.scrollWidth > innerWidth + 1) issues.push("horizontal page overflow");
+  if (document.documentElement.scrollWidth > innerWidth + 1) issues.push(`horizontal page overflow (${document.documentElement.scrollWidth}px > ${innerWidth}px)`);
   for (const panel of document.querySelectorAll('.tc-layer [role="dialog"], .tc-layer [role="alertdialog"]')) {
     const rect = panel.getBoundingClientRect();
     if (rect.left < -1 || rect.top < -1 || rect.right > innerWidth + 1 || rect.bottom > innerHeight + 1) {
@@ -44,18 +44,23 @@ const geometry = () => {
   // Model a failed first install independently of the live home's versions
   // and startup work. CI may already have OpenCode installed or queued; those
   // facts would otherwise turn this fixture into a different row state.
-  const failure = 'GitHub rate limit exceeded: https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting Reference: sha512-' + 'a'.repeat(96);
+  const failure = 'GitHub rate limit exceeded: https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting Reference: sha512-' + 'a'.repeat(96)
+    + '\n' + ('Registry diagnostic: sha512-' + 'b'.repeat(128) + '\n').repeat(20);
   fixtureStatus.harnesses = fixtureStatus.harnesses.map((row) => row.id === 'opencode'
     ? { ...row, installed: false, installedVersion: null, version: null, inProgress: false, failed: true, operation: 'install', failure }
     : row);
   if (fixtureStatus.operations) delete fixtureStatus.operations['harness:opencode'];
-  if (fixtureStatus.setup?.items) fixtureStatus.setup.items = fixtureStatus.setup.items.map((item) => item.kind === 'agent' && item.id === 'opencode'
-    ? { ...item, state: 'failed', error: failure, progress: null } : item);
+  // A finished first-start failure also has a page notice. Keep it in every
+  // run: otherwise an empty scratch home misses long errors present in CI.
+  fixtureStatus.setup = { ...fixtureStatus.setup, state: 'finished', items: [
+    { kind: 'agent', id: 'opencode', name: 'OpenCode', state: 'failed', error: failure },
+  ] };
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/chromium", args: ["--no-sandbox"] });
   try {
     const runs = [[320, 740, false], [360, 800, false], [390, 844, false], [1100, 1000, false], [390, 844, true], [1198, 878, true]];
     const widths = process.env.T3_AUTO_UPDATE_UI_WIDTHS?.split(',').map(Number);
     for (const [width, height, embedded] of runs.filter(([width]) => !widths || widths.includes(width))) for (const theme of ['light', 'dark']) {
+      const fixture = structuredClone(fixtureStatus);
       const context = await browser.newContext({ viewport: { width, height }, colorScheme: theme, reducedMotion: 'reduce' });
       const host = await context.newPage(), errors = [], saved = [];
       let page = host;
@@ -63,7 +68,7 @@ const geometry = () => {
       let policy = freshPolicy();
       let updates = { refreshing: false, manual: false, errors: {} }, checkRequests = 0, startFailure = false;
       let holdStatus = null;
-      const runtime = { ...fixtureStatus.t3?.runtime, channel: 'stable', version: '0.1.0',
+      const runtime = { ...fixture.t3?.runtime, channel: 'stable', version: '0.1.0',
         releases: { stable: { version: '0.1.0' }, nightly: { version: '0.1.1-nightly.20261017.1' } }, checkedAt: 1, checking: false,
         checkError: 'registry offline', operation: null, supported: true };
 
@@ -71,7 +76,7 @@ const geometry = () => {
       await host.route('**/*', async (route) => {
         const url = new URL(route.request().url()), method = route.request().method();
         if (url.pathname.endsWith('/status')) {
-          const snapshot = structuredClone({ ...fixtureStatus, updates, t3: { ...fixtureStatus.t3, runtime }, autoUpdate: { policy, state: {}, lastActivityAt: Date.now(), busy: null } });
+          const snapshot = structuredClone({ ...fixture, updates, t3: { ...fixture.t3, runtime }, autoUpdate: { policy, state: {}, lastActivityAt: Date.now(), busy: null } });
           if (holdStatus) { const gate = holdStatus; holdStatus = null; gate.started(); await gate.wait; }
           return route.fulfill({ json: snapshot });
         }
@@ -116,6 +121,24 @@ const geometry = () => {
       await page.evaluate(() => { window.T3C.copyText = async (text) => { window.auditCopiedText = text; return true; }; });
       const tag = `${width}-${theme}${embedded ? '-embedded' : ''}`;
       const check = async (name) => { assert.deepEqual(await page.evaluate(geometry), [], `${tag} ${name}`); };
+
+      const startupWarning = page.locator('#page-agents > .tc-notice').filter({ hasText: 'First start could not install OpenCode' });
+      await startupWarning.waitFor();
+      assert.equal((await startupWarning.textContent()).includes('sha512-'), false, 'the warning keeps raw diagnostics in Details');
+      await check('finished startup failure');
+      await host.screenshot({ path: path.join(output, `${tag}-startup-failed.png`) });
+      await startupWarning.getByRole('button', { name: 'Setup failure details', exact: true }).click();
+      const startupDialog = page.getByRole('dialog', { name: 'Setup failures', exact: true });
+      await startupDialog.waitFor();
+      assert.equal(await startupDialog.locator('pre').textContent(), 'OpenCode\n' + failure, 'startup details retain the complete diagnostic');
+      assert.equal(await startupDialog.locator('.tc-dialog-body').evaluate((el) => el.scrollHeight > el.clientHeight), true, 'long diagnostics scroll within the dialog');
+      assert.equal(await startupDialog.locator('.tc-dialog-foot').evaluate((el) => { const rect = el.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight; }), true, 'copy and close stay visible');
+      await check('startup error details');
+      await startupDialog.getByRole('button', { name: 'Copy details', exact: true }).click();
+      assert.equal(await page.evaluate(() => window.auditCopiedText), 'OpenCode\n' + failure);
+      await host.keyboard.press('Escape');
+      await startupDialog.waitFor({ state: 'hidden' });
+      assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'setup.errors', 'Escape returns focus to startup Details');
 
       await page.locator('[data-cmd="auto.settings"]:visible').first().click();
       const settings = page.getByRole('dialog', { name: 'Automatic updates' });
@@ -195,7 +218,9 @@ const geometry = () => {
       const control = () => page.locator('[data-cmd="updates.check"]:visible').first();
       const firstTop = () => page.locator('#page-agents .tc-row').first().evaluate((el) => el.getBoundingClientRect().top);
       const refreshStatus = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await control().scrollIntoViewIfNeeded();
       const idleTop = await firstTop();
+      const idleNotices = await page.locator('#page-agents > .tc-notice').count();
       const controlSize = () => control().evaluate((el) => { const { width, height } = el.getBoundingClientRect(); return { width, height }; });
       const idleSize = await controlSize();
       // A pre-existing status read must not briefly re-enable the control or
@@ -225,7 +250,7 @@ const geometry = () => {
       await page.getByRole('button', { name: 'Review update checks', exact: true }).filter({ visible: true }).waitFor();
       assert.equal(await firstTop(), idleTop, 'a failed check does not shift the first agent');
       assert.deepEqual(await controlSize(), idleSize, 'a failure preserves control dimensions');
-      assert.equal(await page.locator('#page-agents > .tc-notice').count(), 0);
+      assert.equal(await page.locator('#page-agents > .tc-notice').count(), idleNotices, 'update checks add no page notice alongside the existing startup warning');
       await check('agent failure');
       await host.screenshot({ path: path.join(output, `${tag}-agent-failure.png`) });
       assert.equal(await page.getByText('Some update checks failed', { exact: true }).count(), 1, 'manual completion is announced once');
@@ -273,8 +298,13 @@ const geometry = () => {
       await control().click();
       assert.equal(checkRequests, 3);
       updates = { refreshing: false, manual: false, errors: { 'toolchain:go': 'offline' } };
+      fixture.setup = { ...fixture.setup, state: 'running', items: [
+        ...fixture.setup.items,
+        { kind: 'toolchain', id: 'go', name: 'Go', state: 'installing' },
+      ] };
       await refreshStatus();
       url.hash = 'toolchains'; await page.goto(url.href);
+      await page.locator('#banner:not([hidden])').waitFor();
       await page.getByRole('button', { name: 'Review update checks', exact: true }).filter({ visible: true }).waitFor();
       await control().click();
       await checks.waitFor();

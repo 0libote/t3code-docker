@@ -687,14 +687,12 @@
       const items = setup.items || [];
       // After a finished run, anything still pending was not tried: the run
       // stops after three failures in a row, which is nearly always no network.
-      const failed = items.filter((i) => i.state === 'failed' || (setup.state === 'finished' && i.state === 'pending'))
-        .filter((i) => {
-          const facts = i.kind === 'agent' ? harness(i.id) : toolchain(i.id);
-          return !(facts && facts.installed);
-        });
+      const failed = M.setupFailures(s);
       if (setup.state !== 'running' && failed.length) {
-        out.push(notice('warn', 'triangle-alert', 'First start could not install ' + M.listOf(failed.map((i) => i.name)),
-          (failed[0].error ? failed[0].error.slice(0, 160) + '. ' : '') + 'Press Retry on the row to try again now; the next restart retries as well.'));
+        const title = failed.length === 1 ? 'First start could not install ' + (failed[0].name || failed[0].id)
+          : 'First start left ' + M.plural(failed.length, 'install') + ' unfinished';
+        out.push(notice('warn', 'triangle-alert', title,
+          html`Try again from ${failed.length === 1 ? 'the row' : 'each row'}. <button class="tc-row-details" type="button" data-cmd="setup.errors" data-key="setup-errors-${route}" aria-label="Setup failure details">Details</button>`));
       } else if (setup.state === 'interrupted') {
         const done = items.filter((i) => i.state === 'done').length;
         out.push(notice(null, 'history', 'First start stopped part way', done + ' of ' + items.length + ' installed. It carries on the next time the container starts.'));
@@ -1105,6 +1103,15 @@
       if (e.target.closest('[data-check-close]')) layer.close('close');
       if (e.target.closest('[data-check-retry]')) { layer.close('retry'); requestUpdateCheck(); }
     });
+  };
+
+  const openErrorDetails = ({ title, description, detail }, trigger) => {
+    const layer = Kit.open({
+      kind: 'center', returnTo: trigger, focus: '[data-error-close]',
+      panel: { class: 'tc-dialog tc-error-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'row-error-title', 'aria-describedby': 'row-error-desc' },
+      render: () => html`<div class="tc-dialog-body"><h2 class="tc-dialog-title" id="row-error-title">${title}</h2><p class="tc-dialog-desc" id="row-error-desc">${description}</p><pre class="tc-error-detail">${detail}</pre></div><div class="tc-dialog-foot">${copyButton(detail, 'Copy details')}<button class="tc-btn" type="button" data-error-close>Close</button></div>`,
+    });
+    layer.panel.addEventListener('click', (e) => { if (e.target.closest('[data-error-close]')) layer.close('close'); });
   };
   const agentsPage = (s, n) => {
     const rows = M.agentRows(s, ui, n);
@@ -3314,12 +3321,13 @@
       const row = rowFor(a.target, a.id);
       const error = row && M.rowError(row, a.source);
       if (!error) return;
-      const layer = Kit.open({
-        kind: 'center', returnTo: el, focus: '[data-error-close]',
-        panel: { class: 'tc-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'row-error-title' },
-        render: () => html`<div class="tc-dialog-body"><h2 class="tc-dialog-title" id="row-error-title">${error.title}</h2><p class="tc-dialog-desc">${error.text}. Full diagnostic from the last operation:</p><pre class="tc-error-detail">${error.detail}</pre></div><div class="tc-dialog-foot">${copyButton(error.detail, 'Copy details')}<button class="tc-btn" type="button" data-error-close>Close</button></div>`,
-      });
-      layer.panel.addEventListener('click', (e) => { if (e.target.closest('[data-error-close]')) layer.close('close'); });
+      openErrorDetails({ ...error, description: error.text + '. Full diagnostic from the last operation:' }, el);
+    },
+    'setup.errors': (a, el) => {
+      const failures = M.setupFailures(state.status);
+      if (!failures.length) return;
+      const detail = failures.map((item) => (item.name || item.id) + '\n' + (item.error || (item.state === 'pending' ? 'Not attempted before first start stopped.' : 'The installer returned no further details.'))).join('\n\n');
+      openErrorDetails({ title: 'Setup failures', description: 'Retry from a row to try again now. A restart retries these installs too.', detail }, el);
     },
     'auto.settings': (a, el) => openAutoUpdate(el),
 

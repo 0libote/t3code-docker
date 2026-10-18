@@ -685,6 +685,27 @@ test("the first-start banner names what is still installing", () => {
   assert.equal(M.setupBanner({ setup: { state: "finished", items: [] } }), null);
 });
 
+test("setup failures keep untried installs and stop reporting recovered rows", () => {
+  const error = 'Full diagnostic\nhttps://example.test/' + 'a'.repeat(200);
+  const status = {
+    setup: { state: 'finished', items: [
+      { kind: 'agent', id: 'opencode', name: 'OpenCode', state: 'failed', error },
+      { kind: 'agent', id: 'claude', name: 'Claude Code', state: 'failed', error: 'old failure' },
+      { kind: 'toolchain', id: 'go', name: 'Go', state: 'pending' },
+      { kind: 'source-control', id: 'gh', name: 'GitHub CLI', state: 'failed' },
+    ] },
+    harnesses: [{ id: 'opencode', installed: false }, { id: 'claude', installed: true }],
+    toolchains: [{ id: 'go', installed: false }], sourceControl: [{ id: 'gh', installed: true }],
+  };
+  assert.deepEqual(plain(M.setupFailures(status)).map((item) => item.id), ['opencode', 'go']);
+  assert.equal(M.setupFailures(status)[0].error, error, 'diagnostics are never truncated');
+  status.setup.state = 'running';
+  assert.deepEqual(plain(M.setupFailures(status)).map((item) => item.id), ['opencode'], 'pending work is not a failure while startup runs');
+  status.harnesses[0].installed = true;
+  assert.deepEqual(plain(M.setupFailures(status)), []);
+  assert.deepEqual(plain(M.setupFailures(null)), []);
+});
+
 test("a query finds items by the words people use, in any order", () => {
   const items = M.paletteItems(statusWith({ harnesses: [harness("grok", { signedIn: false })] }), null, ui(), NOW);
   const top = (q) => M.searchPalette(items, q)[0]?.label;

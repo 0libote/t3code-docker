@@ -1312,6 +1312,17 @@ const T3Model = (() => {
     return { running, queued, finished: finished.slice(0, 4) };
   };
 
+  /** Failed or untried first-start installs that still need attention. */
+  const setupFailures = (status) => {
+    const setup = status?.setup;
+    if (!setup) return [];
+    return (setup.items || []).filter((item) => item.state === 'failed' || (setup.state === 'finished' && item.state === 'pending'))
+      .filter((item) => {
+        const rows = item.kind === 'agent' ? status.harnesses || [] : [...(status.toolchains || []), ...(status.sourceControl || [])];
+        return !rows.some((row) => row.id === item.id && row.installed);
+      });
+  };
+
   /** The banner under the top bar while the first start installs. */
   const setupBanner = (status) => {
     const setup = (status && status.setup) || null;
@@ -1758,7 +1769,7 @@ const T3Model = (() => {
     agentRow, agentRows, toolRow, toolchainRow, toolchainRows, sourceControlRows, managedSourceControlRows, packageRows, portRows, looksLikeDatabase,
     monogram, managedOn, isVersionSpec, isToolSpec, specPrefix, SPEC_SAMPLES, searchRegistry, resolveRelease, matchReleases, releaseIndex, heldRelease, versionOf, toolName, SUGGESTED_TOOLS,
     deviceRows, linkRows, deviceKind, deviceName,
-    readiness, readySummary, needsYou, activity, setupBanner,
+    readiness, readySummary, needsYou, activity, setupBanner, setupFailures,
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
     navBadges, attentionCount, summaries, runtimeView, autoUpdateView,
