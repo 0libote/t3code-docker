@@ -49,23 +49,27 @@ const geometry = () => {
     : row);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/chromium", args: ["--no-sandbox"] });
   try {
-    const runs = [[360, 800], [390, 844], [1100, 1000]];
+    const runs = [[320, 740, false], [360, 800, false], [390, 844, false], [1100, 1000, false], [390, 844, true], [1198, 878, true]];
     const widths = process.env.T3_AUTO_UPDATE_UI_WIDTHS?.split(',').map(Number);
-    for (const [width, height] of runs.filter(([width]) => !widths || widths.includes(width))) for (const theme of ['light', 'dark']) {
+    for (const [width, height, embedded] of runs.filter(([width]) => !widths || widths.includes(width))) for (const theme of ['light', 'dark']) {
       const context = await browser.newContext({ viewport: { width, height }, colorScheme: theme, reducedMotion: 'reduce' });
-      const page = await context.newPage(), errors = [], saved = [];
-      page.on('pageerror', (error) => errors.push(error.message));
+      const host = await context.newPage(), errors = [], saved = [];
+      let page = host;
+      host.on('pageerror', (error) => errors.push(error.message));
       let policy = freshPolicy();
-      let updates = { refreshing: false, errors: {} };
+      let updates = { refreshing: false, manual: false, errors: {} }, checkRequests = 0, startFailure = false;
+      let holdStatus = null;
       const runtime = { ...fixtureStatus.t3?.runtime, channel: 'stable', version: '0.1.0',
         releases: { stable: { version: '0.1.0' }, nightly: { version: '0.1.1-nightly.20261017.1' } }, checkedAt: 1, checking: false,
         checkError: 'registry offline', operation: null, supported: true };
 
       let requestedChannel;
-      await page.route('**/*', async (route) => {
+      await host.route('**/*', async (route) => {
         const url = new URL(route.request().url()), method = route.request().method();
         if (url.pathname.endsWith('/status')) {
-          return route.fulfill({ json: { ...fixtureStatus, updates, t3: { ...fixtureStatus.t3, runtime }, autoUpdate: { policy, state: {}, lastActivityAt: Date.now(), busy: null } } });
+          const snapshot = structuredClone({ ...fixtureStatus, updates, t3: { ...fixtureStatus.t3, runtime }, autoUpdate: { policy, state: {}, lastActivityAt: Date.now(), busy: null } });
+          if (holdStatus) { const gate = holdStatus; holdStatus = null; gate.started(); await gate.wait; }
+          return route.fulfill({ json: snapshot });
         }
         if (url.pathname.endsWith('/updates/check')) {
           if (url.pathname.endsWith('/t3/updates/check')) {
@@ -76,7 +80,9 @@ const geometry = () => {
               errors: runtime.checkError ? { stable: runtime.checkError } : {},
             } });
           }
-          updates = { refreshing: true, errors: {} };
+          if (startFailure) return route.fulfill({ status: 503, json: { ok: false, error: 'Setup service temporarily unavailable' } });
+          checkRequests++;
+          updates = { refreshing: true, manual: true, errors: {} };
           return route.fulfill({ status: 202, json: { ok: true, code: 'checking' } });
         }
         if (/\/auto-update(?:\/policy)?$/.test(url.pathname)) {
@@ -91,17 +97,26 @@ const geometry = () => {
         return route.continue();
       });
       const url = new URL(base); url.hash = 'agents';
+      if (embedded) {
+        url.searchParams.set('embed', 't3'); url.searchParams.set('theme', theme);
+        const parentUrl = new URL('/__update-audit-frame', base).href;
+        await host.route(parentUrl, (route) => route.fulfill({ contentType: 'text/html', body: '<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style><iframe title="Setup"></iframe>' }));
+        await host.goto(parentUrl);
+        page = await (await host.locator('iframe').elementHandle()).contentFrame();
+      }
       await page.goto(url.href);
       await page.getByLabel('Setup key', { exact: true }).fill(key);
       await page.getByRole('button', { name: 'Unlock', exact: true }).click();
       await page.locator('[data-cmd="auto.settings"]:visible').first().waitFor();
-      const tag = `${width}-${theme}`;
+      if (embedded) assert.equal(await page.evaluate(() => window.parent !== window && document.documentElement.dataset.embed === 't3'), true, 'embedded cases run inside a real iframe');
+      await page.evaluate(() => { window.T3C.copyText = async (text) => { window.auditCopiedText = text; return true; }; });
+      const tag = `${width}-${theme}${embedded ? '-embedded' : ''}`;
       const check = async (name) => { assert.deepEqual(await page.evaluate(geometry), [], `${tag} ${name}`); };
 
       await page.locator('[data-cmd="auto.settings"]:visible').first().click();
       const settings = page.getByRole('dialog', { name: 'Automatic updates' });
       await settings.waitFor(); await check('settings');
-      await page.screenshot({ path: path.join(output, `${tag}-settings.png`) });
+      await host.screenshot({ path: path.join(output, `${tag}-settings.png`) });
       const providers = page.locator('[data-auto-switch="providers.enabled"]');
       const toolchains = page.locator('[data-auto-switch="toolchains.enabled"]');
       const t3 = page.locator('[data-auto-switch="t3.enabled"]');
@@ -124,8 +139,8 @@ const geometry = () => {
       assert.equal(await t3.getAttribute('aria-checked'), 'false');
       assert.equal(await page.locator('#auto-t3-check').isDisabled(), true);
       assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Cancel');
-      await page.screenshot({ path: path.join(output, `${tag}-warning.png`) });
-      await page.keyboard.press('Escape');
+      await host.screenshot({ path: path.join(output, `${tag}-warning.png`) });
+      await host.keyboard.press('Escape');
       await warning.waitFor({ state: 'hidden' });
       assert.equal(await t3.getAttribute('aria-checked'), 'false');
       assert.equal(await page.evaluate(() => document.activeElement.dataset.autoSwitch), 't3.enabled');
@@ -138,11 +153,11 @@ const geometry = () => {
       assert.equal(await t3.getAttribute('aria-checked'), 'true');
       assert.equal(await page.evaluate(() => document.activeElement.dataset.autoSwitch), 't3.enabled');
       await t3.click(); assert.equal(await t3.getAttribute('aria-checked'), 'false');
-      await t3.click(); await page.waitForTimeout(100);
+      await t3.click(); await host.waitForTimeout(100);
       assert.equal(await t3.getAttribute('aria-checked'), 'true');
       assert.equal(await page.getByRole('alertdialog').count(), 0);
 
-      await toolchains.click(); await page.waitForTimeout(100);
+      await toolchains.click(); await host.waitForTimeout(100);
       assert.equal(await toolchains.getAttribute('aria-checked'), 'true');
       assert.equal(await page.getByRole('alertdialog').count(), 0);
       await page.locator('#auto-t3-check').fill('1.5');
@@ -156,19 +171,111 @@ const geometry = () => {
       assert.equal(saved[0].t3.checkMinutes, 90);
       assert.equal(saved[0].t3.idleMinutes, 15);
 
-      // Manual checks show progress, then retained-result warnings on both
-      // software pages. No real update or policy mutation leaves this audit.
-      await page.locator('[data-cmd="updates.check"]:visible').first().click();
-      await page.reload();
-      await page.getByText('Checking for updates', { exact: true }).waitFor();
-      await check('checking');
-      updates = { refreshing: false, errors: { 'harness:claude': 'offline', 'toolchain:go': 'offline' } };
-      await page.reload();
-      await page.locator('#page-agents').getByText('Some updates could not be checked', { exact: true }).waitFor();
+      // Long diagnostics stay available without consuming the agent list.
+      const failedRow = page.locator('[data-key="row-harness:opencode"]');
+      assert.ok(await failedRow.evaluate((el) => el.getBoundingClientRect().height) <= 110, 'opaque failure row stays compact');
+      await failedRow.getByRole('button', { name: 'Error details for OpenCode' }).click();
+      const errorDialog = page.getByRole('dialog', { name: 'OpenCode: install failed' });
+      await errorDialog.waitFor();
+      assert.ok((await errorDialog.locator('pre').textContent()).includes('sha512-' + 'a'.repeat(96)), 'the full diagnostic remains inspectable');
+      await check('row error details');
+      await host.screenshot({ path: path.join(output, `${tag}-row-error.png`) });
+      await errorDialog.getByRole('button', { name: 'Copy details' }).click();
+      assert.equal(await page.evaluate(() => window.auditCopiedText), await errorDialog.locator('pre').textContent());
+      await host.keyboard.press('Escape');
+      await errorDialog.waitFor({ state: 'hidden' });
+      assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'row.error', 'Escape returns focus to Details');
+
+      const control = () => page.locator('[data-cmd="updates.check"]:visible').first();
+      const firstTop = () => page.locator('#page-agents .tc-row').first().evaluate((el) => el.getBoundingClientRect().top);
+      const refreshStatus = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      const idleTop = await firstTop();
+      const controlSize = () => control().evaluate((el) => { const { width, height } = el.getBoundingClientRect(); return { width, height }; });
+      const idleSize = await controlSize();
+      // A pre-existing status read must not briefly re-enable the control or
+      // report completion while the accepted manual request is still waiting.
+      let releaseStatus, statusStarted;
+      const started = new Promise((resolve) => { statusStarted = resolve; });
+      holdStatus = { started: statusStarted, wait: new Promise((resolve) => { releaseStatus = resolve; }) };
+      await refreshStatus();
+      await started;
+      try {
+        await control().click();
+        await page.getByRole('button', { name: 'Checking for updates', exact: true }).filter({ visible: true }).waitFor();
+        await check('checking');
+        assert.equal(await control().isDisabled(), true, 'manual checks coalesce while running');
+        assert.equal(checkRequests, 1);
+        assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'updates.check', 'starting a check preserves keyboard focus');
+        await host.keyboard.press('Enter');
+        // Wait for a second request, if the keyboard guard allowed one.
+        await host.waitForTimeout(100);
+        assert.equal(checkRequests, 1, 'aria-disabled blocks keyboard resubmission during an older status read');
+      } finally { releaseStatus(); }
+      assert.equal(await firstTop(), idleTop, 'checking does not shift the first agent');
+      assert.deepEqual(await controlSize(), idleSize, 'checking preserves control dimensions');
+      await host.screenshot({ path: path.join(output, `${tag}-checking.png`) });
+      updates = { refreshing: false, manual: false, errors: { 'harness:claude': 'offline <script>unsafe</script>', 'toolchain:go': 'offline' } };
+      await refreshStatus();
+      await page.getByRole('button', { name: 'Review update checks', exact: true }).filter({ visible: true }).waitFor();
+      assert.equal(await firstTop(), idleTop, 'a failed check does not shift the first agent');
+      assert.deepEqual(await controlSize(), idleSize, 'a failure preserves control dimensions');
+      assert.equal(await page.locator('#page-agents > .tc-notice').count(), 0);
       await check('agent failure');
+      await host.screenshot({ path: path.join(output, `${tag}-agent-failure.png`) });
+      assert.equal(await page.getByText('Some update checks failed', { exact: true }).count(), 1, 'manual completion is announced once');
+      await control().click();
+      const checks = page.getByRole('dialog', { name: 'Update checks', exact: true });
+      await checks.waitFor();
+      assert.equal(await checks.getByText('Claude Code', { exact: true }).count(), 1);
+      assert.equal(await checks.getByText('Go', { exact: true }).count(), 0, 'only sources on this page are listed');
+      assert.equal(await checks.locator('pre').isVisible(), false, 'technical diagnostics start collapsed');
+      await checks.locator('summary').click();
+      assert.equal(await checks.locator('pre').textContent(), 'offline <script>unsafe</script>', 'diagnostics render as text');
+      assert.equal(await checks.locator('script').count(), 0);
+      await check('check details');
+      await host.screenshot({ path: path.join(output, `${tag}-check-details.png`) });
+      await checks.getByRole('button', { name: 'Copy details' }).click();
+      assert.equal(await page.evaluate(() => window.auditCopiedText), 'Claude Code\noffline <script>unsafe</script>');
+      await host.keyboard.press('Escape');
+      await checks.waitFor({ state: 'hidden' });
+      assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'updates.check');
+      await control().click();
+      await checks.waitFor();
+      await checks.getByRole('button', { name: 'Check again', exact: true }).click();
+      await checks.waitFor({ state: 'hidden' });
+      await page.getByRole('button', { name: 'Checking for updates', exact: true }).filter({ visible: true }).waitFor();
+      assert.equal(checkRequests, 2);
+      updates = { refreshing: false, manual: false, errors: {} };
+      await refreshStatus();
+      await page.getByRole('button', { name: 'Check for updates', exact: true }).filter({ visible: true }).waitFor();
+      assert.equal(await firstTop(), idleTop, 'recovery preserves the list position');
+      assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'updates.check', 'the retry control keeps focus after recovery');
+      await check('recovered check');
+
+      startFailure = true;
+      await control().click();
+      await page.getByText('Could not start the update check', { exact: true }).waitFor();
+      assert.equal(await control().isEnabled(), true, 'failed requests leave the check available');
+      assert.equal(await control().getAttribute('aria-label'), 'Check for updates');
+      await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
+      startFailure = false;
+
+      updates = { refreshing: true, manual: false, errors: {} };
+      await refreshStatus();
+      await page.getByRole('button', { name: 'Checking for updates', exact: true }).filter({ visible: true }).waitFor();
+      assert.equal(await control().isDisabled(), false, 'a background pass still accepts a fresh manual check');
+      await control().click();
+      assert.equal(checkRequests, 3);
+      updates = { refreshing: false, manual: false, errors: { 'toolchain:go': 'offline' } };
+      await refreshStatus();
       url.hash = 'toolchains'; await page.goto(url.href);
-      await page.locator('#page-toolchains').getByText('Some updates could not be checked', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Review update checks', exact: true }).filter({ visible: true }).waitFor();
+      await control().click();
+      await checks.waitFor();
+      assert.equal(await checks.getByText('Go', { exact: true }).count(), 1);
+      assert.equal(await checks.getByText('Claude Code', { exact: true }).count(), 0);
       await check('toolchain failure');
+      await checks.getByRole('button', { name: 'Close', exact: true }).click();
 
       url.hash = 'environment'; await page.goto(url.href);
       const card = page.getByRole('region', { name: 'T3 Code updates', exact: true });
@@ -177,7 +284,7 @@ const geometry = () => {
       await card.getByRole('button', { name: 'Check for updates', exact: true }).click();
       await card.getByText('Could not verify updates', { exact: true }).waitFor();
       await check('selected channel failure');
-      await page.screenshot({ path: path.join(output, `${tag}-check-failed.png`) });
+      await host.screenshot({ path: path.join(output, `${tag}-check-failed.png`) });
       await card.getByRole('button', { name: 'Nightly', exact: true }).click();
       const switchDialog = page.getByRole('alertdialog', { name: 'Switch to Nightly?' });
       await switchDialog.waitFor();

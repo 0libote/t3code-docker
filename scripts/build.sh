@@ -48,10 +48,7 @@ done
 
 case "$target" in
   core|browser) ;;
-  # The old names, kept working: same images.
-  full) target=browser ;;
-  slim) target=core ;;
-  *) echo "build.sh: target must be browser or core (full and slim are aliases)" >&2; exit 2 ;;
+  *) echo "build.sh: target must be browser or core" >&2; exit 2 ;;
 esac
 [ -n "$tag" ] || tag="t3code:${target}"
 

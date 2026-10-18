@@ -389,7 +389,7 @@ const recordEvent = (kind, text, detail = null) => {
 // without any of that. Agent turns inside T3 Code are not directly visible
 // here, so idle tracks client activity, not turn activity.
 let autoPolicy = AutoUpdate.normalizePolicy(null);
-let autoState = { lastProviderCheckAt: null, lastToolchainCheckAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastToolchainRunAt: null, lastT3RunAt: null, lastResult: null };
+let autoState = { lastProviderCheckAt: null, lastToolchainCheckAt: null, lastProviderAttemptAt: null, lastToolchainAttemptAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastToolchainRunAt: null, lastT3RunAt: null, lastResult: null };
 let lastActivityAt = Date.now();
 let autoTickRunning = false;
 const noteActivity = () => { lastActivityAt = Date.now(); };
@@ -907,7 +907,7 @@ const status = async () => {
     sourceControlCache: { at: scmSnap?.at ?? null, stale: scmSnap?.stale ?? true, source: scmSnap?.source ?? "unavailable" },
     // How long mise waits before offering a new release as the newest.
     releaseAgeMs,
-    updates: { refreshing: latestCache.refreshing(), errors: latestCache.errors() },
+    updates: { refreshing: latestCache.refreshing(), manual: latestCache.manualPending(), errors: latestCache.errors() },
     // Every other tool in the global mise config, added here or with `mise use -g`.
     packages: withLatest("package", packageRows),
     // Global instruction metadata; the editor fetches contents on demand.
@@ -2196,24 +2196,9 @@ const autoTick = async () => {
         autoState = await AutoUpdate.writeUpdateState({ readFile: (await import("node:fs/promises")).readFile, writeFile, mkdir }, STATE_DIR, patch);
       } catch { autoState = { ...autoState, ...patch }; }
     };
-    // Providers and toolchains share one latest-release cache. Refresh it
-    // once when either independent kind is due, and stamp both enabled kinds
-    // because that refresh checks every software row.
-    const providerCheckDue = autoPolicy.providers.enabled
-      && AutoUpdate.checkDue({ checkMinutes: autoPolicy.providers.checkMinutes, lastCheckAt: autoState.lastProviderCheckAt, now });
-    const toolchainCheckDue = autoPolicy.toolchains.enabled
-      && AutoUpdate.checkDue({ checkMinutes: autoPolicy.toolchains.checkMinutes, lastCheckAt: autoState.lastToolchainCheckAt, now });
-    if (providerCheckDue || toolchainCheckDue) {
-      try {
-        await latestCache.refresh({ force: true, manual: false });
-        const checkedAt = Date.now();
-        const patch = {};
-        const failed = Object.keys(latestCache.errors());
-        if (autoPolicy.providers.enabled && !failed.some((key) => key.startsWith("harness:"))) patch.lastProviderCheckAt = checkedAt;
-        if (autoPolicy.toolchains.enabled && !failed.some((key) => !key.startsWith("harness:"))) patch.lastToolchainCheckAt = checkedAt;
-        await persist(patch);
-      } catch { /* next tick retries */ }
-    }
+    try {
+      await AutoUpdate.checkSoftwareUpdates({ policy: autoPolicy, state: autoState, cache: latestCache, persist });
+    } catch { /* next tick retries */ }
     // T3 Code: ask the registry when due.
     if (autoPolicy.t3.enabled && AutoUpdate.checkDue({ checkMinutes: autoPolicy.t3.checkMinutes, lastCheckAt: autoState.lastT3CheckAt, now })) {
       try {

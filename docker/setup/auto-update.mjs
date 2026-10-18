@@ -100,11 +100,14 @@ export async function readUpdateState(fs, stateDir) {
     const raw = JSON.parse(await fs.readFile(statePath(stateDir), "utf8"));
     if (!raw || typeof raw !== "object") throw new Error("bad state");
     const lastProviderCheckAt = Number(raw.lastProviderCheckAt) || null;
+    const lastToolchainCheckAt = Object.hasOwn(raw, "lastToolchainCheckAt") ? Number(raw.lastToolchainCheckAt) || null : lastProviderCheckAt;
     return {
       lastProviderCheckAt,
       // Version 1 refreshed one shared latest-release cache for agents and
       // tools, so its provider check is also the last toolchain check.
-      lastToolchainCheckAt: Number(raw.lastToolchainCheckAt) || lastProviderCheckAt,
+      lastToolchainCheckAt,
+      lastProviderAttemptAt: Number(raw.lastProviderAttemptAt) || lastProviderCheckAt,
+      lastToolchainAttemptAt: Number(raw.lastToolchainAttemptAt) || lastToolchainCheckAt,
       lastT3CheckAt: Number(raw.lastT3CheckAt) || null,
       lastProviderRunAt: Number(raw.lastProviderRunAt) || null,
       lastToolchainRunAt: Number(raw.lastToolchainRunAt) || null,
@@ -112,7 +115,7 @@ export async function readUpdateState(fs, stateDir) {
       lastResult: typeof raw.lastResult === "string" ? raw.lastResult.slice(0, 300) : null,
     };
   } catch {
-    return { lastProviderCheckAt: null, lastToolchainCheckAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastToolchainRunAt: null, lastT3RunAt: null, lastResult: null };
+    return { lastProviderCheckAt: null, lastToolchainCheckAt: null, lastProviderAttemptAt: null, lastToolchainAttemptAt: null, lastT3CheckAt: null, lastProviderRunAt: null, lastToolchainRunAt: null, lastT3RunAt: null, lastResult: null };
   }
 }
 
@@ -138,6 +141,37 @@ export function isIdle({ idleMinutes, lastActivityAt, now = Date.now(), busy = f
 export function checkDue({ checkMinutes, lastCheckAt, now = Date.now() }) {
   if (!Number.isFinite(lastCheckAt) || lastCheckAt <= 0) return true;
   return now - lastCheckAt >= checkMinutes * 60_000;
+}
+
+/**
+ * The shared software cache checks every source when either enabled schedule
+ * is due. A failed source does not make that whole pass due again: between
+ * scheduled passes, retry only failures and honor their per-source backoff.
+ * Attempts and successful verification are persisted separately so restarts
+ * preserve the cadence without presenting an incomplete check as successful.
+ */
+export async function checkSoftwareUpdates({ policy, state, cache, persist, now = Date.now }) {
+  const groups = [
+    { kind: "providers", attempt: "lastProviderAttemptAt", success: "lastProviderCheckAt", owns: (key) => key.startsWith("harness:") },
+    { kind: "toolchains", attempt: "lastToolchainAttemptAt", success: "lastToolchainCheckAt", owns: (key) => !key.startsWith("harness:") },
+  ].filter((group) => policy[group.kind]?.enabled);
+  if (!groups.length) return;
+  await cache.load();
+  // Do not stamp a scheduled pass as complete by joining a partial TTL pass.
+  if (cache.refreshing()) return;
+  const due = groups.some((group) => checkDue({ checkMinutes: policy[group.kind].checkMinutes, lastCheckAt: state[group.attempt] ?? state[group.success], now: now() }));
+  const before = Object.keys(cache.errors());
+  if (!due && !before.some((key) => groups.some((group) => group.owns(key)))) return;
+  const checked = await cache.refresh({ force: due, manual: false, failedOnly: !due });
+  if (!checked) return;
+  const at = now();
+  const failures = Object.keys(cache.errors());
+  const patch = {};
+  for (const group of groups) {
+    if (due) patch[group.attempt] = at;
+    if ((due || before.some(group.owns)) && !failures.some(group.owns)) patch[group.success] = at;
+  }
+  if (Object.keys(patch).length) await persist(patch);
 }
 
 /** Combine the busy signals the server already tracks into one verdict. */

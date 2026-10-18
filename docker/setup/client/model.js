@@ -210,6 +210,26 @@ const T3Model = (() => {
     try { return new URL(url).host; } catch { return ''; }
   };
 
+  /** Keep opaque diagnostics out of a row; the full text stays available. */
+  const rowError = (row, source = 'status') => {
+    const detail = source === 'notice' ? row.notice?.tone === 'danger' ? row.notice.text : ''
+      : row.status?.dot === 'danger' ? row.status.text : '';
+    if (!detail || (detail.length <= 100 && !/https?:\/\/|\n|\S{48}/.test(detail))) return null;
+    const operation = /^(Install failed|Update failed|Uninstall failed|Not runnable):/.exec(detail)?.[1] || 'Operation failed';
+    const reason = /rate.?limit|too many requests|\b429\b/i.test(detail) ? 'Source rate limit reached'
+      : /timed? ?out|ETIMEDOUT/i.test(detail) ? 'Connection timed out'
+        : /ENOTFOUND|ECONNREFUSED|network unreachable|could not resolve/i.test(detail) ? 'Could not reach the source' : null;
+    return { text: reason || operation, title: row.name + ': ' + operation.toLowerCase(), detail };
+  };
+
+  const updateCheckView = (status, scope, requesting = false) => {
+    const updates = status?.updates || {};
+    const failures = Object.entries(updates.errors || {}).filter(([key]) => scope === 'harness' ? key.startsWith('harness:') : !key.startsWith('harness:'));
+    const checking = requesting || updates.refreshing;
+    return { failures, checking, manual: requesting || updates.manual,
+      label: checking ? 'Checking for updates' : failures.length ? 'Review update checks' : 'Check for updates' };
+  };
+
   // ---------------------------------------------------------- operations --
   // What is happening to one agent or toolchain right now, from every source:
   // an operation this page started (operations), one the first-start install
@@ -1734,7 +1754,7 @@ const T3Model = (() => {
     AGENTS, TOOLCHAINS, SOURCE_CONTROL, DONE, WORKING, FAILED,
     compareVersions, isNewer,
     relTime, absTime, shortDate, duration, countdown, formatBytes, listOf, hostOf, plural, toMs, imageLabel,
-    progressOf, progressText,
+    progressOf, progressText, rowError, updateCheckView,
     agentRow, agentRows, toolRow, toolchainRow, toolchainRows, sourceControlRows, managedSourceControlRows, packageRows, portRows, looksLikeDatabase,
     monogram, managedOn, isVersionSpec, isToolSpec, specPrefix, SPEC_SAMPLES, searchRegistry, resolveRelease, matchReleases, releaseIndex, heldRelease, versionOf, toolName, SUGGESTED_TOOLS,
     deviceRows, linkRows, deviceKind, deviceName,

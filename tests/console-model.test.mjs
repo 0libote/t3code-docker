@@ -24,6 +24,32 @@ const NOW = Date.parse("2026-10-02T12:00:00Z");
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
 
+test("update check controls distinguish background work, manual work, and scoped failures", () => {
+  const status = { updates: { refreshing: false, errors: { 'harness:claude': 'offline', 'toolchain:go': 'rate limit' } } };
+  assert.equal(M.updateCheckView(status, 'harness').label, 'Review update checks');
+  assert.deepEqual(plain(M.updateCheckView(status, 'toolchain').failures), [['toolchain:go', 'rate limit']]);
+  status.updates.refreshing = true;
+  assert.equal(M.updateCheckView(status, 'harness').checking, true);
+  assert.equal(Boolean(M.updateCheckView(status, 'harness').manual), false, 'a background check can be followed by a manual one');
+  status.updates.manual = true;
+  assert.equal(M.updateCheckView(status, 'harness').manual, true);
+  assert.equal(M.updateCheckView(null, 'harness', true).manual, true);
+  assert.equal(M.updateCheckView(null, 'harness').label, 'Check for updates');
+});
+
+test("opaque row failures have a concise summary without losing their diagnostic", () => {
+  const detail = 'Install failed: GitHub rate limit exceeded: https://example.com/' + 'a'.repeat(120);
+  const row = { name: 'OpenCode', status: { dot: 'danger', text: detail } };
+  assert.deepEqual(plain(M.rowError(row)), { text: 'Source rate limit reached', title: 'OpenCode: install failed', detail });
+  assert.equal(row.status.text, detail, 'model facts stay intact for other surfaces');
+  assert.equal(M.rowError({ status: { dot: 'danger', text: 'Install failed: disk is full' } }), null, 'short actionable errors stay visible');
+  assert.equal(M.rowError({ status: { dot: 'ok', text: detail } }), null);
+  const notice = { ...row, notice: { tone: 'danger', text: 'Update failed: Connection timed out\n' + 'x'.repeat(120) } };
+  assert.equal(M.rowError(notice, 'notice').text, 'Connection timed out');
+  assert.equal(M.rowError(notice).text, 'Source rate limit reached', 'each diagnostic is summarized independently');
+  assert.equal(M.rowError({ ...row, notice: { tone: 'danger', text: 'Try again' } }).detail, detail, 'a short notice does not hide a long status diagnostic');
+});
+
 test("storage view handles loading, unknown sizes, disk pressure, and job progress", () => {
   assert.equal(M.storageView({}, NOW).loading, true);
   const view = M.storageView({ storage: { at: NOW, disk: { usedPercent: 99, availableBytes: 1000 },

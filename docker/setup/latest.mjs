@@ -39,6 +39,8 @@ export function createLatestCache({ keys, lookup, read, write, ttlMs = DEFAULT_T
   let runningManual = false;
   let queued = null;
   let failures = {};
+  const lookups = new Map();
+  let saving = Promise.resolve();
 
   const load = () => {
     loaded ??= (async () => {
@@ -55,23 +57,35 @@ export function createLatestCache({ keys, lookup, read, write, ttlMs = DEFAULT_T
   };
 
   const lookupOne = async (key, fresh) => {
+    // A targeted lookup can overlap a background pass. Only the newest
+    // request for this key may publish an answer, including a failure.
+    const request = {};
+    lookups.set(key, request);
     try {
       const entry = entryOf(await lookup(key, { fresh }), now());
+      if (lookups.get(key) !== request) return;
       if (!entry) throw new Error("No release version returned");
       versions[key] = entry;
       delete failures[key];
     } catch (error) {
-      failures[key] = { at: now(), error: String(error?.message ?? error).slice(0, 300) };
+      if (lookups.get(key) === request) failures[key] = { at: now(), error: String(error?.message ?? error).slice(0, 300) };
+    } finally {
+      if (lookups.get(key) === request) lookups.delete(key);
     }
   };
-  const save = async () => {
-    try { await write(JSON.stringify({ checkedAt, versions, failures }, null, 2)); }
-    catch { /* a read-only volume still has the answers in memory */ }
+  const save = () => {
+    // Targeted and bulk checks can finish together. Serialize snapshots so
+    // a slow older write cannot restore obsolete state after a newer one.
+    saving = saving.then(async () => {
+      try { await write(JSON.stringify({ checkedAt, versions, failures }, null, 2)); }
+      catch { /* a read-only volume still has the answers in memory */ }
+    });
+    return saving;
   };
 
   // Manual checks must start a fresh pass if a background pass is already
   // underway: some of its rows may have been read before the button was pressed.
-  const refresh = ({ force = false, manual = force } = {}) => {
+  const refresh = ({ force = false, manual = force, failedOnly = false } = {}) => {
     if (running) {
       if (!manual || runningManual) return running;
       queued ??= running.then(() => {
@@ -83,9 +97,9 @@ export function createLatestCache({ keys, lookup, read, write, ttlMs = DEFAULT_T
     runningManual = manual;
     running = (async () => {
       await load();
-      const due = keys().filter((key) => force || (failures[key]
+      const due = keys().filter((key) => (!failedOnly || failures[key]) && (force || (failures[key]
         ? now() - failures[key].at >= retryMs
-        : !versions[key]?.at || now() - versions[key].at >= ttlMs));
+        : !versions[key]?.at || now() - versions[key].at >= ttlMs)));
       if (!due.length) return false;
       // A slow source should not block every row behind it. Keep registry
       // traffic bounded even when many user-added tools need checking.
@@ -115,6 +129,7 @@ export function createLatestCache({ keys, lookup, read, write, ttlMs = DEFAULT_T
     refresh,
     refreshOne,
     refreshing: () => Boolean(running || queued),
+    manualPending: () => Boolean(runningManual || queued),
     errors: () => Object.fromEntries(keys().filter((key) => failures[key]).map((key) => [key, failures[key].error])),
     /**
      * For a row: `latestVersion` (what mise offers) and `latestCheckedAt`, and

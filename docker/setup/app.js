@@ -113,6 +113,8 @@
     signingOut: null,
     // This page's own address, once confirmed to be T3 Code's too: see checkHere.
     here: null,
+    updatePosting: false,
+    updateAwaiting: false,
   };
 
   const harness = (id) => ((state.status && state.status.harnesses) || []).find((h) => h.id === id) || null;
@@ -196,6 +198,7 @@
         state.statusError = null;
         settleOperations(res.data);
         settleRuntime(res.data);
+        settleSoftwareCheck(res.data);
         storageUI.observe(res.data.storage);
         trackPairing(res.data);
         loadProvidersOnce();
@@ -598,20 +601,25 @@
     : '';
 
   /** An agent or toolchain row: tile, name and version, one status line, one verb, a menu. */
-  const resourceRow = (row, opts = {}) => html`
+  const resourceRow = (row, opts = {}) => {
+    const error = M.rowError(row);
+    const noticeError = M.rowError(row, 'notice');
+    const detail = (source) => html` <button class="tc-row-details" type="button" data-cmd="row.error" data-target="${row.target}" data-id="${row.id}" data-source="${source}" data-key="error-${source}-${row.key}" aria-label="${source === 'notice' ? 'Notice' : 'Error'} details for ${row.name}">Details</button>`;
+    return html`
     <div class="${cx('tc-row', (row.state === 'running' || row.state === 'signing') && 'tc-row--expanded')}" data-key="row-${row.key}">
       ${tile(row)}
       <div class="tc-row-main">
         <div class="tc-row-title"><span class="tc-row-name"${row.description ? html` title="${row.description}"` : ''}>${row.name}</span>${versionLabel(row)}${badge(row.badge)}</div>
-        ${statusLine(row.status)}
-        ${noticeLine(row.notice)}
+        ${error ? html`<span class="tc-status">${dot('danger')}<span class="tc-status-text">${error.text}${detail('status')}</span></span>` : statusLine(row.status)}
+        ${noticeError ? html`<span class="tc-status" role="alert">${dot('danger')}<span class="tc-status-text">${noticeError.text}${detail('notice')}</span></span>` : noticeLine(row.notice)}
         ${row.state === 'running' ? opLine(row) : ''}
       </div>
       <div class="tc-row-actions">${actionButton(row, opts)}${opts.menu === false ? '' : menuButton(row)}</div>
     </div>`;
+  };
 
   const section = (id, title, body, { actions, level } = {}) => html`
-    <section class="tc-section" aria-labelledby="${id}">
+    <section class="tc-section" data-key="${id}" aria-labelledby="${id}">
       <div class="tc-section-head"><${raw(level || 'h2')} class="tc-section-title" id="${id}">${title}</${raw(level || 'h2')}>${actions ? html`<div class="tc-section-actions">${actions}</div>` : ''}</div>
       ${body}
     </section>`;
@@ -843,6 +851,7 @@
   // proves the scan landed. Held here, not in the DOM, so the poll can advance
   // the tracker without repainting the QR underneath it.
   const pair = {
+    label: '',
     ttl: '30d',
     showForm: true,
     minting: false,
@@ -886,8 +895,7 @@
       render();
       return;
     }
-    const input = $('pair-label');
-    const label = input ? input.value.trim() : (pair.minted && pair.minted.label) || '';
+    const label = pair.showForm ? pair.label.trim() : (pair.minted && pair.minted.label) || '';
     pair.minting = true;
     pair.error = null;
     render();
@@ -915,7 +923,7 @@
     };
     pair.showForm = false;
     pair.freshSession = null;
-    if (input) input.value = '';
+    pair.label = '';
     render();
     Kit.announce('Pairing link created. Waiting for the device.');
     loadStatus();
@@ -941,7 +949,7 @@
       <div class="tc-group tc-group--brand" data-key="pair-form"><div class="tc-card-body tc-pair-form">
         <div class="tc-pair-form-intro"><span class="tc-row-name">A single-use link for one device</span><span class="tc-small tc-muted">Scan it with the T3 Code app, open it in a browser, or paste the pair code into the desktop app.</span></div>
         <div class="tc-pair-form-fields">
-          <div class="tc-field"><label class="tc-label" for="pair-label">Label <span class="tc-label-opt">optional</span></label><input id="pair-label" class="tc-input" placeholder="e.g. iPhone" maxlength="64" autocomplete="off" spellcheck="false"></div>
+          <div class="tc-field"><label class="tc-label" for="pair-label">Label <span class="tc-label-opt">optional</span></label><input id="pair-label" class="tc-input" value="${pair.label}" placeholder="e.g. iPhone" maxlength="64" autocomplete="off" spellcheck="false"></div>
           <div class="tc-field"><span class="tc-label" id="ttl-label">Expires in</span><div class="tc-seg" role="group" aria-labelledby="ttl-label">${TTLS.map(([value, label]) => html`<button type="button" aria-pressed="${String(pair.ttl === value)}" data-cmd="pair.ttl" data-value="${value}">${label}</button>`)}</div></div>
         </div>
         <button class="${cx('tc-btn', !noUrl && 'tc-btn--primary')}" type="button" data-cmd="pair.start" data-key="pair-create"${pair.minting || noUrl ? raw(' disabled') : ''}>${pair.minting ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon('link')}Create pairing link<span class="tc-kbd tc-desk-only" aria-hidden="true">P</span></button>
@@ -1036,20 +1044,75 @@
   };
 
   // --------------------------------------------------------------- agents --
-  const updateCheckNotice = (s, prefix) => {
-    const failed = Object.keys(s.updates?.errors || {}).filter((key) => prefix === 'harness' ? key.startsWith('harness:') : !key.startsWith('harness:'));
-    return s.updates?.refreshing
-      ? notice(null, 'refresh-cw', 'Checking for updates', 'New releases appear as each check finishes.')
-      : failed.length ? notice('warn', 'globe', 'Some updates could not be checked', 'Last known releases are shown. Check again to retry.') : '';
+  const updateCheckButton = (s, scope, phone = false) => {
+    const view = M.updateCheckView(s, scope, ui.updatePosting || ui.updateAwaiting);
+    const warning = !view.checking && view.failures.length > 0;
+    return html`<button class="${cx('tc-btn tc-btn--sm tc-update-check', phone && 'tc-btn--icon tc-phone-only', !phone && 'tc-update-check--label', warning && 'tc-btn--warning')}" type="button" data-cmd="updates.check" data-scope="${scope}" data-key="updates-${scope}-${phone ? 'phone' : 'header'}" aria-label="${view.label}" title="${view.checking && !view.manual ? 'Checking in the background. Click to request a fresh check.' : view.label}" aria-disabled="${String(Boolean(view.manual))}">${view.checking ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon(warning ? 'circle-alert' : 'refresh-cw')}${phone ? '' : view.checking ? 'Checking…' : warning ? 'Review checks' : view.label}</button>`;
+  };
+
+  const settleSoftwareCheck = (s) => {
+    if (!ui.updateAwaiting || s.updates?.refreshing) return;
+    ui.updateAwaiting = false;
+    const failures = Object.keys(s.updates?.errors || {});
+    Kit.toast(failures.length ? 'Some update checks failed' : 'Update check complete', {
+      tone: 'info',
+      detail: failures.length ? M.plural(failures.length, 'source') + ' could not be verified. Last known releases are kept.' : 'Available releases are shown beside each tool.',
+      ...(failures.length ? { action: { label: 'Review', run: () => openUpdateChecks(null, null) } } : {}),
+    });
+  };
+
+  const requestUpdateCheck = async () => {
+    if (ui.updatePosting || ui.updateAwaiting || state.status?.updates?.manual) return;
+    ui.updatePosting = true;
+    render();
+    const res = await api('/updates/check', { body: {} });
+    if (!res.ok) {
+      ui.updatePosting = false;
+      Kit.toast('Could not start the update check', { tone: 'danger', detail: res.error });
+      render();
+      return;
+    }
+    // A status read started before the POST cannot report its completion.
+    if (statusLoading) await statusLoading;
+    ui.updatePosting = false;
+    ui.updateAwaiting = true;
+    Kit.announce('Checking for updates');
+    render();
+    await loadStatus();
+  };
+
+  const openUpdateChecks = (scope, trigger) => {
+    const failures = Object.entries(state.status?.updates?.errors || {}).filter(([key]) => !scope || (scope === 'harness' ? key.startsWith('harness:') : !key.startsWith('harness:')));
+    const sources = failures.map(([key, detail]) => {
+      const split = key.indexOf(':');
+      return { name: nameOf(key.slice(0, split), key.slice(split + 1)), detail };
+    });
+    const report = sources.map((source) => source.name + '\n' + source.detail).join('\n\n');
+    const layer = Kit.open({
+      kind: 'center', returnTo: trigger, focus: '[data-check-close]',
+      panel: { class: 'tc-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'update-check-title', 'aria-describedby': 'update-check-desc' },
+      render: () => html`<div class="tc-dialog-body">
+        <h2 class="tc-dialog-title" id="update-check-title">Update checks</h2>
+        <p class="tc-dialog-desc" id="update-check-desc">${sources.length ? 'These sources could not be verified. Last known releases are still shown. Check again to refresh them.' : 'No failed checks remain. You can check again for fresh releases.'}</p>
+        ${sources.length ? html`<ul class="tc-check-failures">${sources.map((source) => html`<li><strong>${source.name}</strong><details><summary>Technical details</summary><pre class="tc-error-detail">${source.detail}</pre></details></li>`)}</ul>` : ''}
+      </div><div class="tc-dialog-foot">
+        ${sources.length ? copyButton(report, 'Copy details') : ''}
+        <button class="tc-btn tc-btn--ghost" type="button" data-check-close>Close</button>
+        <button class="tc-btn tc-btn--primary" type="button" data-check-retry>Check again</button>
+      </div>`,
+    });
+    layer.panel.addEventListener('click', (e) => {
+      if (e.target.closest('[data-check-close]')) layer.close('close');
+      if (e.target.closest('[data-check-retry]')) { layer.close('retry'); requestUpdateCheck(); }
+    });
   };
   const agentsPage = (s, n) => {
     const rows = M.agentRows(s, ui, n);
     const needs = rows.filter((r) => r.attention || r.updateAvailable);
     const shown = state.agentFilter === 'attention' ? needs : rows;
-    const filter = html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="updates.check" aria-label="Check for provider updates" title="Check for updates">${icon('refresh-cw')}</button><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings" title="Automatic update settings">${icon('settings-2')}</button><div class="tc-seg" role="group" aria-label="Show">${[['all', 'All'], ['attention', 'Needs you']].map(([value, label]) => html`<button type="button" aria-pressed="${String(state.agentFilter === value)}" data-cmd="agents.filter" data-value="${value}">${label}${value === 'attention' && needs.length ? html` <span class="tc-num">${needs.length}</span>` : ''}</button>`)}</div>`;
+    const filter = html`${updateCheckButton(s, 'harness', true)}<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings" title="Automatic update settings">${icon('settings-2')}</button><div class="tc-seg" role="group" aria-label="Show">${[['all', 'All'], ['attention', 'Needs you']].map(([value, label]) => html`<button type="button" aria-pressed="${String(state.agentFilter === value)}" data-cmd="agents.filter" data-value="${value}">${label}${value === 'attention' && needs.length ? html` <span class="tc-num">${needs.length}</span>` : ''}</button>`)}</div>`;
     return html`
       ${pageNotices('agents')}
-      ${updateCheckNotice(s, 'harness')}
       ${section('ag-title', 'Agents', html`<div class="tc-group">
         ${shown.length ? html`<div class="tc-list">${shown.map((row) => resourceRow(row))}</div>`
           : rows.length ? html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-title">Nothing needs you</span><span class="tc-empty-desc">No known updates or sign-in issues.</span></div>`
@@ -1087,12 +1150,11 @@
     const filter = filterable ? html`<div class="tc-inputwrap tc-tool-filter">${icon('search')}<input class="tc-input tc-input--sm" id="tool-filter" type="search" placeholder="Filter" aria-label="Filter added tools" autocomplete="off" spellcheck="false"></div>` : '';
     return html`
       ${pageNotices('toolchains')}
-      ${updateCheckNotice(s, 'toolchain')}
       ${section('tc-title', 'Toolchains', html`<div class="tc-group">
         ${rows.length ? html`<div class="tc-list">${rows.map((row) => resourceRow(row))}</div>`
           : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Toolchain state is not readable right now.</span></div>`}
         <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Available in every directory. A project that pins a version in <code>mise.toml</code> or <code>.tool-versions</code> gets that one instead.</span></div>
-      </div>`, { actions: html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="updates.check" aria-label="Check for toolchain updates" title="Check for updates">${icon('refresh-cw')}</button><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings" title="Automatic update settings">${icon('settings-2')}</button>${size ? muted(size) : ''}` })}
+      </div>`, { actions: html`${updateCheckButton(s, 'toolchain', true)}<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings" title="Automatic update settings">${icon('settings-2')}</button>${size ? muted(size) : ''}` })}
       ${section('pk-title', 'Added tools', html`<div class="tc-group">
         ${shown.length ? html`<div class="tc-list">${shown.map((row) => resourceRow(row))}</div>`
           : added.length ? html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">No added tool matches “${state.toolFilter.trim()}”.</span></div>`
@@ -1597,11 +1659,11 @@
         const hasUpdates = rows.some((r) => r.updateAvailable);
         if (route === 'agents') {
           const auto = M.autoUpdateView(s, n);
-          actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="harness.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="updates.check">${icon('refresh-cw')}Check for updates</button><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${auto.providersLine})" title="Automatic updates: ${auto.providersLine}">${icon('settings-2')}${auto.policy.providers.enabled ? 'Auto-update on' : 'Auto-update'}</button>`;
+          actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="harness.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}${updateCheckButton(s, 'harness')}<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${auto.providersLine})" title="Automatic updates: ${auto.providersLine}">${icon('settings-2')}${auto.policy.providers.enabled ? 'Auto-update on' : 'Auto-update'}</button>`;
         }
         else {
           const auto = M.autoUpdateView(s, n);
-          actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="tools.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="updates.check">${icon('refresh-cw')}Check for updates</button><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${auto.toolchainsLine})" title="Automatic toolchain updates: ${auto.toolchainsLine}">${icon('settings-2')}${auto.policy.toolchains.enabled ? 'Auto-update on' : 'Auto-update'}</button>`;
+          actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="tools.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}${updateCheckButton(s, 'toolchain')}<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${auto.toolchainsLine})" title="Automatic toolchain updates: ${auto.toolchainsLine}">${icon('settings-2')}${auto.policy.toolchains.enabled ? 'Auto-update on' : 'Auto-update'}</button>`;
         }
       } else if (route === 'sourcecontrol') {
         if (M.managedSourceControlRows(s, ui, n).some((r) => r.updateAvailable)) actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="scm.updateAll">${icon('circle-arrow-up')}Update all</button>`;
@@ -3242,10 +3304,22 @@
       const report = M.redactedDiagnostics(state.status, state.ports, { console: { base: BASE || '/', route: state.route, viewport: innerWidth + 'x' + innerHeight } });
       Kit.copy(JSON.stringify(report, null, 2), el && el.closest('[data-cmd]'), 'Diagnostics copied');
     },
-    'updates.check': async () => {
-      const res = await api('/updates/check', { body: {} });
-      Kit.toast(res.ok ? 'Checking for updates' : 'Could not check for updates', res.ok ? { tone: 'info', detail: 'New releases appear as each check finishes.' } : { tone: 'danger', detail: res.error });
-      setTimeout(loadStatus, 8000);
+    'updates.check': (a, el) => {
+      const scope = a.scope || (state.route === 'agents' ? 'harness' : 'toolchain');
+      const view = M.updateCheckView(state.status, scope);
+      if (!view.checking && view.failures.length) openUpdateChecks(scope, el);
+      else requestUpdateCheck();
+    },
+    'row.error': (a, el) => {
+      const row = rowFor(a.target, a.id);
+      const error = row && M.rowError(row, a.source);
+      if (!error) return;
+      const layer = Kit.open({
+        kind: 'center', returnTo: el, focus: '[data-error-close]',
+        panel: { class: 'tc-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'row-error-title' },
+        render: () => html`<div class="tc-dialog-body"><h2 class="tc-dialog-title" id="row-error-title">${error.title}</h2><p class="tc-dialog-desc">${error.text}. Full diagnostic from the last operation:</p><pre class="tc-error-detail">${error.detail}</pre></div><div class="tc-dialog-foot">${copyButton(error.detail, 'Copy details')}<button class="tc-btn" type="button" data-error-close>Close</button></div>`,
+      });
+      layer.panel.addEventListener('click', (e) => { if (e.target.closest('[data-error-close]')) layer.close('close'); });
     },
     'auto.settings': (a, el) => openAutoUpdate(el),
 
@@ -3470,6 +3544,7 @@
 
   // The added-tools filter: typing narrows the list as it goes.
   document.addEventListener('input', (e) => {
+    if (e.target.id === 'pair-label') { pair.label = e.target.value; return; }
     if (e.target.id !== 'tool-filter') return;
     state.toolFilter = e.target.value;
     render();

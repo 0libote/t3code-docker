@@ -257,6 +257,83 @@ test("new keys are checked immediately even after a recent successful pass", asy
   assert.deepEqual(world.lookups, ["harness:claude", "package:jq"]);
 });
 
+for (const olderFails of [false, true]) {
+  test(`a superseded ${olderFails ? "failure" : "success"} cannot replace a newer targeted result`, async () => {
+    let release, started;
+    const gate = new Promise((resolve) => { started = resolve; });
+    let calls = 0, saved;
+    const cache = createLatestCache({
+      keys: () => ["package:jq"], read: async () => "{}", write: async (text) => { saved = JSON.parse(text); },
+      lookup: async () => {
+        if (++calls > 1) return "2.0.0";
+        started();
+        await new Promise((resolve) => { release = resolve; });
+        if (olderFails) throw new Error("obsolete failure");
+        return "1.0.0";
+      },
+    });
+    const background = cache.refresh();
+    await gate;
+    try { await cache.refreshOne("package:jq"); }
+    finally { release(); await background; }
+    assert.equal(cache.get("package:jq").latestVersion, "2.0.0");
+    assert.deepEqual(cache.errors(), {});
+    assert.equal(saved.versions["package:jq"].version, "2.0.0");
+    assert.deepEqual(saved.failures, {});
+  });
+}
+
+test("an older success cannot clear a newer targeted failure", async () => {
+  let release, started;
+  const gate = new Promise((resolve) => { started = resolve; });
+  let calls = 0;
+  const cache = createLatestCache({
+    keys: () => ["package:jq"], read: async () => JSON.stringify({ versions: { "package:jq": { version: "1.8.0", at: 1 } } }), write: async () => {},
+    lookup: async () => {
+      if (++calls > 1) throw new Error("current failure");
+      started(); await new Promise((resolve) => { release = resolve; }); return "1.9.0";
+    },
+  });
+  const background = cache.refresh({ force: true, manual: false });
+  await gate;
+  try { await cache.refreshOne("package:jq"); }
+  finally { release(); await background; }
+  assert.equal(cache.get("package:jq").latestVersion, "1.8.0");
+  assert.deepEqual(cache.errors(), { "package:jq": "current failure" });
+});
+
+test("overlapping saves cannot leave an older snapshot on disk", async () => {
+  let release, started;
+  const gate = new Promise((resolve) => { started = resolve; });
+  let writes = 0, saved, version = "1";
+  const cache = createLatestCache({
+    keys: () => ["package:jq"], read: async () => "{}", lookup: async () => version,
+    write: async (text) => {
+      if (++writes === 1) { started(); await new Promise((resolve) => { release = resolve; }); }
+      saved = JSON.parse(text);
+    },
+  });
+  const first = cache.refreshOne("package:jq");
+  await gate;
+  version = "2";
+  const second = cache.refreshOne("package:jq");
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(cache.get("package:jq").latestVersion, "2");
+  } finally { release(); await Promise.all([first, second]); }
+  assert.equal(saved.versions["package:jq"].version, "2");
+});
+
+test("failure-only retries do not recheck successful rows past their TTL", async () => {
+  const answers = { "harness:claude": new Error("offline"), "toolchain:go": "1" };
+  const world = latestWorld({ answers, ttlMs: 1000 });
+  await world.cache.refresh();
+  world.clock += 60_000;
+  await world.cache.refresh({ failedOnly: true });
+  assert.deepEqual(world.lookups, ["harness:claude", "toolchain:go", "harness:claude"]);
+  assert.equal(await world.cache.refresh({ failedOnly: true }), false, "failure backoff still applies");
+});
+
 test("slow lookups allow other rows to finish with at most three in flight", async () => {
   let unblock, started;
   const gate = new Promise((resolve) => { started = resolve; });

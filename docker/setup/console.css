@@ -78,10 +78,10 @@ html.tc-locked { overflow: hidden; }
 @media (max-width: 639.98px) {
   .tc-row:has(> .tc-row-actions--wrap) { grid-template-columns: auto minmax(0, 1fr); }
   .tc-row > .tc-row-actions--wrap { grid-column: 2 / -1; justify-content: flex-start; }
-  /* A plain row has no leading tile to indent under: its actions go under
-     the whole main block. */
-  .tc-row--plain:has(> .tc-row-actions--wrap) { grid-template-columns: minmax(0, 1fr); }
-  .tc-row--plain > .tc-row-actions--wrap { grid-column: 1 / -1; }
+  /* Only rows without a leading tile put actions under the whole main block.
+     A stale plain modifier must not move an icon row into a single column. */
+  .tc-row--plain:not(:has(> .tc-tile, > .tc-row-lead)):has(> .tc-row-actions--wrap) { grid-template-columns: minmax(0, 1fr); }
+  .tc-row--plain:not(:has(> .tc-tile, > .tc-row-lead)) > .tc-row-actions--wrap { grid-column: 1 / -1; }
 }
 /* A 28px input, for inline values beside small buttons. */
 .tc-input--sm { height: var(--control-sm); font-size: 13px; }
@@ -284,6 +284,17 @@ html.tc-locked { overflow: hidden; }
 .tc-status.tc-status--prose { display: block; }
 /* A status line's words wrap beside their dot instead of dropping under it. */
 .tc-status-text { flex: 1 1 0%; min-width: 0; overflow-wrap: anywhere; }
+.tc-row-details { position: relative; display: inline; padding: 0; margin-left: 4px; border: 0; border-radius: 2px; background: none; color: var(--fg); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.tc-row-details::after { content: ""; position: absolute; inset: -13px -4px; }
+.tc-row-details:hover { color: var(--accent-text); }
+.tc-row-details:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.tc-update-check--label { min-width: 168px; }
+.tc-update-check > .tc-spinner { width: 16px; height: 16px; flex: 0 0 16px; }
+.tc-check-failures { list-style: none; padding: 0; margin: var(--space-4) 0 0; }
+.tc-check-failures > li { padding: var(--space-3) 0; border-top: 1px solid var(--hairline); font-size: 14px; }
+.tc-check-failures strong { display: block; margin-bottom: var(--space-2); font-weight: 500; }
+.tc-check-failures summary { width: fit-content; min-height: 24px; padding: 3px 0; color: var(--fg-muted); cursor: pointer; font-size: 12px; line-height: 18px; }
+.tc-error-detail { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; padding: var(--space-3); margin: var(--space-3) 0 0; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-md); user-select: text; }
 .tc-version-arrow { color: var(--fg-subtle); }
 
 /* An operation inside a row (Updating): narration, figure, bar. */
@@ -293,7 +304,8 @@ html.tc-locked { overflow: hidden; }
 .tc-op--quiet { font-size: 12px; }
 .tc-op--quiet .tc-op-line { color: var(--fg-muted); }
 .tc-tile--dim { opacity: 0.6; }
-.tc-row--plain { grid-template-columns: minmax(0, 1fr) auto; }
+/* Count the actual leading element, even if a caller also sets plain. */
+.tc-row--plain:not(:has(> .tc-tile, > .tc-row-lead)) { grid-template-columns: minmax(0, 1fr) auto; }
 .tc-row--key { min-height: 44px; padding-block: var(--space-2); }
 .tc-row-actions-inline { display: inline-flex; align-items: center; gap: var(--space-2); }
 .tc-btn--pressed { background: var(--hover); }
