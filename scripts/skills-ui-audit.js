@@ -7,8 +7,11 @@ try { ({ chromium } = require('playwright')); }
 catch { ({ chromium } = require('playwright-core')); }
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const base = process.argv[2] || 'http://127.0.0.1:23780/__setup/';
 const key = process.argv[3] || 'dev';
+const output = process.env.T3_SKILLS_UI_OUTPUT || '/tmp/t3-skills-ui-audit';
+fs.mkdirSync(output, { recursive: true });
 const firstId = 'a'.repeat(32), secondId = 'b'.repeat(32);
 const body = '---\nname: review\ndescription: Review changes\n---\nText, including </textarea><script>window.skillInjected = true</script>.\n';
 
@@ -56,7 +59,12 @@ const checkSelect = async (page, select, theme) => {
   let gateRead = false, releaseRead, oldReadStarted, readError = false, inventoryError = false;
   let saveError = true, gateSave = false, releaseSave, saveStarted;
   let stateError = true, gateState = false, releaseState, stateStarted, firstEnabled = true;
-  let policies = false;
+  let policies = false, importFailure = true, gateImport = false, releaseImport, importStarted;
+  let gateSource = false, releaseSource, sourceStarted;
+  let gatePlan = false, releasePlan, planStarted, importPlanning = false;
+  let gateDiscard = false, releaseDiscard, discardStarted;
+  const capture = (step) => page.screenshot({ path: path.join(output, `${theme}-${width}${embedded ? '-embedded' : ''}-${step}.png`) });
+  const importFocus = async (id) => assert.equal(await page.evaluate(() => document.activeElement.id), id);
   const policyValues = { claude: 'on', opencode: 'allow' };
   const mutations = [];
   const skill = (provider, id, name) => ({ id, name, description: 'A description that is long enough to wrap comfortably on a phone. '.repeat(4),
@@ -75,7 +83,23 @@ const checkSelect = async (page, select, theme) => {
    const url = new URL(route.request().url()), provider = url.searchParams.get('provider');
    if (route.request().method() === 'POST') {
     const input = route.request().postDataJSON(); mutations.push({ path: url.pathname, input });
-    if (url.pathname.endsWith('/state')) {
+    if (url.pathname.endsWith('/source')) {
+     if (gateSource) { gateSource = false; sourceStarted(); await new Promise((resolve) => { releaseSource = resolve; }); }
+     if (input.source === 'bad-source') await route.fulfill({ status: 400, json: { ok: false, error: 'No skill found at this source.' } });
+     else if (input.source === 'catalog') await route.fulfill({ json: { ok: true, skills: [], warnings: [], links: [{ label: 'Frontend skill', source: 'org/repo@review' }, { label: 'Other skill', source: 'org/other' }] } });
+     else await route.fulfill({ json: { ok: true, previewId: input.source === 'slow-source' ? 'closed-source-preview' : 'fixture-preview', source: input.source, warnings: [], skills: [{ name: 'review', description: 'Source description', content: body, bytes: body.length, files: [{ name: 'SKILL.md', bytes: body.length }, { name: 'scripts/check.sh', bytes: 30, executable: true }] }] } });
+    } else if (url.pathname.endsWith('/plan')) {
+     assert.equal(input.previewId, 'fixture-preview'); assert.deepEqual(input.skills, ['review']); assert.ok(input.providers.includes('cursor'));
+     if (gatePlan) { gatePlan = false; importPlanning = true; planStarted(); await new Promise((resolve) => { releasePlan = resolve; }); importPlanning = false; }
+     await route.fulfill({ json: { ok: true, planId: 'fixture-plan', canInstall: true, destinations: [{ provider: 'cursor', name: 'review', action: 'replace', directory: '/fixture/a-very-long-path-for-mobile-layout-checks/skills/review' }] } });
+    } else if (url.pathname.endsWith('/install')) {
+     assert.equal(input.previewId, 'fixture-preview'); assert.equal(input.planId, 'fixture-plan'); assert.equal(input.replace, true);
+     if (gateImport) { importStarted(); await new Promise((resolve) => { releaseImport = resolve; }); }
+     await route.fulfill(importFailure ? { status: 409, json: { ok: false, error: 'Destination changed after review.' } } : { json: { ok: true, results: [{ provider: 'cursor', name: 'review', directory: '/fixture/skills/review', status: 'installed' }, { provider: 'muse', name: 'review', directory: '/fixture/muse/skills/review', status: 'failed', error: 'Fixture permission error' }] } });
+    } else if (url.pathname.endsWith('/discard')) {
+     if (gateDiscard) { gateDiscard = false; discardStarted(); await new Promise((resolve) => { releaseDiscard = resolve; }); }
+     await route.fulfill(importPlanning ? { status: 409, json: { ok: false, error: 'Destination review is still running.' } } : { json: { ok: true } });
+    } else if (url.pathname.endsWith('/state')) {
      assert.ok(['claude', 'codex', 'opencode'].includes(input.provider)); assert.equal(input.id, firstId);
      assert.equal(input.stateRevision, 'native-state-revision');
      if (input.provider === 'codex') assert.equal(typeof input.enabled, 'boolean'); else assert.equal(typeof input.state, 'string');
@@ -121,7 +145,7 @@ const checkSelect = async (page, select, theme) => {
   await page.locator('[data-cmd="skills.view"]').first().waitFor();
   await page.locator('#skill-provider').selectOption('claude');
   await page.locator('.tc-skills[data-provider="claude"]').waitFor();
-  assert.equal(await page.locator('#skill-provider option').count(), 6);
+  assert.equal(await page.locator('#skill-provider option').count(), 7);
   await checkSelect(page, page.locator('#skill-provider'), theme);
   await page.locator('#skill-provider').press('ArrowDown');
   await page.locator('.tc-skills[data-provider="codex"]').waitFor();
@@ -260,9 +284,102 @@ const checkSelect = async (page, select, theme) => {
   inventoryError = false;
   await page.getByRole('button', { name: 'Refresh skills', exact: true }).click();
   await page.locator('.tc-skill-row').first().waitFor();
+  await capture('context');
+  // Reading does not trap users; a late result belongs only to its closed dialog.
+  await page.getByRole('button', { name: 'Install from source', exact: true }).click();
+  gateSource = true;
+  const sourcePending = new Promise((resolve) => { sourceStarted = resolve; });
+  await page.locator('#skill-source').fill('slow-source');
+  await page.locator('[data-import-preview]').click(); await sourcePending;
+  assert.equal(await page.locator('.tc-skill-import [aria-busy]').getAttribute('aria-busy'), 'true');
+  assert.equal(await page.locator('[data-import-close]').first().isEnabled(), true);
+  assert.equal(await page.getByRole('dialog').evaluate((panel) => panel.contains(document.activeElement)), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog').count(), 0);
+  await page.getByRole('button', { name: 'Install from source', exact: true }).click();
+  await page.locator('#skill-source').fill('Keep this draft');
+  const sourceDisposed = page.waitForResponse((response) => response.url().endsWith('/discard') && response.request().postDataJSON().previewId === 'closed-source-preview');
+  releaseSource(); await sourceDisposed;
+  assert.equal(await page.locator('#skill-source').inputValue(), 'Keep this draft');
+  assert.equal(await page.locator('[data-import-skill]').count(), 0);
+  await importFocus('skill-source');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Install from source', exact: true }).click();
+  await page.locator('#skill-source').fill('bad-source'); await page.locator('[data-import-preview]').click();
+  await page.getByRole('alert').filter({ hasText: 'No skill found at this source.' }).waitFor();
+  await importFocus('skill-import-error');
+  await page.locator('#skill-source').fill('catalog'); await page.locator('[data-import-preview]').click();
+  await page.locator('#skill-catalog-search').fill('Frontend');
+  assert.equal(await page.locator('[data-import-link]').count(), 1);
+  await page.locator('[data-import-link]').click();
+  await page.locator('[data-import-skill]').waitFor();
+  assert.equal(await page.locator('#skill-source').inputValue(), 'org/repo@review', 'catalog selections replace the visible source as well as the preview');
+  await importFocus('skill-import-title');
+  assert.equal(await page.locator('.tc-skill-import [aria-busy]').getAttribute('aria-busy'), 'false');
+  assert.equal(await page.locator('[data-import-skill]').isChecked(), true);
+  assert.equal(await page.locator('[data-import-provider]').count(), 7);
+  assert.ok((await page.locator('#skill-source').boundingBox()).height >= 30, 'the scrolling sheet must not compress its source field');
+  for (const label of await page.locator('.tc-import-providers label').all()) assert.ok((await label.boundingBox()).height >= 36, 'provider labels have usable click targets');
+  await page.getByText('Review 2 files', { exact: false }).click();
+  assert.equal(await page.locator('.tc-import-markdown').innerText(), body);
+  assert.equal(await page.evaluate(() => Boolean(window.skillInjected)), false);
+  await page.locator('[data-import-provider="cursor"]').check();
+  await capture('preview');
+  // Repreview locks immediately, including while the previous snapshot is discarded.
+  gateDiscard = true;
+  const discardPending = new Promise((resolve) => { discardStarted = resolve; });
+  const sourcesBefore = mutations.filter((entry) => entry.path.endsWith('/source')).length;
+  const previewedAgain = page.waitForResponse((response) => response.url().endsWith('/source'));
+  await page.locator('[data-import-preview]').dblclick(); await discardPending;
+  assert.equal(await page.locator('[data-import-preview]').isDisabled(), true);
+  assert.equal(await page.locator('[data-import-close]').first().isEnabled(), true);
+  releaseDiscard(); await previewedAgain;
+  await page.locator('[data-import-skill]').waitFor();
+  assert.equal(mutations.filter((entry) => entry.path.endsWith('/source')).length, sourcesBefore + 1);
+  // Destination reads can be dismissed too; their late cleanup cannot affect a new view.
+  gatePlan = true;
+  const planPending = new Promise((resolve) => { planStarted = resolve; });
+  await page.locator('[data-import-review]').click(); await planPending;
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Install from source', exact: true }).click();
+  await page.locator('#skill-source').fill('Keep this second draft');
+  const planDisposed = page.waitForResponse((response) => response.url().endsWith('/discard') && response.status() === 200);
+  releasePlan(); await planDisposed;
+  assert.equal(await page.locator('#skill-source').inputValue(), 'Keep this second draft');
+  assert.equal(await page.locator('[data-import-install]').count(), 0);
+  await importFocus('skill-source');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Install from source', exact: true }).click();
+  await page.locator('#skill-source').fill('org/repo@review'); await page.locator('[data-import-preview]').click();
+  await page.locator('[data-import-provider="cursor"]').check();
+  await page.locator('[data-import-review]').click(); await page.locator('[data-import-install]').waitFor();
+  await importFocus('skill-import-title');
+  assert.equal(await page.locator('[data-import-install]').isDisabled(), true);
+  await capture('destinations');
+  await page.locator('[data-import-replace]').check(); await page.locator('[data-import-install]').click();
+  await page.getByRole('alert').filter({ hasText: 'Destination changed after review.' }).waitFor();
+  await importFocus('skill-import-error');
+  await page.locator('[data-import-back]').click();
+  assert.equal(await page.getByRole('alert').count(), 0, 'going back clears the previous install error');
+  await importFocus('skill-import-title');
+  assert.equal(await page.locator('[data-import-provider="cursor"]').isChecked(), true);
+  await page.locator('[data-import-review]').click(); await page.locator('[data-import-replace]').check();
+  importFailure = false; gateImport = true;
+  const installing = new Promise((resolve) => { importStarted = resolve; });
+  await page.locator('[data-import-install]').click(); await installing;
+  assert.equal(await page.locator('[data-import-install]').isDisabled(), true);
+  assert.equal(await page.locator('[data-import-close]').first().isDisabled(), true);
+  await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').count(), 1);
+  const installBox = await page.getByRole('dialog').boundingBox();
+  assert.ok(installBox.x >= -1 && installBox.x + installBox.width <= width + 1);
+  assert.ok(installBox.y >= -1 && installBox.y + installBox.height <= height + 1);
+  releaseImport(); await page.getByText('Fixture permission error', { exact: true }).waitFor();
+  await importFocus('skill-import-title');
+  await capture('results');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
-  console.log('PASS Skill inventory, native state and file controls:', theme, width + 'x' + height, embedded ? 'embedded-query fallback' : 'standalone');
+  console.log('PASS Skill inventory, native state, files and source installation:', theme, width + 'x' + height, embedded ? 'embedded-query fallback' : 'standalone');
   await page.close();
  }
  }

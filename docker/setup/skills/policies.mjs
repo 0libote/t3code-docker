@@ -84,9 +84,10 @@ export function createSkillPolicies({ home, env, io, getHarness, invalidate, ins
     const harness = await getHarness(provider);
     if (!harness?.runnable || !harness.executable) throw fail("unsupported", "A managed " + (provider === "claude" ? "Claude Code" : "OpenCode") + " executable is not available.");
     const native = await (provider === "claude" ? inspectClaude : inspectOpenCode)({ executable: harness.executable, home, env });
-    if (before.revision !== await configSnapshot(file, io)) {
-      // V1 can add its schema URL on first use. Reinspect once from the new
-      // snapshot; never issue a revision for a mixed before/after policy.
+    if (file !== await fileFor(provider) || before.revision !== await configSnapshot(file, io)) {
+      // V1 can create a higher-priority JSONC file or add its schema URL on
+      // first use. Reinspect once from the selected source; never issue a
+      // revision for a mixed before/after policy or configuration source.
       if (retry) return inspect(provider, skills, false);
       throw fail("conflict", "Native settings changed during discovery. Refresh the list.");
     }

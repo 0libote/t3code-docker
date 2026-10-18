@@ -143,3 +143,27 @@ setTimeout(() => {
   assert.deepEqual(result.agent.permissions, [{ action: "skill", resource: "*", effect: "ask" }]);
   await assert.rejects(fs.stat(path.join(f.home, "metadata-initializing")), { code: "ENOENT" });
 });
+
+test("OpenCode first-use JSONC creation is reloaded before returning policy state or a revision", async (t) => {
+  const f = await fixture(t, "opencode", 1, null); let created = false;
+  const service = createSkillsService({ ...f.options, inspectOpenCode: async () => {
+    if (!created) { created = true; await fs.writeFile(f.config, '{"$schema":"https://opencode.ai/config.json","permission":{"skill":{"review":"deny"}}}'); }
+    return f.options.inspectOpenCode();
+  } });
+  const row = await f.row(service); assert.equal(row.state, "deny"); assert.equal(row.canSetState, true); assert.equal(f.calls(), 2);
+  const result = await service.setState("opencode", row.id, row.stateRevision, undefined, "ask");
+  assert.equal(result.inventory.skills.find((entry) => entry.id === row.id).state, "ask");
+  assert.equal(parseSettings(await fs.readFile(f.config, "utf8")).permission.skill.review, "ask");
+  await assert.rejects(fs.stat(path.join(f.root, "opencode.json")), { code: "ENOENT" });
+});
+
+test("repeated native configuration source changes disable controls after one bounded reinspection", async (t) => {
+  const f = await fixture(t, "opencode", 1, '{}'); let calls = 0;
+  const service = createSkillsService({ ...f.options, inspectOpenCode: async () => {
+    if (++calls === 1) await fs.unlink(f.config); else await fs.writeFile(f.config, '{"permission":"ask"}');
+    return f.options.inspectOpenCode();
+  } });
+  const result = await service.list("opencode");
+  assert.equal(calls, 2); assert.equal(result.coverage, "files"); assert.match(result.nativeError, /changed during discovery/);
+  assert.ok(!result.skills[0].canSetState); assert.equal(await fs.readFile(f.config, "utf8"), '{"permission":"ask"}');
+});
