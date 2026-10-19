@@ -1242,40 +1242,97 @@ const T3Model = (() => {
   };
 
   /** "2 devices paired · 5 agents signed in · 5 toolchains · nothing needs you" */
-  const readySummary = (status, ui) => {
+  const readySummary = (status, ui, ports = null) => {
     const s = status || {};
     const agents = agentRows(s, ui, 0);
     const signed = agents.filter((a) => ['ok', 'update'].includes(a.state)).length;
     const tools = (s.toolchains || []).filter((t) => t.installed).length;
-    const attention = needsYou(s, null, ui).length;
+    const attention = needsYou(s, ports, ui).length;
+    const keep = (text) => text.replace(/^(\d+) /, '$1\u00a0');
     return [
-      plural((s.sessions || []).length, 'device') + ' paired',
-      plural(signed, 'agent') + ' signed in',
-      plural(tools, 'toolchain'),
-      attention ? plural(attention, 'thing') + ' to look at' : 'nothing needs you',
+      keep(plural((s.sessions || []).length, 'device')) + ' paired',
+      keep(plural(signed, 'agent')) + ' signed in',
+      keep(plural(tools, 'toolchain')),
+      attention ? keep(plural(attention, 'thing needs', 'things need')) + ' you' : 'nothing needs you',
     ].join(' · ');
   };
 
   // -------------------------------------------------------- what needs you --
-  /** Rows that want the user: not signed in, failed, and updates available. */
+  /**
+   * The container's own problems, as items for the Overview's Needs you: a
+   * home or state folder the next recreate would leave behind, a filling disk,
+   * an older image's settings, a T3 Code update that did not finish, and T3
+   * Connect waiting on a restart. Each says what is wrong in a line and offers
+   * the one thing to do about it.
+   */
+  const containerItems = (status) => {
+    const s = status || {};
+    const paths = s.paths || {};
+    const out = [];
+    const item = (id, tone, icon, name, text, action) => out.push({ target: 'server', id, key: 'server:' + id, tone, icon, name, text, action });
+    const lost = (kind) => kind === 'anonymous' || kind === 'none';
+    if (lost(paths.volumeKind)) {
+      item('home', 'danger', 'folder', 'Recreating this container would lose its home folder',
+        'Agents, toolchains and caches are ' + (paths.volumeKind === 'none' ? 'inside the container.' : 'on an anonymous volume.'),
+        { cmd: 'volume.fix', id: 'home', label: 'How to fix' });
+    }
+    if (lost(paths.stateKind)) {
+      item('state', 'danger', 'folder', 'Recreating this container would lose T3 Code’s state',
+        'Conversations, sign-ins and settings are ' + (paths.stateKind === 'none' ? 'inside the container.' : 'on an anonymous volume.'),
+        { cmd: 'volume.fix', id: 'state', label: 'How to fix' });
+    }
+    const disk = diskWarning(s);
+    if (disk) {
+      item('disk', disk, 'hard-drive', 'The disk is ' + s.storage.disk.usedPercent + '% full',
+        formatBytes(s.storage.disk.availableBytes) + ' free. Clearing caches and old versions makes room.',
+        { cmd: 'goto', route: 'storage', label: 'Free up space' });
+    }
+    const legacy = (s.legacyEnv || []).filter((name) => name !== 'PATH');
+    if ((s.legacyEnv || []).length) {
+      item('legacy', 'warn', 'triangle-alert', 'Settings left over from an older image',
+        (legacy.length ? listOf(legacy) + (legacy.length === 1 ? ' is' : ' are') : 'The old PATH is') + ' still set in the container. Nothing here uses them.',
+        { cmd: 'goto', route: 'server', label: 'Review' });
+    }
+    const runtime = runtimeView(s);
+    if (runtime && runtime.error) {
+      item('runtime', 'warn', 'circle-arrow-up', 'T3 Code’s last update didn’t finish', String(runtime.error).split('\n')[0],
+        { cmd: 'goto', route: 'updates', label: 'Review' });
+    }
+    const connect = connectView(s);
+    if (connect.state === 'restart' && connect.action) {
+      item('connect', 'warn', 'globe', 'T3 Connect is waiting for a restart', 'T3 Code makes the link when it next starts.', connect.action);
+    }
+    return out;
+  };
+
+  /**
+   * What needs the person, worst first: anything failed, or lost on the next
+   * recreate; then sign-ins and warnings. Agents, tools and source control
+   * CLIs come as their own rows; a port that would not publish and the
+   * container's own problems as items. Updates are not here: they are
+   * offered, on Updates.
+   */
   const needsYou = (status, ports, ui) => {
     const s = status || {};
-    const agents = agentRows(s, ui, 0);
-    const tools = [...toolchainRows(s, ui, 0), ...packageRows(s, ui, 0)];
-    const rank = { failed: 0, signin: 1, update: 2 };
-    const items = [
-      ...agents.filter((a) => a.state in rank),
-      ...tools.filter((t) => t.state === 'failed' || t.state === 'update'),
+    const rank = { failed: 0, signin: 1 };
+    const rows = [
+      ...agentRows(s, ui, 0).filter((a) => a.state in rank),
+      ...[...toolchainRows(s, ui, 0), ...packageRows(s, ui, 0)].filter((t) => t.state === 'failed'),
       // Every CLI T3 Code would use and cannot yet, an added tool's too; the
       // image's gh is never pressed on anyone.
       ...sourceControlRows(s, ui, 0).filter((c) => !c.inImage && c.state in rank),
-    ];
+    ].map((row) => Object.assign(row, { severity: rank[row.state] }));
+    const items = [...rows, ...containerItems(s).map((x) => Object.assign(x, { severity: x.tone === 'danger' ? 0 : 1 }))];
     if (ports) {
       for (const p of portRows(ports, ui, 0)) {
-        if (p.state === 'failed') items.push({ target: 'port', id: p.port, state: 'failed', port: p });
+        if (p.state !== 'failed') continue;
+        items.push({ target: 'port', id: p.port, key: 'port:' + p.port, tone: 'danger', icon: 'ethernet-port', severity: 0,
+          name: 'Port ' + p.port + ' couldn’t be published', text: p.error || 'The tunnel failed.',
+          action: { cmd: 'port.publish', id: String(p.port), label: 'Retry', icon: 'refresh-cw' } });
       }
     }
-    return items.sort((a, b) => (rank[a.state] ?? 3) - (rank[b.state] ?? 3));
+    // Stable within a severity: the order each page lists them in.
+    return items.map((item, i) => [item, i]).sort((a, b) => a[0].severity - b[0].severity || a[1] - b[1]).map(([item]) => item);
   };
 
   // ------------------------------------------------------------- activity --
@@ -1515,6 +1572,14 @@ const T3Model = (() => {
     const add = (group, label, icon, cmd, extra) => items.push(Object.assign(
       { group, label, icon, cmd, id: group + ':' + label, keywords: (KEYWORDS[cmd.cmd] || '') + (cmd.cmd === 'goto' ? ' ' + label : '') },
       extra || {}));
+    // The container's own problems, as Overview lists them.
+    const fixes = { home: 'Fix the home folder’s anonymous volume…', state: 'Fix the state folder’s anonymous volume…',
+      legacy: 'Review settings left by an older image', runtime: 'Review the unfinished T3 Code update' };
+    for (const item of containerItems(s)) {
+      if (!fixes[item.id]) continue;
+      add(item.id === 'runtime' ? 'Updates' : 'Server', fixes[item.id], item.icon,
+        item.action.cmd === 'goto' ? { cmd: 'goto', route: item.action.route } : { cmd: item.action.cmd, id: item.action.id }, { attention: true });
+    }
     add('Storage', 'Free up disk space', 'hard-drive', { cmd: 'storage.goto' }, { keywords: 'disk space caches cleanup folders usage manage storage', attention: Boolean(diskWarning(s)) });
     add('Storage', 'Storage maintenance…', 'settings-2', { cmd: 'storage.preferences' }, { keywords: 'cache limits automatic cleanup retention preferences' });
 
@@ -1848,7 +1913,7 @@ const T3Model = (() => {
     agentRow, agentRows, toolRow, toolchainRow, toolchainRows, sourceControlRows, managedSourceControlRows, packageRows, portRows, looksLikeDatabase,
     monogram, managedOn, isVersionSpec, isToolSpec, specPrefix, SPEC_SAMPLES, searchRegistry, resolveRelease, matchReleases, releaseIndex, heldRelease, versionOf, toolName, SUGGESTED_TOOLS,
     deviceRows, linkRows, deviceKind, deviceName,
-    readiness, readySummary, needsYou, activity, setupBanner, setupFailures,
+    readiness, readySummary, needsYou, containerItems, activity, setupBanner, setupFailures,
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
     navBadges, serverWarnings, diskWarning, attentionCount, summaries, updatesView, runtimeView, autoUpdateView,
