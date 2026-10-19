@@ -338,6 +338,10 @@ const audit = () => {
     await page.click(".tc-layer .tc-menu-item:has-text('Rename')");
   };
   const STATES = [
+    ['MCP servers', async (page) => {
+      await page.evaluate(() => { location.hash = 'instructions/mcp'; });
+      await page.waitForSelector('.tc-mcp:not([hidden])');
+    }],
     ...ROUTES.map((route) => [route, async (page) => {
       await page.evaluate((r) => { location.hash = r; }, route);
       await page.waitForSelector(`#page-${route}:not([hidden]) .tc-section, #page-${route}:not([hidden]) .tc-group`, { timeout: 60000 });

@@ -1930,7 +1930,7 @@ const T3Model = (() => {
         : (row.linked || []).length ? { text: 'Uses ' + listOf(row.linked) + ((row.ownCount || 0) ? ' · +' + plural(row.ownCount, 'own server') : '') }
           : (row.ownCount || 0) ? { text: plural(row.ownCount, 'own server') + ' · none shared' }
             : { text: 'No shared servers linked' },
-      note: row.warning || null, path: row.path || null,
+      note: row.warning || null, path: row.path || null, revision: row.revision || null,
       linked: row.linked || [], unlinked: row.unlinked || [], diverged: row.diverged || [],
       ownCount: row.ownCount || 0, supported: row.supported !== false, error: row.error || null,
     }));

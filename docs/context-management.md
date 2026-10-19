@@ -356,37 +356,81 @@ still race the final check. Start a new conversation to load policy changes.
 
 ### Shared MCP servers
 
-The **MCP servers** tab holds one canonical list of Model Context Protocol
-servers at `$T3CODE_HOME/setup/mcp/servers.json` (mode `0600`, at most 128
-entries) and links each entry into the providers that should use it. A local
-server runs a command (`playwright-mcp --headless …`); a remote server points
-at an `http(s)` URL. Environment variables (local) and headers (remote) are
-stored with the entry and written into linked provider configs; they never
-appear in `/status` polling, which carries redacted summaries only
-(`envKeys`, `secretCount`). The full entry loads on demand in the editor.
+The **MCP servers** tab holds local command and Streamable HTTP definitions at
+`$T3CODE_HOME/setup/mcp/servers.json` (0600, at most 128 entries and 256 KiB).
+Add/edit the command as a JSON array and environment/headers as JSON objects,
+so empty arguments, whitespace and multiline values survive editing. Values
+are literal; variable interpolation follows each provider's native rules.
 
-Linking a provider merges the translated entry into its own config file and
-leaves every other server and setting in place. Unlinking removes only the
-shared entry. A provider-side edit shows as diverged: relink to apply the
-shared entry again. Provider-only servers are never touched. Start a new
-session after changing links: agents read MCP configuration at startup.
+**Save updates the shared definition. Apply updates a provider's copy.**
+Existing copies stay unchanged after a shared edit and show **Differs** until
+explicitly applied or unlinked. Switches show whether a same-name entry exists,
+including disabled or differing entries; they do not establish a live connection.
+**Apply** replaces that complete entry, including provider-only options, after
+confirmation. Unlink removes it. Both preserve a private config backup next to
+the resolved target (`.t3-mcp-backup.<unique suffix>`); these files contain secrets
+and can be removed manually once no longer needed. Unlink from every supported
+provider before removing the shared definition. Other provider entries remain
+in place. Start a new provider process/session after applying changes.
 
-How well each provider is supported:
+The tab manages default global config files, honoring the server environment's
+Claude/Codex/XDG/OpenCode directory overrides. Custom T3 provider-instance homes,
+project overrides, enterprise policy, approvals, plugin servers and effective
+runtime availability are outside its inventory. An unreadable provider config
+blocks removal rather than silently leaving an unknown copy behind.
 
-| Provider | Config file | Local | Remote | Notes |
-| --- | --- | --- | --- | --- |
-| Claude Code | `~/.claude.json` (`mcpServers`) | ✅ command/args/env | ✅ `type: http` + url/headers | File-based; project `.mcp.json` is out of scope |
-| Codex | `~/.codex/config.toml` (`[mcp_servers.*]`) | ✅ command/args/env | ✅ url/`http_headers` | Only `mcp_servers` sections are parsed; the rest of the file is preserved byte-for-byte |
-| OpenCode | `opencode.json[c]` (`.mcp`) | ✅ `type: local`, command array | ✅ `type: remote` + url/headers | JSONC wins when both exist; comments preserved |
-| Cursor | `~/.cursor/mcp.json` (`mcpServers`) | ✅ command/args/env | ✅ url/headers | Same shape as Claude user scope |
-| Antigravity | `~/.gemini/settings.json` (`mcpServers`) | ✅ command/args/env | ✅ `httpUrl`/headers | Gemini CLI shape; Antigravity divergence from it is unverified |
-| Grok Build | — | — | — | MCP layout unverified against the pinned CLI; not managed here yet |
-| Muse Code | — | — | — | MCP layout unverified against the pinned CLI; not managed here yet |
+| Provider | Native global config | Support in this release |
+| --- | --- | --- |
+| Claude Code | `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json` | Local command/args/env and HTTP URL/headers |
+| Codex | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | Local and HTTP; native `enabled`; full TOML parsing with edits limited to the selected server |
+| OpenCode 1 | `opencode.json[c]`, `.mcp[name]` | Local and HTTP; native `enabled` |
+| OpenCode 2 | `opencode.json[c]`, `.mcp.servers[name]` | Local and HTTP; native `disabled`; existing native V2 files stay V2; new files use the V1-compatible format also accepted by V2 |
+| Cursor | `~/.cursor/mcp.json` | Local and HTTP; native approval/login still applies |
+| Antigravity | T3's isolated provider profile | Not integrated; Gemini CLI settings are not an Antigravity integration |
+| Grok Build | `~/.grok/config.toml` | Not managed; Grok may also load Claude/Cursor MCP entries through native compatibility imports |
+| Muse Code | `$XDG_CONFIG_HOME/muse/settings.json` | Not managed in this release |
 
-Only Codex and OpenCode have a native enabled flag, so a disabled shared
-server links there and stays unlinked elsewhere (unlink represents disabled).
-`t3-browser-mcp` remains the quick CLI path for the two bundled browser
-servers; the console manages the shared list above it.
+OpenCode JSONC wins if both files exist. Codex uses a pinned vendored TOML
+syntax tree; nested tables, arrays of tables and unrelated comments are preserved.
+All provider writes share the native-settings serialization queue with skills,
+follow existing file/directory symlinks, reject stale revisions/retargeting and
+publish atomically with owner-only permissions. Other applications can still
+race between the final check and rename; this is not a cross-process transaction.
+With credential persistence enabled, Claude's default `.claude.json` also lives
+on the state volume. Custom roots need their own persistent mounts.
+
+Only Codex and OpenCode have a disabled state managed by this tab. For Claude
+and Cursor, unlink to disable a copy. Changing the definition's enabled flag
+does not stop old copies or existing sessions. A disabled definition with an
+old copy remains visible as **Differs** and can always be unlinked.
+
+Environment/header values load only in the authenticated editor. Polling and
+lists contain key names/counts, and remote URLs show only their origin (paths
+and queries can contain credentials). Commands are displayed, so put secrets in
+Environment or Headers. Credentials in URL userinfo are rejected. OAuth is not
+shared: sign in through `claude mcp login`, `codex mcp login`, `opencode mcp auth`
+or `cursor-agent mcp login` where required. Legacy SSE-only endpoints are not a
+portable substitute for Streamable HTTP.
+
+Native checks on 2026-10-19 passed local and HTTP handshakes, environment/header
+translation and unlink for Claude 2.1.303, Codex 0.163.0, OpenCode 1.14.19,
+OpenCode 2.0.18/2.0.32 and Cursor 2026.10.18-ea085cb. Codex/OpenCode disabled
+entries are checked not to start/connect. Checks use disposable homes and
+fixture servers, without a model prompt or real credentials. This verifies
+native configuration and MCP negotiation, not model-selected tool calls or
+OAuth. Reproduce with `node scripts/mcp-native-smoke.mjs PROVIDER /absolute/path`.
+
+Native contracts: [Claude](https://code.claude.com/docs/en/mcp),
+[Codex](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
+[OpenCode V1](https://opencode.ai/docs/mcp-servers/),
+[OpenCode V2](https://dev.opencode.ai/v2/docs/mcp-servers/),
+[Cursor](https://cursor.com/docs/cli/mcp),
+[Antigravity](https://antigravity.google/docs/cli/gcli-migration/),
+[Grok](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/07-mcp-servers.md),
+and [Muse](https://meta-models.github.io/muse-code-sdk/next/guides/extend/mcp-servers/).
+
+`t3-browser-mcp` remains a separate quick CLI path for the bundled browser
+servers; it writes provider entries directly and does not create shared definitions.
 
 ## Validation
 
@@ -426,10 +470,13 @@ also cover catalog selection, raw Markdown previews, provider selection,
 replacement consent/conflicts, failed backup moves/restoration, supporting-file
 edits with restored mtimes, shared-root retargeting and partial results.
 Unit/HTTP checks for shared MCP servers (`tests/mcp.test.mjs`,
-`tests/mcp-api.test.mjs`) cover store validation and revisions, TOML section
+`tests/mcp-api.test.mjs`, `tests/mcp-regressions.test.mjs`) cover store validation and revisions, TOML section
 preservation, provider translation round-trips, link/diverged detection,
 comment-preserving JSONC writes, unsupported providers and the authenticated
-boundary including secret redaction in polling responses.
+boundary including secret redaction in polling responses. `scripts/mcp-ui-audit.js`
+checks immediate refresh, editor revisions, lossless JSON values, apply/unlink,
+failed/late reads and mobile/desktop/embedded layouts in both themes. Its API
+responses are fixtures; no real provider configuration is modified.
 
 The adapters were also checked with Codex 0.163.0 in a disposable home. Native
 enable/disable, stale-request rejection, settings persistence across fresh

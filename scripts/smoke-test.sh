@@ -662,6 +662,17 @@ assert {'claude', 'codex', 'opencode'} <= providers, providers
 }
 check "shared MCP servers list without secrets" mcp_servers_list_without_secrets
 
+mcp_editor_works() {
+  [ "$HAS_BROWSER" -eq 1 ] || return 0
+  docker exec "$NAME" mkdir -p /tmp/t3-mcp-audit/lib /tmp/t3-mcp-audit/fixtures || return 1
+  docker cp scripts/mcp-ui-audit.js "$NAME:/tmp/t3-mcp-audit/mcp-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/fixtures/console "$NAME:/tmp/t3-mcp-audit/fixtures/console" >/dev/null 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3/node_modules \
+    "$NAME" node /tmp/t3-mcp-audit/mcp-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
+}
+check "MCP controls refresh immediately and preserve editor revisions and values" mcp_editor_works
+
 hello_says_only_what_it_may() {
   local stranger member
   stranger="$(docker exec "$NAME" curl -fsS --max-time 25 http://127.0.0.1:3774/__setup/hello)" || return 1
@@ -801,6 +812,19 @@ native_skill_controls_work() {
   done
 }
 check "native skill controls work with the installed Claude, Codex and OpenCode" "native_skill_controls_work >>\"$UI_AUDIT_LOG\" 2>&1"
+
+native_mcp_controls_work() {
+  local id executable
+  docker cp scripts/mcp-native-smoke.mjs "$NAME:/tmp/mcp-native-smoke.mjs" >/dev/null 2>&1 || return 1
+  for id in claude codex opencode cursor; do
+    executable="$(status_json | jq -r --arg id "$id" '.harnesses[] | select(.id == $id) | .executable')"
+    [ -n "$executable" ] && [ "$executable" != null ] || return 1
+    docker exec -u t3 -e T3_SETUP_MODULE=/opt/t3-setup/mcp.mjs \
+      -e T3_NATIVE_PROCESS_MODULE=/opt/t3-harness/native-process.mjs \
+      "$NAME" node /tmp/mcp-native-smoke.mjs "$id" "$executable" || return 1
+  done
+}
+check "native MCP local and HTTP settings work in Claude, Codex, OpenCode and Cursor" "native_mcp_controls_work >>\"$UI_AUDIT_LOG\" 2>&1"
 
 # T3 learns about each agent through its settings file, as soon as the agent
 # lands. Read it the way T3 does: each points at the agent's launcher, which

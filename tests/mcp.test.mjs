@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { validateMcpServer, readMcpStore, createMcpServer, saveMcpServer, removeMcpServer, redactMcpServer, mcpRevision } from "../docker/setup/mcp/store.mjs";
 import { parseMcpToml, applyMcpToml } from "../docker/setup/mcp/toml.mjs";
-import { toClaudeEntry, fromClaudeEntry, toCodexEntry, fromCodexEntry, toOpenCodeEntry, fromOpenCodeEntry, toCursorEntry, fromCursorEntry, toGeminiEntry, fromGeminiEntry, readProviderMcp, writeProviderMcpEntry } from "../docker/setup/mcp/adapters.mjs";
+import { toClaudeEntry, fromClaudeEntry, toCodexEntry, fromCodexEntry, toOpenCodeEntry, fromOpenCodeEntry, toCursorEntry, fromCursorEntry, readProviderMcp, writeProviderMcpEntry } from "../docker/setup/mcp/adapters.mjs";
 import { createMcpService } from "../docker/setup/mcp.mjs";
 
 async function fixture(t) {
@@ -72,12 +72,12 @@ test("codex TOML edits preserve unrelated sections", () => {
   const updated = applyMcpToml(original, "notion", { url: "https://mcp.notion.com/mcp", enabled: false });
   assert.match(updated, /model = "o4-mini"/);
   assert.match(updated, /\[mcp_servers\.playwright\]/);
-  assert.match(updated, /\[mcp_servers\.notion\]/);
+  assert.deepEqual(parseMcpToml(updated).get("notion"), { url: "https://mcp.notion.com/mcp", enabled: false });
   assert.match(updated, /\[other\]/);
   const removed = applyMcpToml(updated, "notion", null);
   assert.doesNotMatch(removed, /notion/);
   assert.match(removed, /playwright-mcp/);
-  assert.throws(() => parseMcpToml("[mcp_servers.a]\ncommand = 1\n[mcp_servers.a]\ncommand = 2\n"), /Duplicate/);
+  assert.throws(() => parseMcpToml("[mcp_servers.a]\ncommand = 1\n[mcp_servers.a]\ncommand = 2\n"), /safely edited/);
 });
 
 test("every supported provider translates a local and a remote server", () => {
@@ -93,9 +93,6 @@ test("every supported provider translates a local and a remote server", () => {
   assert.deepEqual(fromOpenCodeEntry("notion", toOpenCodeEntry(remote)), remote);
   assert.deepEqual(toCursorEntry(local), toClaudeEntry(local));
   assert.deepEqual(fromCursorEntry("playwright", toCursorEntry(local)), local);
-  const geminiRemote = toGeminiEntry(remote);
-  assert.equal(geminiRemote.httpUrl, "https://mcp.notion.com/mcp");
-  assert.deepEqual(fromGeminiEntry("notion", geminiRemote), remote);
   assert.equal(fromClaudeEntry("x", { nonsense: true }), null);
 });
 
@@ -104,11 +101,11 @@ test("links write provider files and derive state by comparison", async (t) => {
   const svc = svcFor(f, { CODEX_HOME: path.join(f.home, ".codex"), XDG_CONFIG_HOME: path.join(f.home, ".config") });
   const created = await svc.create({ name: "playwright", type: "local", command: ["playwright-mcp", "--headless"], env: {} });
   const revision = created.revision;
-  for (const provider of ["claude", "codex", "opencode", "cursor", "antigravity"]) {
+  for (const provider of ["claude", "codex", "opencode", "cursor"]) {
     await svc.setLink(provider, "playwright", true, revision);
   }
   const status = await svc.status({ refresh: true });
-  for (const provider of ["claude", "codex", "opencode", "cursor", "antigravity"]) {
+  for (const provider of ["claude", "codex", "opencode", "cursor"]) {
     const row = status.providers.find((entry) => entry.provider === provider);
     assert.deepEqual(row.linked, ["playwright"], provider);
     assert.deepEqual(row.diverged, [], provider);
@@ -120,7 +117,7 @@ test("links write provider files and derive state by comparison", async (t) => {
   assert.deepEqual(unlinked.unlinked, ["playwright"]);
   const grok = (await svc.status()).providers.find((entry) => entry.provider === "grok");
   assert.equal(grok.supported, false);
-  assert.match(grok.error, /unverified/);
+  assert.match(grok.error, /not implemented/);
 });
 
 test("disabled shared servers link only where the provider has an enabled flag", async (t) => {
@@ -131,7 +128,7 @@ test("disabled shared servers link only where the provider has an enabled flag",
   await svc.setLink("opencode", "quiet", true, created.revision);
   assert.equal((await svc.list("codex")).shared[0].linked, true);
   await assert.rejects(svc.setLink("claude", "quiet", true, created.revision), /no native enabled flag/);
-  await assert.rejects(svc.setLink("grok", "quiet", true, created.revision), /unverified/);
+  await assert.rejects(svc.setLink("grok", "quiet", true, created.revision), /not implemented/);
 });
 
 test("unsupported and unknown MCP shapes stay in place with a warning", async (t) => {

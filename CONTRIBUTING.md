@@ -38,6 +38,14 @@ Issues and pull requests are welcome. Before opening one:
   set `T3_STORAGE_UI_OUTPUT` to change that location. The development console
   isolates its home, mise state, and caches under `/tmp/t3-dev/home`.
 
+For shared MCP changes, run `node scripts/mcp-native-smoke.mjs PROVIDER
+/absolute/path/to/executable` for Claude, Codex, OpenCode (both V1 and V2) and
+Cursor. It uses disposable homes and fixture servers without model requests.
+`node scripts/mcp-ui-audit.js` checks the MCP tab's apply/unlink controls,
+revisions, JSON values and failed/late reads in both themes at phone, desktop
+and embedded sizes. It uses response fixtures, with screenshots under
+`/tmp/t3-mcp-ui-audit`. The standard screenshot matrix includes `instructions/mcp`.
+
 For OpenCode credential changes, run
 `node scripts/opencode-auth-smoke.mjs /absolute/path/to/opencode` against both
 1.x and 2.x (including 2.0.18, the supported V2 floor). It uses an isolated

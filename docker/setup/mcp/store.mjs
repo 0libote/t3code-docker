@@ -8,14 +8,13 @@ export const MCP_PROVIDERS = Object.freeze({
   codex: "Codex",
   opencode: "OpenCode",
   cursor: "Cursor",
-  antigravity: "Antigravity",
 });
-export const SUPPORTED_MCP_PROVIDERS = Object.freeze(["claude", "codex", "opencode", "cursor", "antigravity"]);
-// Grok Build and Muse Code MCP layouts are unverified against the pinned
-// CLIs (see docs/context-management.md). They stay out until verified.
+export const SUPPORTED_MCP_PROVIDERS = Object.freeze(Object.keys(MCP_PROVIDERS));
+// Keep native formats without a verified integration explicitly unavailable.
 export const UNSUPPORTED_MCP_PROVIDERS = Object.freeze({
-  grok: "Grok Build MCP layout is unverified against the pinned CLI; not managed here yet.",
-  muse: "Muse Code MCP layout is unverified against the pinned CLI; not managed here yet.",
+  antigravity: "Antigravity uses isolated T3 profiles; shared MCP settings are not integrated yet.",
+  grok: "Grok MCP management is not implemented. Grok may also load Claude and Cursor MCP settings through its native compatibility imports.",
+  muse: "Muse MCP management is not implemented yet.",
 });
 
 const MAX_STORE_BYTES = 256 * 1024;
@@ -38,8 +37,8 @@ export function validateMcpServer(input) {
   const out = { name, type, enabled };
   if (type === "local") {
     const command = Array.isArray(value.command) ? value.command : null;
-    if (!command || command.length < 1 || command.length > 32 || !command.every((part) => typeof part === "string" && part.length >= 1 && part.length <= 1024)) {
-      return { ok: false, error: "A local server needs a command of 1–32 entries, each 1–1024 characters." };
+    if (!command || command.length < 1 || command.length > 32 || !command[0] || !command.every((part) => typeof part === "string" && part.length <= 1024)) {
+      return { ok: false, error: "A local server needs an executable and at most 31 arguments, each up to 1024 characters." };
     }
     if (command.some((part) => part.includes("\0"))) return { ok: false, error: "Command entries must not contain NUL bytes." };
     out.command = [...command];
@@ -54,11 +53,16 @@ export function validateMcpServer(input) {
     out.env = Object.fromEntries(keys.sort().map((key) => [key, String(env[key])]));
   } else {
     const url = String(value.url ?? "").trim();
-    if (!/^https?:\/\/.{1,2048}$/.test(url)) return { ok: false, error: "A remote server needs an http(s) URL of at most 2048 characters." };
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || url.length > 2048 || /[\r\n\0]/.test(url)) throw new Error();
+      if (parsed.username || parsed.password) return { ok: false, error: "Put remote credentials in Headers, not in the URL." };
+    } catch { return { ok: false, error: "A remote server needs a valid http(s) URL of at most 2048 characters." }; }
     out.url = url;
     const headers = value.headers === undefined ? {} : value.headers;
     if (!headers || typeof headers !== "object" || Array.isArray(headers)) return { ok: false, error: "Expected headers to be an object." };
     const keys = Object.keys(headers);
+    if (new Set(keys.map((key) => key.toLowerCase())).size !== keys.length) return { ok: false, error: "Header names must be unique regardless of letter case." };
     if (keys.length > 64) return { ok: false, error: "A server holds at most 64 header entries." };
     for (const key of keys) {
       if (!/^[A-Za-z0-9-]+$/.test(key) || key.length > 128) return { ok: false, error: `Invalid header name: ${key}` };
@@ -74,11 +78,18 @@ export const mcpRevision = (servers) => createHash("sha256").update(JSON.stringi
 
 async function readStoreFile(fs, file) {
   let stat;
-  try { stat = await fs.stat(file); }
+  try { stat = await fs.lstat(file); }
   catch (error) { if (error?.code === "ENOENT") return { present: false }; throw error; }
   if (!stat.isFile()) throw problem("invalid", "The shared MCP store must be a regular file.");
   if (stat.size > MAX_STORE_BYTES) throw problem("too_large", "The shared MCP store exceeds the 256 KiB limit. Reduce it directly on disk.");
-  const raw = await fs.readFile(file, "utf8");
+  const handle = await fs.open(file, "r");
+  let raw;
+  try {
+    const buf = Buffer.alloc(MAX_STORE_BYTES + 1); let bytes = 0;
+    while (bytes < buf.length) { const r = await handle.read(buf, bytes, buf.length - bytes, bytes); if (!r.bytesRead) break; bytes += r.bytesRead; }
+    if (bytes > MAX_STORE_BYTES) throw problem("too_large", "The shared MCP store exceeds the 256 KiB limit.");
+    raw = buf.toString("utf8", 0, bytes);
+  } finally { await handle.close(); }
   let parsed;
   try { parsed = JSON.parse(raw); }
   catch { throw problem("invalid", "The shared MCP store is not valid JSON. Repair it directly on disk."); }
@@ -97,6 +108,7 @@ async function readStoreFile(fs, file) {
 }
 
 async function writeFileAtomic(fs, file, text) {
+  if (Buffer.byteLength(text, "utf8") > MAX_STORE_BYTES) throw problem("too_large", "The shared MCP store would exceed the 256 KiB limit. Reduce the server definition.");
   await fs.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp.${process.pid}.${randomBytes(6).toString("hex")}`;
   try {
@@ -109,7 +121,7 @@ async function writeFileAtomic(fs, file, text) {
 }
 
 const storeQueues = new Map();
-async function withStore(file, work) {
+export async function withStore(file, work) {
   const key = path.resolve(file);
   const previous = storeQueues.get(key) ?? Promise.resolve();
   const current = previous.catch(() => {}).then(work);
@@ -143,6 +155,7 @@ export async function createMcpServer(fs, baseDir, input) {
       return { ok: false, code: "conflict", error: "A shared MCP server with that name already exists." };
     }
     const servers = [...read.servers, checked.server];
+    if (servers.length > MAX_SERVERS) throw problem("too_large", "The shared MCP store holds at most 128 servers.");
     await writeFileAtomic(fs, file, JSON.stringify({ version: 1, servers }, null, 2) + "\n");
     return { ok: true, path: file, created: !read.present && read.servers.length === 0, revision: mcpRevision(servers), server: checked.server };
   });
@@ -165,13 +178,14 @@ export async function saveMcpServer(fs, baseDir, name, revision, input) {
   });
 }
 
-export async function removeMcpServer(fs, baseDir, name, revision) {
+export async function removeMcpServer(fs, baseDir, name, revision, beforeRemove = async () => {}) {
   const file = mcpStorePathFor(baseDir);
   return withStore(file, async () => {
     const read = await readMcpStore(fs, baseDir);
     if (read.error) return { ok: false, error: read.error };
     if (read.revision !== revision) return changedStore();
     if (!read.servers.some((server) => server.name === name)) return { ok: true, path: file, deleted: false, revision: read.revision };
+    await beforeRemove();
     const servers = read.servers.filter((server) => server.name !== name);
     if (servers.length === 0) await fs.rm(file, { force: true });
     else await writeFileAtomic(fs, file, JSON.stringify({ version: 1, servers }, null, 2) + "\n");
@@ -181,6 +195,9 @@ export async function removeMcpServer(fs, baseDir, name, revision) {
 
 export function redactMcpServer(server) {
   const { env, headers, ...rest } = server;
+  // Paths and query strings may contain signed credentials. Only the origin
+  // belongs in polling/list summaries; the full URL loads with the editor.
+  if (rest.url) { try { rest.url = new URL(rest.url).origin; } catch { rest.url = "(invalid URL)"; } }
   return { ...rest,
     envKeys: Object.keys(env ?? {}),
     envCount: Object.keys(env ?? {}).length,

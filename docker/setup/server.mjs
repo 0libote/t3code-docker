@@ -2704,7 +2704,8 @@ const server = createServer(async (req, res) => {
       try {
         const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
         if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Expected an MCP operation object." });
-        const result = route === "/context/mcp/link" ? await mcpService.setLink(input.provider, input.name, input.linked, input.sharedRevision)
+        if (route === "/context/mcp/link" && typeof input.providerRevision !== "string") return sendJson(res, 400, { ok: false, code: "invalid", error: "Refresh MCP servers before changing provider settings." });
+        const result = route === "/context/mcp/link" ? await mcpService.setLink(input.provider, input.name, input.linked, input.sharedRevision, input.providerRevision)
           : route === "/context/mcp/create" ? await mcpService.create(input.server)
           : route === "/context/mcp/save" ? await mcpService.save(input.name, input.revision, input.server)
             : await mcpService.remove(input.name, input.revision);

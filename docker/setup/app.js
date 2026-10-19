@@ -3420,6 +3420,7 @@
     'mcp.view': (a) => mcpUI.view(a.id),
     'mcp.add': () => mcpUI.add(),
     'mcp.link': (a) => mcpUI.toggle(a.provider, a.id),
+    'mcp.apply': (a) => mcpUI.apply(a.provider, a.id),
     'storage.goto': () => go('storage'),
     refresh: () => { loadStatus(); loadPorts(); },
     goto: (a) => go(a.route),

@@ -52,7 +52,7 @@ test("shared MCP API creates, links and removes servers without leaking secrets"
   assert.equal(status.context.mcp.shared.count, 1);
   assert.equal(JSON.stringify(status).includes('"secret"'), false);
   assert.deepEqual(status.context.mcp.providers.find((row) => row.provider === "codex").linked, []);
-  assert.match(status.context.mcp.providers.find((row) => row.provider === "grok").error, /unverified/);
+  assert.match(status.context.mcp.providers.find((row) => row.provider === "grok").error, /not implemented/);
 
   const read = await (await get("/context/mcp/read?name=playwright")).json();
   assert.equal(read.server.env.TOKEN, "secret");
@@ -61,18 +61,22 @@ test("shared MCP API creates, links and removes servers without leaking secrets"
   assert.equal((await get("/context/mcp?provider=nope")).status, 400);
   assert.equal((await get("/context/mcp?provider=grok")).status, 403);
 
-  const link = await post("/context/mcp/link", { provider: "codex", name: "playwright", linked: true, sharedRevision: created.revision });
+  const providerRevision = (provider) => get('/context/mcp?provider=' + provider).then(r => r.json()).then(r => r.revision);
+  const link = await post("/context/mcp/link", { provider: "codex", name: "playwright", linked: true, sharedRevision: created.revision, providerRevision: await providerRevision('codex') });
   assert.equal(link.status, 200);
   assert.match(await fs.readFile(path.join(home, ".codex", "config.toml"), "utf8"), /playwright-mcp/);
   const codex = await (await get("/context/mcp?provider=codex")).json();
   assert.equal(codex.shared[0].linked, true);
-  assert.equal((await post("/context/mcp/link", { provider: "codex", name: "playwright", linked: true, sharedRevision: "stale" })).status, 409);
-  const unlink = await post("/context/mcp/link", { provider: "claude", name: "playwright", linked: false, sharedRevision: created.revision });
+  assert.equal((await post("/context/mcp/link", { provider: "codex", name: "playwright", linked: true, sharedRevision: "stale", providerRevision: await providerRevision('codex') })).status, 409);
+  assert.equal((await post("/context/mcp/link", { provider: "codex", name: "playwright", linked: false, sharedRevision: created.revision })).status, 400);
+  const unlink = await post("/context/mcp/link", { provider: "claude", name: "playwright", linked: false, sharedRevision: created.revision, providerRevision: await providerRevision('claude') });
   assert.equal(unlink.status, 200);
-  assert.equal((await post("/context/mcp/link", { provider: "grok", name: "playwright", linked: true, sharedRevision: created.revision })).status, 403);
+  assert.equal((await post("/context/mcp/link", { provider: "grok", name: "playwright", linked: true, sharedRevision: created.revision, providerRevision: 'unused' })).status, 403);
 
   const saved = await post("/context/mcp/save", { name: "playwright", revision: "stale", server: { name: "playwright", type: "local", command: ["other"], env: {} } });
   assert.equal(saved.status, 409);
+  assert.equal((await post("/context/mcp/remove", { name: "playwright", revision: created.revision })).status, 409);
+  assert.equal((await post("/context/mcp/link", { provider: "codex", name: "playwright", linked: false, sharedRevision: created.revision, providerRevision: await providerRevision('codex') })).status, 200);
   const removed = await post("/context/mcp/remove", { name: "playwright", revision: created.revision });
   assert.equal(removed.status, 200);
   assert.equal((await get("/context/mcp/read?name=playwright")).status, 404);

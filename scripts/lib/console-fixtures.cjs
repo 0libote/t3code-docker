@@ -79,6 +79,13 @@ const statusFor = (scenario, change) => {
   const base = fixture("status.json");
   const now = Date.now();
   const status = SCENARIOS[scenario](shiftTimes(base, now - base.storage.at), now);
+  const mcp = fixture('mcp.json');
+  if (scenario === 'setup') {
+    Object.assign(mcp.shared, { present: false, count: 0, servers: [] });
+    for (const row of mcp.providers) Object.assign(row, { linked: [], unlinked: [], diverged: [], ownCount: 0 });
+  }
+  if (scenario === 'attention') Object.assign(mcp.providers.find(p => p.provider === 'codex'), { error: 'Codex config.toml cannot be safely edited. Check its TOML syntax before changing MCP servers.', linked: [], unlinked: ['playwright', 'docs', 'database'] });
+  status.context = { ...status.context, mcp };
   return change ? change(status, now) || status : status;
 };
 const portsFor = (scenario, change) => {
@@ -99,6 +106,14 @@ const routeConsole = async (page, { status, ports }) => {
     if (at("/status")) return route.fulfill({ json: status() });
     if (at("/ports")) return route.fulfill({ json: ports() });
     if (at("/providers")) return route.fulfill({ json: fixture("providers.json") });
+    if (at('/context/mcp')) return route.fulfill({ json: status().context.mcp });
+    if (at('/context/mcp/read')) {
+      const name = url.searchParams.get('name');
+      const summary = status().context.mcp.shared.servers.find(s => s.name === name);
+      const server = summary?.type === 'remote' ? { name, type: 'remote', enabled: true, url: 'https://docs.example.test/mcp', headers: { Authorization: 'Bearer sample-token' } }
+        : { name, type: 'local', enabled: summary?.enabled !== false, command: summary?.command || ['server'], env: name === 'database' ? { DATABASE_URL: 'sample-database-url' } : {} };
+      return route.fulfill({ json: { ok: true, server, revision: status().context.mcp.shared.revision } });
+    }
     if (at("/context/skills")) {
       const provider = url.searchParams.get("provider") || "claude";
       const name = `skills-${provider}.json`;

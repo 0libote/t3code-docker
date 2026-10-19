@@ -129,7 +129,9 @@ allow/ask/deny user policies and reports the Build agent's effective rule.
 Unmanaged shared skills can be added, edited and removed from Codex/OpenCode.
 Other providers show known files with unverified availability.
 The **MCP servers** tab holds one shared list of local and remote servers and
-links each entry into the providers that should use it (Claude Code, Codex,
-OpenCode, Cursor and Antigravity; Grok Build and Muse Code layouts are
-unverified and not managed). Provider-only servers stay in place.
+applies each entry to Claude Code, Codex, OpenCode or Cursor. Saving a shared
+definition leaves existing provider copies unchanged until explicitly applied
+or unlinked. Antigravity, Grok Build and Muse Code are not managed here.
+Provider-only servers stay in place; switches indicate config presence rather
+than runtime connectivity.
 See [Context management](context-management.md) for paths and verification.

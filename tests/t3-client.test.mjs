@@ -100,7 +100,8 @@ test("Setup's commands are found in T3's palette the way T3 finds its own", () =
   assert.equal(found(">open setup"), "setup");
   // Nothing typed, or nothing that answers: none.
   for (const q of ["", "   ", ">", "settings", "new thread", "setup ports zzz", "theme"]) assert.equal(found(q), "", q);
-  for (const item of B.PALETTE_ITEMS) assert.ok(item.route === null || /^[a-z]+$/.test(item.route), item.id);
+  assert.equal(found('mcp').split(',')[0], 'mcp');
+  for (const item of B.PALETTE_ITEMS) assert.ok(item.route === null || /^[a-z]+(?:\/mcp)?$/.test(item.route), item.id);
 });
 
 test("arrow keys walk Setup's rows and T3's as one list that wraps", () => {

@@ -46,7 +46,7 @@ const CHROME = process.env.CHROME_PATH || "/usr/bin/chromium";
 const { routesTable, statusFor, portsFor, routeConsole, framed, unlock, visit } = require("./lib/console-fixtures.cjs");
 const T3Routes = routesTable();
 // Pages, and the second tab of the one that has tabs.
-const ROUTES = list("routes", [...T3Routes.PAGES.map((p) => p.route), "instructions/skills", "more"]);
+const ROUTES = list("routes", [...T3Routes.PAGES.map((p) => p.route), "instructions/skills", "instructions/mcp", "more"]);
 const SIZES = {
   phone: { width: 390, height: 844, scale: 2 },
   tablet: { width: 820, height: 1180, scale: 1 },
@@ -61,6 +61,12 @@ const withOverlays = args.includes("--overlays");
 // The overlays worth a picture: how to reach each from a loaded console. Each
 // returns false when the scenario has nothing to open.
 const OVERLAYS = [
+  ['mcp-editor', async (t) => {
+    await t.evaluate(() => { location.hash = 'instructions/mcp'; });
+    const edit = await t.waitForSelector('[data-cmd="mcp.view"]', { timeout: 5000 }).catch(() => null);
+    if (!edit) return false;
+    await edit.click(); await t.waitForSelector('.tc-mcp-editor'); return true;
+  }],
   ["palette", async (t, page) => { await t.evaluate(() => { location.hash = "overview"; }); await page.keyboard.press("Control+k"); await t.waitForSelector(".tc-layer .tc-palette"); return true; }],
   ["device-menu", async (t) => {
     await t.evaluate(() => { location.hash = "access"; });

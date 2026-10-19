@@ -1,22 +1,21 @@
 // Shared MCP servers: canonical store plus per-provider link state derived
 // by comparison (no new manifest format). No MCP execution here.
 import path from "node:path";
-import { mcpStorePathFor, readMcpStore, createMcpServer, saveMcpServer, removeMcpServer, redactMcpServer, validateMcpServer, MCP_PROVIDERS, UNSUPPORTED_MCP_PROVIDERS } from "./mcp/store.mjs";
-import { readProviderMcp, writeProviderMcpEntry, toClaudeEntry, toCodexEntry, toOpenCodeEntry, toCursorEntry, toGeminiEntry, isSupportedMcpProvider } from "./mcp/adapters.mjs";
+import { mcpStorePathFor, readMcpStore, createMcpServer, saveMcpServer, removeMcpServer, redactMcpServer, validateMcpServer, MCP_PROVIDERS, UNSUPPORTED_MCP_PROVIDERS, withStore } from "./mcp/store.mjs";
+import { readProviderMcp, writeProviderMcpEntry, toClaudeEntry, toCodexEntry, toOpenCodeEntry, toCursorEntry, isSupportedMcpProvider } from "./mcp/adapters.mjs";
 
 const problem = (code, message) => Object.assign(new Error(message), { code });
 const summaryError = (error) => String(error?.message || error).slice(0, 240);
 
 export function mcpProviders() {
-  return [...Object.entries(MCP_PROVIDERS).map(([id, name]) => ({ id, name })), ...Object.entries(UNSUPPORTED_MCP_PROVIDERS).map(([id, reason]) => ({ id, name: id === "grok" ? "Grok Build" : "Muse Code", unsupported: reason }))];
+  return [...Object.entries(MCP_PROVIDERS).map(([id, name]) => ({ id, name })), ...Object.entries(UNSUPPORTED_MCP_PROVIDERS).map(([id, reason]) => ({ id, name: { grok: "Grok Build", muse: "Muse Code", antigravity: "Antigravity" }[id], unsupported: reason }))];
 }
 
 const toEntryFor = (provider, server) =>
   provider === "claude" ? toClaudeEntry(server)
   : provider === "codex" ? toCodexEntry(server)
   : provider === "opencode" ? toOpenCodeEntry(server)
-  : provider === "cursor" ? toCursorEntry(server)
-  : toGeminiEntry(server);
+  : toCursorEntry(server);
 
 const normalize = (value) => {
   if (Array.isArray(value)) return value.map(normalize);
@@ -26,8 +25,8 @@ const normalize = (value) => {
   return value;
 };
 const canonicalEqual = (a, b) => JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
-// Native `enabled` exists for Codex and OpenCode only. Other providers link
-// by content; a disabled shared server stays unlinked there with a reason.
+// Apply disabled definitions only to Codex/OpenCode. A surviving old copy
+// elsewhere remains visible as differing until explicitly unlinked.
 const linkable = (provider, server) => server.enabled !== false || provider === "codex" || provider === "opencode";
 
 export function createMcpService({ home, env = process.env, io, baseDir, ttlMs = 15000 } = {}) {
@@ -37,7 +36,7 @@ export function createMcpService({ home, env = process.env, io, baseDir, ttlMs =
   const statusCache = { at: 0, promise: null };
 
   const linkState = async (provider, shared) => {
-    if (UNSUPPORTED_MCP_PROVIDERS[provider]) return { provider, supported: false, error: UNSUPPORTED_MCP_PROVIDERS[provider], linked: [], unlinked: shared.map((s) => s.name), own: 0 };
+    if (UNSUPPORTED_MCP_PROVIDERS[provider]) return { provider, supported: false, error: UNSUPPORTED_MCP_PROVIDERS[provider], linked: [], unlinked: shared.map((s) => s.name), diverged: [], own: [], ownCount: 0 };
     if (!isSupportedMcpProvider(provider)) throw problem("invalid", "Unknown MCP provider.");
     try {
       const read = await readProviderMcp(io, provider, { home, env });
@@ -46,14 +45,13 @@ export function createMcpService({ home, env = process.env, io, baseDir, ttlMs =
       for (const server of shared) {
         const row = byName.get(server.name);
         if (!row) { unlinked.push(server.name); continue; }
-        if (row.canonical && canonicalEqual(row.canonical, server)) { linked.push(server.name); continue; }
-        if (!linkable(provider, server)) { unlinked.push(server.name); continue; }
+        if (row.canonical && !row.extra && canonicalEqual(row.canonical, server)) { linked.push(server.name); continue; }
         // Content differs: a provider-side edit, or a shared edit not yet applied.
         diverged.push(server.name);
       }
       const sharedNames = new Set(shared.map((server) => server.name));
       const own = read.servers.filter((row) => !sharedNames.has(row.name)).map((row) => row.name);
-      return { provider, supported: true, path: read.path, present: read.present, linked, unlinked, diverged,
+      return { provider, supported: true, path: read.path, present: read.present, revision: read.revision, linked, unlinked, diverged,
         own, ownCount: own.length, error: null,
         warning: read.servers.some((row) => !row.canonical) ? "One or more provider entries use an unsupported shape and are left in place." : null };
     } catch (error) {
@@ -88,10 +86,10 @@ export function createMcpService({ home, env = process.env, io, baseDir, ttlMs =
     let detail = null;
     try { detail = await readProviderMcp(io, provider, { home, env }); }
     catch (error) { throw problem(error?.code || "unavailable", summaryError(error)); }
-    return { ok: true, provider, path: detail.path, sharedRevision: store.revision,
+    return { ok: true, provider, path: detail.path, revision: detail.revision, sharedRevision: store.revision,
       shared: store.servers.map((server) => {
         const row = detail.servers.find((entry) => entry.name === server.name);
-        const linked = Boolean(row?.canonical && canonicalEqual(row.canonical, server));
+        const linked = Boolean(row?.canonical && !row.extra && canonicalEqual(row.canonical, server));
         return { ...redactMcpServer(server),
           linked,
           diverged: Boolean(row && !linked),
@@ -112,7 +110,7 @@ export function createMcpService({ home, env = process.env, io, baseDir, ttlMs =
     return { ok: true, server, revision: store.revision };
   };
 
-  const setLink = async (provider, name, linked, sharedRevision) => {
+  const setLink = async (provider, name, linked, sharedRevision, providerRevision) => withStore(mcpStorePathFor(baseDir), async () => {
     if (UNSUPPORTED_MCP_PROVIDERS[provider]) throw problem("unsupported", UNSUPPORTED_MCP_PROVIDERS[provider]);
     if (!isSupportedMcpProvider(provider)) throw problem("invalid", "Unknown MCP provider.");
     if (typeof linked !== "boolean") throw problem("invalid", "Expected a boolean linked value.");
@@ -125,16 +123,25 @@ export function createMcpService({ home, env = process.env, io, baseDir, ttlMs =
     if (linked && !linkable(provider, server)) {
       throw problem("unsupported", "This provider has no native enabled flag; disable is represented by unlinking. Unlink instead.");
     }
-    await writeProviderMcpEntry(io, provider, { home, env }, name, linked ? toEntryFor(provider, server) : null);
+    const result = await writeProviderMcpEntry(io, provider, { home, env }, name, linked ? toEntryFor(provider, server) : null, { revision: providerRevision });
     invalidate();
-    return { ok: true, provider, name, linked };
-  };
+    return { ...result, ok: true, provider, name, linked };
+  });
 
   return {
     status, list, read, setLink, providers: mcpProviders,
     create: async (...args) => { const result = await createMcpServer(io, baseDir, ...args); invalidate(); if (!result.ok && !result.code) throw problem("invalid", result.error); if (!result.ok) throw problem(result.code || "invalid", result.error); return { ok: true, ...result }; },
     save: async (...args) => { const result = await saveMcpServer(io, baseDir, ...args); invalidate(); if (!result.ok && !result.code) throw problem("invalid", result.error); if (!result.ok) throw problem(result.code || "invalid", result.error); return { ok: true, ...result }; },
-    remove: async (...args) => { const result = await removeMcpServer(io, baseDir, ...args); invalidate(); if (!result.ok) throw problem(result.code || "invalid", result.error); return { ok: true, ...result }; },
+    remove: async (name, revision) => {
+      const check = async () => {
+        for (const provider of Object.keys(MCP_PROVIDERS)) {
+          const detail = await readProviderMcp(io, provider, { home, env });
+          if (detail.servers.some((row) => row.name === name)) throw problem("conflict", "Unlink this server from every provider before removing its shared definition.");
+        }
+      };
+      const result = await removeMcpServer(io, baseDir, name, revision, check); invalidate();
+      if (!result.ok) throw problem(result.code || "invalid", result.error); return { ok: true, ...result };
+    },
     validate: validateMcpServer,
   };
 }
