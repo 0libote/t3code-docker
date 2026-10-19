@@ -229,11 +229,11 @@ const ui = { busy: new Map(), pending: new Map(), notices: new Map() };
 test("Context offers only global instructions and never adds attention", () => {
   const status = { server: { ok: true }, harnesses: [], toolchains: [], sessions: [], pairings: [], operations: {} };
   assert.equal(M.contextView(status).present, false);
-  assert.equal(M.navBadges(status, null, ui).context, null);
+  assert.equal(M.navBadges(status, null, ui).instructions, null);
   const row = M.contextAgentsMdRow(status);
   assert.equal(row.action.cmd, "context.edit");
   assert.equal(row.attention, false);
-  const items = M.paletteItems(status, null, ui, Date.now()).filter((i) => i.group === "Context");
+  const items = M.paletteItems(status, null, ui, Date.now()).filter((i) => i.group === "Instructions & skills");
   assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.label === "Edit global AGENTS.md…"));
   assert.ok(items.every((i) => !/skill|setup|project/i.test(i.label)));
 });

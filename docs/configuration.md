@@ -59,6 +59,35 @@ this at startup and warns you:
 ```
 
 With a named volume or a host directory, the log says what it found instead.
+The setup page says so too: **Server** marks the folder and lists the commands
+below with the volume's own name filled in.
+
+### Moving an anonymous volume to a named one
+
+Copy it into a named volume while the container is stopped, then recreate the
+container with that volume mounted. Nothing is lost, and the old volume stays
+where it is until you remove it.
+
+```bash
+# 1. The anonymous volume behind /home/t3 (a 64-character hash)
+docker inspect t3code --format '{{range .Mounts}}{{if eq .Destination "/home/t3"}}{{.Name}}{{end}}{{end}}'
+
+# 2. Stop the container, and copy that volume into a new named one
+docker stop t3code
+docker volume create t3-home
+docker run --rm --entrypoint sh -v <hash>:/from -v t3-home:/to \
+  dizys/t3code-docker -c 'cp -a /from/. /to/'
+```
+
+3. Recreate the container with `-v t3-home:/home/t3`, or in Compose,
+   `- t3-home:/home/t3` under `volumes:` with `t3-home:` declared at the end of
+   the file, as in the [Compose example](../README.md#with-docker-compose).
+4. Once the setup page shows **Home** as durable, remove the old volume with
+   `docker volume rm <hash>`.
+
+The copy runs in the image you already have, so it pulls nothing, and `cp -a`
+keeps every file's owner and permissions. A state directory mounted on a volume
+of its own (`/home/t3/.t3`) is not part of the copy; keep mounting it as before.
 
 Helper commands in the container: `t3-pair`, `t3-login`, `t3-doctor`, `t3-storage`,
 `t3-harness`, `t3-expose` and `t3-browser-mcp`. They all switch from root to the

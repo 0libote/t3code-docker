@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Auto-update settings and the T3 Code risk confirmation against a running
-// console. Policy saves are intercepted: this audit cannot change a real
-// policy. Usage: node scripts/auto-update-ui-audit.js <console-url> <setup-key>
+// The Updates page against a running console: automatic-update switches and
+// schedules, the T3 Code risk confirmation, update checks and their failures.
+// Policy saves and checks are intercepted: this audit cannot change a real
+// policy or start a real check. Usage: node scripts/auto-update-ui-audit.js <console-url> <setup-key>
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -116,7 +117,7 @@ const geometry = () => {
       await page.goto(url.href);
       await page.getByLabel('Setup key', { exact: true }).fill(key);
       await page.getByRole('button', { name: 'Unlock', exact: true }).click();
-      await page.locator('[data-cmd="auto.settings"]:visible').first().waitFor();
+      await page.locator('#page-agents .tc-page-head').waitFor();
       if (embedded) assert.equal(await page.evaluate(() => window.parent !== window && document.documentElement.dataset.embed === 't3'), true, 'embedded cases run inside a real iframe');
       await page.evaluate(() => { window.T3C.copyText = async (text) => { window.auditCopiedText = text; return true; }; });
       const tag = `${width}-${theme}${embedded ? '-embedded' : ''}`;
@@ -140,64 +141,6 @@ const geometry = () => {
       await startupDialog.waitFor({ state: 'hidden' });
       assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'setup.errors', 'Escape returns focus to startup Details');
 
-      await page.locator('[data-cmd="auto.settings"]:visible').first().click();
-      const settings = page.getByRole('dialog', { name: 'Automatic updates' });
-      await settings.waitFor(); await check('settings');
-      await host.screenshot({ path: path.join(output, `${tag}-settings.png`) });
-      const providers = page.locator('[data-auto-switch="providers.enabled"]');
-      const toolchains = page.locator('[data-auto-switch="toolchains.enabled"]');
-      const t3 = page.locator('[data-auto-switch="t3.enabled"]');
-      for (const toggle of [providers, toolchains, t3]) assert.equal(await toggle.getAttribute('aria-checked'), 'false');
-
-      await providers.click();
-      assert.equal(await providers.getAttribute('aria-checked'), 'true');
-      assert.equal(await toolchains.getAttribute('aria-checked'), 'false');
-      assert.equal(await page.getByRole('alertdialog').count(), 0);
-
-      // Turning T3 Code on must warn before the draft changes. Cancelling the
-      // warning leaves the switch and its timing fields off.
-      await t3.click();
-      const warning = page.getByRole('alertdialog');
-      await warning.waitFor(); await check('T3 Code warning');
-      const warningText = await warning.innerText();
-      assert.match(warningText, /alpha software/);
-      assert.match(warningText, /setup console/);
-      assert.match(warningText, /active agent turns and terminals stop/);
-      assert.equal(await t3.getAttribute('aria-checked'), 'false');
-      assert.equal(await page.locator('#auto-t3-check').isDisabled(), true);
-      assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Cancel');
-      await host.screenshot({ path: path.join(output, `${tag}-warning.png`) });
-      await host.keyboard.press('Escape');
-      await warning.waitFor({ state: 'hidden' });
-      assert.equal(await t3.getAttribute('aria-checked'), 'false');
-      assert.equal(await page.evaluate(() => document.activeElement.dataset.autoSwitch), 't3.enabled');
-
-      // Confirming enables T3 Code. Within this settings session, turning it
-      // off and back on does not repeat a warning the user just accepted.
-      await t3.click(); await warning.waitFor();
-      await page.getByRole('button', { name: 'Turn on automatic updates', exact: true }).click();
-      await warning.waitFor({ state: 'hidden' });
-      assert.equal(await t3.getAttribute('aria-checked'), 'true');
-      assert.equal(await page.evaluate(() => document.activeElement.dataset.autoSwitch), 't3.enabled');
-      await t3.click(); assert.equal(await t3.getAttribute('aria-checked'), 'false');
-      await t3.click(); await host.waitForTimeout(100);
-      assert.equal(await t3.getAttribute('aria-checked'), 'true');
-      assert.equal(await page.getByRole('alertdialog').count(), 0);
-
-      await toolchains.click(); await host.waitForTimeout(100);
-      assert.equal(await toolchains.getAttribute('aria-checked'), 'true');
-      assert.equal(await page.getByRole('alertdialog').count(), 0);
-      await page.locator('#auto-t3-check').fill('1.5');
-      await page.locator('#auto-t3-idle').fill('15');
-      await page.locator('[data-auto-save]').click();
-      await settings.waitFor({ state: 'hidden' });
-      assert.equal(saved.length, 1);
-      assert.equal(saved[0].providers.enabled, true);
-      assert.equal(saved[0].toolchains.enabled, true);
-      assert.equal(saved[0].t3.enabled, true);
-      assert.equal(saved[0].t3.checkMinutes, 90);
-      assert.equal(saved[0].t3.idleMinutes, 15);
-
       // Long diagnostics stay available without consuming the agent list.
       const failedRow = page.locator('[data-key="row-harness:opencode"]');
       await failedRow.getByRole('button', { name: 'Error details for OpenCode' }).waitFor();
@@ -215,12 +158,83 @@ const geometry = () => {
       await errorDialog.waitFor({ state: 'hidden' });
       assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'row.error', 'Escape returns focus to Details');
 
-      const control = () => page.locator('[data-cmd="updates.check"]:visible').first();
-      const firstTop = () => page.locator('#page-agents .tc-row').first().evaluate((el) => el.getBoundingClientRect().top);
+      // Automatic updates: a switch per category on the Updates page, each
+      // saved as it is pressed and independent of the others.
+      url.hash = 'updates'; await page.goto(url.href);
+      const providers = page.locator('[data-key="auto-toggle-providers"]');
+      const toolchains = page.locator('[data-key="auto-toggle-toolchains"]');
+      const t3 = page.locator('[data-key="auto-toggle-t3"]');
+      await t3.waitFor();
+      await check('updates page');
+      await host.screenshot({ path: path.join(output, `${tag}-updates.png`) });
+      for (const toggle of [providers, toolchains, t3]) assert.equal(await toggle.getAttribute('aria-checked'), 'false');
+      assert.equal(await page.locator('[data-cmd="auto.schedule"]').count(), 0, 'a category that is off has no schedule to change');
+
+      await providers.click();
+      await page.waitForFunction(() => document.querySelector('[data-key="auto-toggle-providers"]')?.getAttribute('aria-checked') === 'true');
+      assert.equal(saved.length, 1);
+      assert.equal(saved[0].providers.enabled, true);
+      assert.equal(saved[0].toolchains.enabled, false);
+      assert.equal(saved[0].t3.enabled, false);
+      assert.equal(await toolchains.getAttribute('aria-checked'), 'false');
+      assert.equal(await page.getByRole('alertdialog').count(), 0);
+      assert.equal(await page.evaluate(() => document.activeElement.dataset.key), 'auto-toggle-providers', 'saving keeps focus on the switch');
+
+      // Turning T3 Code on warns first; cancelling saves nothing.
+      await t3.click();
+      const warning = page.getByRole('alertdialog');
+      await warning.waitFor(); await check('T3 Code warning');
+      const warningText = await warning.innerText();
+      assert.match(warningText, /alpha software/);
+      assert.match(warningText, /setup console/);
+      assert.match(warningText, /Active agent turns and terminals stop/);
+      assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Cancel');
+      await host.screenshot({ path: path.join(output, `${tag}-warning.png`) });
+      await host.keyboard.press('Escape');
+      await warning.waitFor({ state: 'hidden' });
+      assert.equal(await t3.getAttribute('aria-checked'), 'false');
+      assert.equal(saved.length, 1, 'a cancelled warning saves nothing');
+      assert.equal(await page.evaluate(() => document.activeElement.dataset.key), 'auto-toggle-t3');
+
+      await t3.click(); await warning.waitFor();
+      await page.getByRole('button', { name: 'Turn on automatic updates', exact: true }).click();
+      await warning.waitFor({ state: 'hidden' });
+      await page.waitForFunction(() => document.querySelector('[data-key="auto-toggle-t3"]')?.getAttribute('aria-checked') === 'true');
+      assert.equal(saved.length, 2);
+      assert.equal(saved[1].t3.enabled, true);
+      assert.equal(saved[1].providers.enabled, true, 'each save keeps the other categories as they were');
+
+      await toolchains.click();
+      await page.waitForFunction(() => document.querySelector('[data-key="auto-toggle-toolchains"]')?.getAttribute('aria-checked') === 'true');
+      assert.equal(saved.length, 3);
+      assert.equal(await page.getByRole('alertdialog').count(), 0);
+
+      // A schedule of its own, checked before it is saved.
+      await page.locator('[data-key="auto-schedule-t3"]').click();
+      const schedule = page.getByRole('dialog', { name: 'T3 Code: when to update' });
+      await schedule.waitFor(); await check('schedule');
+      await host.screenshot({ path: path.join(output, `${tag}-schedule.png`) });
+      await page.locator('#auto-check').fill('0');
+      await page.locator('[data-schedule-save]').click();
+      assert.equal(await page.locator('#auto-check').getAttribute('aria-invalid'), 'true');
+      assert.equal(saved.length, 3, 'an invalid schedule is not saved');
+      await page.locator('#auto-check').fill('1.5');
+      await page.locator('#auto-idle').fill('15');
+      await page.locator('[data-schedule-save]').click();
+      await schedule.waitFor({ state: 'hidden' });
+      assert.equal(saved.length, 4);
+      assert.equal(saved[3].t3.checkMinutes, 90);
+      assert.equal(saved[3].t3.idleMinutes, 15);
+      assert.equal(saved[3].providers.enabled, true);
+      assert.equal(saved[3].toolchains.enabled, true);
+      assert.match(await page.locator('#auto-t3-desc').textContent(), /every 1\.5 hours.*15 min/);
+
+      // One check covers everything. It never moves the page or resizes itself.
+      const control = () => page.locator('[data-cmd="updates.check"]').first();
+      const firstTop = () => page.locator('#page-updates [data-key="runtime"]').evaluate((el) => el.getBoundingClientRect().top);
       const refreshStatus = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-      await control().scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollTo(0, 0));
       const idleTop = await firstTop();
-      const idleNotices = await page.locator('#page-agents > .tc-notice').count();
       const controlSize = () => control().evaluate((el) => { const { width, height } = el.getBoundingClientRect(); return { width, height }; });
       const idleSize = await controlSize();
       // A pre-existing status read must not briefly re-enable the control or
@@ -232,114 +246,107 @@ const geometry = () => {
       await started;
       try {
         await control().click();
-        await page.getByRole('button', { name: 'Checking for updates', exact: true }).filter({ visible: true }).waitFor();
+        await page.getByRole('button', { name: 'Checking for updates', exact: true }).waitFor();
         await check('checking');
-        assert.equal(await control().isDisabled(), true, 'manual checks coalesce while running');
+        assert.equal(await control().getAttribute('aria-disabled'), 'true', 'manual checks coalesce while running');
         assert.equal(checkRequests, 1);
         assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'updates.check', 'starting a check preserves keyboard focus');
         await host.keyboard.press('Enter');
-        // Wait for a second request, if the keyboard guard allowed one.
         await host.waitForTimeout(100);
         assert.equal(checkRequests, 1, 'aria-disabled blocks keyboard resubmission during an older status read');
       } finally { releaseStatus(); }
-      assert.equal(await firstTop(), idleTop, 'checking does not shift the first agent');
-      assert.deepEqual(await controlSize(), idleSize, 'checking preserves control dimensions');
+      assert.equal(await firstTop(), idleTop, 'checking does not move the page');
+      assert.deepEqual(await controlSize(), idleSize, 'checking preserves the control’s size');
       await host.screenshot({ path: path.join(output, `${tag}-checking.png`) });
+
+      // Sources that could not be checked: a count on the page, the rest one press away.
       updates = { refreshing: false, manual: false, errors: { 'harness:claude': 'offline <script>unsafe</script>', 'toolchain:go': 'offline' } };
       await refreshStatus();
-      await page.getByRole('button', { name: 'Review update checks', exact: true }).filter({ visible: true }).waitFor();
-      assert.equal(await firstTop(), idleTop, 'a failed check does not shift the first agent');
-      assert.deepEqual(await controlSize(), idleSize, 'a failure preserves control dimensions');
-      assert.equal(await page.locator('#page-agents > .tc-notice').count(), idleNotices, 'update checks add no page notice alongside the existing startup warning');
-      await check('agent failure');
-      await host.screenshot({ path: path.join(output, `${tag}-agent-failure.png`) });
+      const failed = page.locator('#page-updates > .tc-notice').filter({ hasText: '2 sources couldn’t be checked' });
+      await failed.waitFor();
+      assert.deepEqual(await controlSize(), idleSize, 'a failure preserves the control’s size');
+      await check('check failures');
+      await host.screenshot({ path: path.join(output, `${tag}-check-failures.png`) });
       assert.equal(await page.getByText('Some update checks failed', { exact: true }).count(), 1, 'manual completion is announced once');
-      await control().click();
+      await failed.getByRole('button', { name: 'Details', exact: true }).click();
       const checks = page.getByRole('dialog', { name: 'Update checks', exact: true });
       await checks.waitFor();
       assert.equal(await checks.getByText('Claude Code', { exact: true }).count(), 1);
-      assert.equal(await checks.getByText('Go', { exact: true }).count(), 0, 'only sources on this page are listed');
-      assert.equal(await checks.locator('pre').isVisible(), false, 'technical diagnostics start collapsed');
-      await checks.locator('summary').click();
-      assert.equal(await checks.locator('pre').textContent(), 'offline <script>unsafe</script>', 'diagnostics render as text');
+      assert.equal(await checks.getByText('Go', { exact: true }).count(), 1, 'every source is listed on the one page that checks them');
+      assert.equal(await checks.locator('pre').first().isVisible(), false, 'technical diagnostics start collapsed');
+      await checks.locator('summary').first().click();
+      assert.equal(await checks.locator('pre').first().textContent(), 'offline <script>unsafe</script>', 'diagnostics render as text');
       assert.equal(await checks.locator('script').count(), 0);
       await check('check details');
-      await host.screenshot({ path: path.join(output, `${tag}-check-details.png`) });
       await checks.getByRole('button', { name: 'Copy details' }).click();
-      assert.equal(await page.evaluate(() => window.auditCopiedText), 'Claude Code\noffline <script>unsafe</script>');
+      assert.equal(await page.evaluate(() => window.auditCopiedText), 'Claude Code\noffline <script>unsafe</script>\n\nGo\noffline');
       await host.keyboard.press('Escape');
       await checks.waitFor({ state: 'hidden' });
-      assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'updates.check');
-      await control().click();
+      await failed.getByRole('button', { name: 'Details', exact: true }).click();
       await checks.waitFor();
       await checks.getByRole('button', { name: 'Check again', exact: true }).click();
       await checks.waitFor({ state: 'hidden' });
-      await page.getByRole('button', { name: 'Checking for updates', exact: true }).filter({ visible: true }).waitFor();
+      await page.getByRole('button', { name: 'Checking for updates', exact: true }).waitFor();
       assert.equal(checkRequests, 2);
       updates = { refreshing: false, manual: false, errors: {} };
       await refreshStatus();
-      await page.getByRole('button', { name: 'Check for updates', exact: true }).filter({ visible: true }).waitFor();
-      assert.equal(await firstTop(), idleTop, 'recovery preserves the list position');
-      assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'updates.check', 'the retry control keeps focus after recovery');
+      await page.getByRole('button', { name: 'Check for updates', exact: true }).waitFor();
+      await failed.waitFor({ state: 'hidden' });
+      assert.equal(await firstTop(), idleTop, 'recovery preserves the page position');
       await check('recovered check');
 
       startFailure = true;
       await control().click();
-      await page.getByText('Could not start the update check', { exact: true }).waitFor();
-      assert.equal(await control().isEnabled(), true, 'failed requests leave the check available');
-      assert.equal(await control().getAttribute('aria-label'), 'Check for updates');
+      await page.getByText('Couldn’t start the update check', { exact: true }).waitFor();
+      // T3 Code's own check, started by the same press, ends on its own time.
+      await page.waitForFunction(() => document.querySelector('[data-cmd="updates.check"]')?.getAttribute('aria-disabled') === 'false', null, { timeout: 5000 })
+        .catch(() => assert.fail('a failed request leaves the check available'));
       await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
       startFailure = false;
 
       updates = { refreshing: true, manual: false, errors: {} };
       await refreshStatus();
-      await page.getByRole('button', { name: 'Checking for updates', exact: true }).filter({ visible: true }).waitFor();
-      assert.equal(await control().isDisabled(), false, 'a background pass still accepts a fresh manual check');
+      await page.getByRole('button', { name: 'Checking for updates', exact: true }).waitFor();
+      assert.equal(await control().getAttribute('aria-disabled'), 'false', 'a background pass still accepts a fresh manual check');
       await control().click();
       assert.equal(checkRequests, 3);
-      updates = { refreshing: false, manual: false, errors: { 'toolchain:go': 'offline' } };
-      fixture.setup = { ...fixture.setup, state: 'running', items: [
-        ...fixture.setup.items,
-        { kind: 'toolchain', id: 'go', name: 'Go', state: 'installing' },
-      ] };
+      updates = { refreshing: false, manual: false, errors: {} };
       await refreshStatus();
-      url.hash = 'toolchains'; await page.goto(url.href);
-      await page.locator('#page-toolchains .tc-notice--progress').waitFor();
-      await page.getByRole('button', { name: 'Review update checks', exact: true }).filter({ visible: true }).waitFor();
-      await control().click();
-      await checks.waitFor();
-      assert.equal(await checks.getByText('Go', { exact: true }).count(), 1);
-      assert.equal(await checks.getByText('Claude Code', { exact: true }).count(), 0);
-      await check('toolchain failure');
-      await checks.getByRole('button', { name: 'Close', exact: true }).click();
 
-      url.hash = 'environment'; await page.goto(url.href);
-      const card = page.getByRole('region', { name: 'T3 Code updates', exact: true });
-      await card.getByText('Could not verify updates', { exact: true }).waitFor();
-      assert.equal(await card.getByText('You’re up to date', { exact: true }).count(), 0);
-      await card.getByRole('button', { name: 'Check for updates', exact: true }).click();
-      await card.getByText('Could not verify updates', { exact: true }).waitFor();
+      // T3 Code's own release, on the same page.
+      const card = page.getByRole('region', { name: 'T3 Code', exact: true });
+      await card.getByText('Couldn’t check for T3 Code updates', { exact: true }).waitFor();
+      assert.equal(await card.getByText('Up to date', { exact: true }).count(), 0);
       await check('selected channel failure');
       await host.screenshot({ path: path.join(output, `${tag}-check-failed.png`) });
       await card.getByRole('button', { name: 'Nightly', exact: true }).click();
       const switchDialog = page.getByRole('alertdialog', { name: 'Switch to Nightly?' });
       await switchDialog.waitFor();
-      assert.equal(requestedChannel, 'nightly', 'switch checks the target channel even when Stable failed');
+      assert.equal(requestedChannel, 'nightly', 'switching checks the target channel even when Stable failed');
       await switchDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       await switchDialog.waitFor({ state: 'hidden' });
       runtime.checkError = null;
       runtime.checkedAt = Date.now();
       runtime.releases.stable.version = '0.1.1';
-      await card.getByRole('button', { name: 'Check for updates', exact: true }).click();
+      // One press checks the agents and tools and T3 Code: each pass ends
+      // before the next, as a real one would.
+      const finishCheck = async () => {
+        updates = { refreshing: false, manual: false, errors: {} };
+        await refreshStatus();
+        await page.getByRole('button', { name: 'Check for updates', exact: true }).waitFor();
+      };
+      await control().click();
       await card.getByText('Stable update available', { exact: true }).waitFor();
       assert.equal(await card.getByRole('button', { name: 'Update and restart', exact: true }).count(), 1);
       await check('recovered update');
+      await finishCheck();
       runtime.releases.stable.version = runtime.version;
-      await card.getByRole('button', { name: 'Check for updates', exact: true }).click();
-      await card.getByText('You’re up to date', { exact: true }).waitFor();
+      await control().click();
+      await card.getByText('Up to date', { exact: true }).waitFor();
+      await finishCheck();
 
       assert.deepEqual(errors, []); await context.close();
-      console.log(`PASS ${tag}: defaults, independent toggles, T3 Code warning, save payload, check progress, failures and recovery`);
+      console.log(`PASS ${tag}: startup failures, independent switches, T3 Code warning, schedules, one check, failures and recovery`);
     }
   } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -43,7 +43,7 @@ environment variables at a compatible endpoint.
 **Muse Code** is an optional agent: choose **Install** on its row in
 **Setup → Agents**, then sign in with a Meta device code or save an API key.
 It is excluded from the default first-start installs. Using Muse in T3 Code
-requires **Nightly**, selected under **Setup → Environment**, and enabling
+requires **Nightly**, selected under **Setup → Updates**, and enabling
 **Muse Code** under **Settings → Providers**. The image still starts with
 Stable by default. You can also opt in with `T3_PREINSTALL=muse` or include it
 in a comma-separated list; `all` and `agents` include it too.
@@ -74,18 +74,18 @@ Downloads continue in the background. The row shows the progress and a
 matter. Operations run one at a time: press Update on three rows, or **Update
 all**, and they queue. If an update fails, the previous version stays
 installed. By default nothing installs or updates on its own; the setup page
-checks for new releases in the background every hour. The Agents page header
-has **Check for updates** for a fresh pass on demand, plus **Auto-update**.
-Providers, toolchains (including source-control CLIs and added tools), and
-T3 Code each have an independent opt-in switch and schedule. By default each
-enabled category checks every 3 hours and installs only after 30 minutes
-without activity (no open console or T3 Code client, no install/update
-running).
+checks for new releases in the background every hour. **Setup → Updates**
+gathers every agent, toolchain, added tool and source control CLI with a newer
+release in one list, with **Update all** and **Check for updates** for a fresh
+pass on demand. Under **Automatic updates** there, agents, toolchains and
+tools (including source control CLIs), and T3 Code each have their own switch
+and **Schedule**. By default each enabled category checks every 3 hours and
+installs only after 30 minutes without activity (no open console or T3 Code
+client, no install or update running).
 
-Update checks show progress in the existing toolbar without moving the agent
-list. If a source cannot be verified, **Review checks** shows which sources
-failed, with technical details you can copy and a **Check again** action.
-The last known releases stay visible. Long install errors have a short row
+If a source cannot be verified, the Updates page says how many, and
+**Details** shows which, with technical details you can copy and a **Check
+again** action. The last known releases stay visible. Long install errors have a short row
 summary and a **Details** action for the full diagnostic.
 
 T3 Code runs each agent through a small launcher the setup service writes in

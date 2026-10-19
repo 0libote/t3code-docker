@@ -1,7 +1,8 @@
 # Upgrading T3 Code
 
-Open **Setup → Environment → T3 Code updates**. **Check for updates** reads the
-official platform package's published channel, and **Update and restart**
+Open **Setup → Updates**. **Check for updates** checks T3 Code and every agent
+and tool at once; for T3 Code it reads the official platform package's published
+channel, and **Update and restart**
 installs its exact release immediately. It does not use mise's waiting period.
 
 **Stable** is the default. Choose **Nightly** to try new features earlier, or
@@ -11,11 +12,11 @@ anything is installed. Changing channels can intentionally select an older
 release; Update within a channel never downgrades a newer installed version.
 
 Checks run on startup and hourly. By default downloads and restarts happen
-only when you confirm an update; **Auto-update** next to the card heading
-opts in, sharing one dialog with the independent provider and toolchain
-settings. It checks on its own
-cadence (default every 3 hours) and installs the selected channel's release
-only after 30 minutes without activity, never switching Stable ↔ Nightly.
+only when you confirm an update; the **T3 Code** switch under **Automatic
+updates**, on the same page, opts in, independently of the agents' and tools'
+switches. **Schedule** beside it sets its own cadence (default every 3
+hours); it installs the selected channel's release only after 30 minutes
+without activity, and never switches Stable ↔ Nightly.
 Turning the T3 Code switch on asks for a separate confirmation first, because
 T3 Code is alpha and a release can break T3 Code or its compatibility with
 this setup console.

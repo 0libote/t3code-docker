@@ -299,7 +299,15 @@ const audit = () => {
   let total = 0;
 
   // What to measure at each size: every route, then the overlays.
-  const ROUTES = ["overview", "devices", "agents", "toolchains", "sourcecontrol", "ports", "environment", "more"];
+  // Every page the running console serves, read from its own document: the
+  // smoke test copies this file into the container alone, without the source.
+  const ROUTES = await (async () => {
+    const response = await fetch(URL, { headers: { "x-t3-setup-key": KEY } });
+    const document = await response.text();
+    const routes = [...document.matchAll(/<section class="tc-page" id="page-([a-z]+)"/g)].map((m) => m[1]);
+    if (!routes.length) throw new Error("the console's document lists no pages; is the key right?");
+    return routes;
+  })();
   /** A host page on the console's origin holding the console in a frame; the frame, with the page's keyboard. */
   const framed = async (page, url) => {
     const host = new globalThis.URL("/__ui-audit-host", url).href;
@@ -336,7 +344,7 @@ const audit = () => {
     }]),
     ["rename device", async (page) => {
       if (!DEVICE_ID) return;
-      await page.evaluate(() => { location.hash = "devices"; });
+      await page.evaluate(() => { location.hash = "access"; });
       await openRename(page);
       await page.waitForSelector(".tc-layer #device-label");
       const layout = await page.evaluate(() => {
@@ -436,9 +444,9 @@ const audit = () => {
     }],
     ["pairing", async (page) => {
       await page.keyboard.press("Escape");
-      await page.evaluate(() => { location.hash = "devices"; });
-      await page.click("#page-devices [data-cmd='pair.start']");
-      await page.waitForSelector("#page-devices .tc-steps, #page-devices .tc-hint--err", { timeout: 30000 });
+      await page.evaluate(() => { location.hash = "access"; });
+      await page.click("#page-access [data-cmd='pair.start']");
+      await page.waitForSelector("#page-access .tc-steps, #page-access .tc-hint--err", { timeout: 30000 });
     }],
   ];
 
@@ -486,7 +494,7 @@ const audit = () => {
     total += found;
     // The link this made is not for anyone; leave no unused link behind.
     await target.evaluate(async () => {
-      const button = document.querySelector("#page-devices .tc-card-foot [data-cmd='link.revoke']");
+      const button = document.querySelector("#page-access .tc-card-foot [data-cmd='link.revoke']");
       if (!button) return;
       await fetch((window.__T3_SETUP_BASE__ || "") + "/revoke", {
         method: "POST", headers: { "content-type": "application/json" },

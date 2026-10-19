@@ -5,7 +5,7 @@
  *
  *   node scripts/console-screens.js [url] [key] [--scenarios ready,setup,attention]
  *     [--routes overview,agents] [--sizes phone,tablet,desktop,embedded]
- *     [--themes light,dark] [--out /tmp/t3-console-screens]
+ *     [--themes light,dark] [--overlays] [--out /tmp/t3-console-screens]
  *
  * Point it at a running console (scripts/dev-console.mjs serves one at the
  * default address with the key "dev"). The console's own code renders every
@@ -23,7 +23,8 @@
  *
  * Images go to <out>/<scenario>/<size>-<theme>-<route>.png, full page. Each
  * page is also checked for horizontal overflow; the run exits non-zero if any
- * page overflows.
+ * page overflows. --overlays adds the menus and dialogs people open most, as
+ * <size>-<theme>-overlay-<name>.png.
  */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -62,6 +63,30 @@ const SIZES = {
 const sizes = list("sizes", Object.keys(SIZES));
 const themes = list("themes", ["light", "dark"]);
 const scenarios = list("scenarios", ["ready", "setup", "attention"]);
+const withOverlays = args.includes("--overlays");
+
+// The overlays worth a picture: how to reach each from a loaded console. Each
+// returns false when the scenario has nothing to open.
+const OVERLAYS = [
+  ["palette", async (t, page) => { await t.evaluate(() => { location.hash = "overview"; }); await page.keyboard.press("Control+k"); await t.waitForSelector(".tc-layer .tc-palette"); return true; }],
+  ["device-menu", async (t) => {
+    await t.evaluate(() => { location.hash = "access"; });
+    const menu = await t.waitForSelector('#page-access [data-cmd="device.menu"]', { timeout: 5000 }).catch(() => null);
+    if (!menu) return false;
+    await menu.click(); await t.waitForSelector(".tc-layer .tc-menu, .tc-layer .tc-sheet"); return true;
+  }],
+  ["volume-fix", async (t) => {
+    await t.evaluate(() => { location.hash = "server"; });
+    const fix = await t.waitForSelector('#page-server [data-cmd="volume.fix"]', { timeout: 5000 }).catch(() => null);
+    if (!fix) return false;
+    await fix.click(); await t.waitForSelector(".tc-layer .tc-volume-fix"); return true;
+  }],
+  ["t3-auto-update", async (t) => {
+    await t.evaluate(() => { location.hash = "updates"; });
+    await (await t.waitForSelector('[data-key="auto-toggle-t3"]')).click();
+    await t.waitForSelector(".tc-layer [role=alertdialog]"); return true;
+  }],
+];
 
 // ------------------------------------------------------------ the data --
 /** Move every timestamp in a fixture by the same amount, so "2 hours ago" stays true today. */
@@ -77,6 +102,7 @@ const harness = (s, id) => s.harnesses.find((h) => h.id === id);
 const SCENARIOS = {
   ready: (s) => {
     s.paths.volumeKind = "durable";
+    s.paths.volumeName = "t3-home";
     return s;
   },
   setup: (s, now) => {
@@ -107,6 +133,7 @@ const SCENARIOS = {
     s.storage.disk = { ...s.storage.disk, usedPercent: 86, availableBytes: 29_000_000_000 };
     s.legacyEnv = ["GOROOT", "PATH"];
     s.paths.volumeKind = "anonymous";
+    s.paths.volumeName = "6c1f0e9a4b2d8c7e5f3a1b9d0e8c6a4f2b7d5e3c1a9f8e6d4c2b0a7f5e3d1c9b";
     return s;
   },
 };
@@ -187,6 +214,15 @@ const framed = async (page, url) => {
           if (size.embed) await page.screenshot({ path: file });
           else await page.screenshot({ path: file, fullPage: true });
           for (const issue of await target.evaluate(overflow)) problems.push(`${scenario} ${sizeName} ${theme} ${route}: ${issue}`);
+        }
+        if (withOverlays) for (const [name, open] of OVERLAYS) {
+          await page.keyboard.press("Escape").catch(() => {});
+          await target.evaluate(() => window.scrollTo(0, 0));
+          if (!(await open(target, page))) continue;
+          await page.waitForTimeout(300);
+          await page.screenshot({ path: path.join(dir, `${sizeName}-${theme}-overlay-${name}.png`) });
+          await page.keyboard.press("Escape");
+          await target.waitForSelector(".tc-layer", { state: "detached" }).catch(() => {});
         }
         await context.close();
       }

@@ -20,8 +20,9 @@ Or choose your own when you create the container:
 T3_SETUP_KEY=<something long>
 ```
 
-Open port 3774 and enter the key. **Environment → This console** shows the key
-to a signed-in browser, and **New key** replaces a generated one. That signs
+Open port 3774 and enter the key. **Server → This console** shows the key
+to a signed-in browser, and **Make a new key** in its **⋯** menu replaces a
+generated one. That signs
 out every browser that used the old key, and keeps the one you're using
 signed in. A key set with `T3_SETUP_KEY` can only be changed there.
 
@@ -29,18 +30,21 @@ signed in. A key set with `T3_SETUP_KEY` can only be changed there.
 running, a [public URL](remote-access.md#the-public-url) set, a device paired, and the agents signed in, with a
 button for the next step. When all four are done, the list collapses to a
 single **Ready** line and recent activity is shown instead. On a desktop the
-pages are in a sidebar (Overview, Devices, Agents, Context, Toolchains, Ports,
-Environment); on a phone they're in a tab bar, and everything fits a 390 px
-screen.
+pages are in a sidebar: Overview and Access, then **Agents** (Agents,
+Instructions & skills), **Tools** (Toolchains, Source control, Ports) and
+**System** (Updates, Storage, Server). On a phone the most used are in a tab
+bar and the rest under **More**, and everything fits a 390 px screen. Each page
+opens with one line on what it's for and a **Learn more** link to its guide.
+Addresses from before the pages moved, such as `#devices`, still work.
 
-On **Devices**, **Create pairing link** gives you a URL and a QR code for your
+On **Access**, **Create pairing link** gives you a URL and a QR code for your
 public address, valid for as long as you choose, plus the **pair code** on its
 own for clients such as the desktop app that ask for a server URL and a code
 separately. When the device pairs, the page says **Paired with …** and offers
 **Open T3 Code**; it also tells you if the link expires or is revoked first.
-Paired devices and unused links are listed below, each with **Revoke**.
-Choose **Rename** beside a paired device to change its label without pairing
-again. Labels are saved on the state volume and survive restarts; leave the
+Paired devices and unused links are listed below, with **Revoke** in each
+one's **⋯** menu. Choose **Rename** in a paired device's menu to change its
+label without pairing again. Labels are saved on the state volume and survive restarts; leave the
 label blank to restore the device's original name.
 The rename form is a compact dialog on desktop and a bottom sheet on a phone.
 Enter saves changes; Escape cancels.
@@ -49,17 +53,17 @@ Each row shows the one action its state needs (**Install**, **Sign in**,
 **Update** or **Retry**) and keeps the rest in its **⋯** menu, which is a
 bottom sheet on a phone. Uninstalling, revoking and publishing a database port
 ask for confirmation. **⌘K** (Ctrl K) opens a palette with every action and
-page, `G` followed by a letter goes to a page, and `P` on Devices creates a
-link.
+page, `G` followed by a letter goes to a page (hover a page in the sidebar to
+see its letter), and `P` on Access creates a link.
 
 The sidebar's server card shows which image is running, such as
 `v0.7.0 · browser`, next to the server's health. It comes from a stamp written
 at build time: the release tag in CI, or `dev` for a local build.
-**Environment** shows the public URL, where state and work are stored and
-whether those mounts survive a recreate, the agent browser, **Copy
-diagnostics** (the status with identifying details removed, for bug reports)
-and **Lock**, which signs this browser out if it came in with the key.
-**Restart T3 Code** there restarts the server inside the container, which keeps
+**Server** shows where state and work are stored and whether those volumes
+survive a recreate (with the commands that move one that would not), the agent
+browser, **Copy diagnostics** (the status with identifying details removed,
+for bug reports) and **Lock**, which signs this browser out if it came in with
+the key. **Restart** there restarts T3 Code inside the container, which keeps
 running. Open apps reconnect by themselves, and any agent turn in progress
 stops. T3 Code exiting on its own still ends the container, so a crash is left
 to the container's restart policy rather than hidden.

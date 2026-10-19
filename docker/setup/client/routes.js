@@ -15,34 +15,42 @@ const T3Routes = (() => {
   // sidebar group it sits in, a one-line summary for its header, and the guide
   // in docs/ that explains it.
   const PAGES = [
-    { route: 'overview', title: 'Overview', icon: 'layout-dashboard', key: 'o', group: 'main',
+    { route: 'overview', title: 'Overview', icon: 'layout-dashboard', key: 'o', group: 'home',
       summary: 'Setup progress, and anything on this server that needs you.', doc: 'setup-page.md' },
-    { route: 'devices', title: 'Devices', icon: 'smartphone', key: 'd', group: 'main',
-      summary: 'Pair a phone or browser with this server, and manage the ones that can reach it.', doc: 'remote-access.md' },
-    { route: 'agents', title: 'Agents', icon: 'bot', key: 'a', group: 'main',
+    { route: 'access', title: 'Access', icon: 'smartphone', key: 'd', group: 'home',
+      summary: 'Pair devices, and choose how they reach this server.', doc: 'remote-access.md' },
+    { route: 'agents', title: 'Agents', icon: 'bot', key: 'a', group: 'agents',
       summary: 'Install, sign in and update your coding agents.', doc: 'agents.md' },
-    { route: 'context', title: 'Context', icon: 'book-open', key: 'c', group: 'main',
-      summary: 'Instructions and skills your agents load at the start of every session.', doc: 'context-management.md' },
-    { route: 'toolchains', title: 'Toolchains', icon: 'wrench', key: 't', group: 'main',
+    { route: 'instructions', title: 'Instructions & skills', icon: 'book-open', key: 'i', group: 'agents',
+      summary: 'What your agents read at the start of every session.', doc: 'context-management.md' },
+    { route: 'toolchains', title: 'Toolchains', icon: 'wrench', key: 't', group: 'tools',
       summary: 'Languages and tools on every agent’s path, at exact versions.', doc: 'toolchains.md' },
-    { route: 'sourcecontrol', title: 'Source control', icon: 'git-pull-request', key: 's', group: 'main',
+    { route: 'sourcecontrol', title: 'Source control', icon: 'git-pull-request', key: 's', group: 'tools',
       summary: 'The CLIs T3 Code uses to open pull requests.', doc: 'source-control.md' },
-    { route: 'ports', title: 'Ports', icon: 'ethernet-port', key: 'p', group: 'main',
+    { route: 'ports', title: 'Ports', icon: 'ethernet-port', key: 'p', group: 'tools',
       summary: 'Give a dev server running here a public HTTPS address.', doc: 'ports.md' },
-    { route: 'environment', title: 'Environment', icon: 'settings-2', key: 'e', group: 'main',
+    { route: 'updates', title: 'Updates', icon: 'circle-arrow-up', key: 'u', group: 'system',
+      summary: 'Keep T3 Code, agents and tools current.', doc: 't3code-updates.md' },
+    { route: 'storage', title: 'Storage', icon: 'hard-drive', key: 'v', group: 'system',
+      summary: 'Disk space, and the caches and old versions you can clear.', doc: 'storage.md' },
+    { route: 'server', title: 'Server', icon: 'server', key: 'e', group: 'system',
       summary: 'T3 Code, this container and the setup console itself.', doc: 'configuration.md' },
   ];
 
-  // Sidebar groups, in order; a group without a label draws no heading.
+  // Sidebar groups, in order; a group without a label draws no heading. The
+  // first holds the pages everyone starts from.
   const GROUPS = [
-    { id: 'main', label: null },
+    { id: 'home', label: null },
+    { id: 'agents', label: 'Agents' },
+    { id: 'tools', label: 'Tools' },
+    { id: 'system', label: 'System' },
   ];
 
   // The phone's tab bar. Every other page lives under More, which lists them
   // in the sidebar's groups.
   const TABS = [
     { route: 'overview', title: 'Overview', icon: 'layout-dashboard' },
-    { route: 'devices', title: 'Devices', icon: 'smartphone' },
+    { route: 'access', title: 'Access', icon: 'smartphone' },
     { route: 'agents', title: 'Agents', icon: 'bot' },
     { route: 'ports', title: 'Ports', icon: 'ethernet-port' },
     { route: 'more', title: 'More', icon: 'ellipsis' },
@@ -51,7 +59,7 @@ const T3Routes = (() => {
 
   // Addresses a page had before it moved, so an old bookmark or a link from an
   // older T3 Code still lands where it meant to.
-  const ALIASES = {};
+  const ALIASES = { devices: 'access', context: 'instructions', environment: 'server' };
 
   const BY_ROUTE = new Map([...PAGES, MORE].map((page) => [page.route, page]));
   const page = (route) => BY_ROUTE.get(route) || null;

@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { createFs, createRunner, processAlive, processStartTime } from "../io.mjs";
 import * as lock from "../lock.mjs";
 import { DEFAULT_POLICY, policyPath, readPolicy, storageStateDir, validatePolicy, writeStorageJson } from "./policy.mjs";
-import { buildsOrInstallsRunning, checkCachePath, countProjects, detectCaches, filesystemUsage, inside, measureStorage, mountKind, processSnapshot } from "./system.mjs";
+import { buildsOrInstallsRunning, checkCachePath, countProjects, detectCaches, filesystemUsage, inside, measureStorage, mountSource, processSnapshot } from "./system.mjs";
 
 const IDLE_MS = 10 * 60 * 1000;
 const TERMINAL = new Set(["succeeded", "failed", "interrupted"]);
@@ -39,6 +39,7 @@ export function createStorageManager(options = {}) {
   let lastActivityAt = now();
   let facts = { at: null, refreshing: false, disk: null, categories: [], cleanableBytes: 0,
     volumeKind: null, workspaceKind: null, volumeBytes: null, workspaceProjects: null,
+    volumeName: null, stateVolumeName: null, workspaceVolumeName: null,
     policy: { ...DEFAULT_POLICY }, policyError: null, error: null, partial: false, operation: null };
 
   const ready = (async () => {
@@ -141,8 +142,10 @@ export function createStorageManager(options = {}) {
         facts.error = partial ? "Some folders could not be read. Sizes are partial estimates." : null;
         facts.at = now();
         const mountinfo = await io.readFile("/proc/self/mountinfo", "utf8").catch(() => "");
-        facts.volumeKind = mountKind(userHome, mountinfo); facts.workspaceKind = mountKind(workspace, mountinfo);
-        facts.stateKind = mountKind(stateRoot, mountinfo); facts.statePath = stateRoot;
+        const home = mountSource(userHome, mountinfo), work = mountSource(workspace, mountinfo), stateMount = mountSource(stateRoot, mountinfo);
+        facts.volumeKind = home.kind; facts.volumeName = home.volume;
+        facts.workspaceKind = work.kind; facts.workspaceVolumeName = work.volume;
+        facts.stateKind = stateMount.kind; facts.stateVolumeName = stateMount.volume; facts.statePath = stateRoot;
         facts.workspaceProjects = await (options.countProjects ?? countProjects)(workspace);
         const { operation, policy, policyError, refreshing, ...inventory } = facts;
         await writeStorageJson(snapshotFile, { schema: 1, home: userHome, workspace, facts: inventory }, io);

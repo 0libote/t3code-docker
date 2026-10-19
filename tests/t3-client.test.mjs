@@ -92,6 +92,9 @@ test("Setup's commands are found in T3's palette the way T3 finds its own", () =
   assert.equal(found("glab"), "sourcecontrol");
   assert.equal(found("sign in"), "agents,sourcecontrol");
   assert.equal(found("context").split(",")[0], "context");
+  assert.equal(found("skills").split(",")[0], "context", "Instructions & skills by either word");
+  assert.equal(found("updates").split(",")[0], "updates");
+  assert.equal(found("upgrade"), "updates");
   // T3's normalisation: case, accents and spacing do not matter; ">" (T3's commands) still finds them.
   assert.equal(found("  ÓPEN   setup "), "setup");
   assert.equal(found(">open setup"), "setup");

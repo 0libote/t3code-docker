@@ -147,7 +147,7 @@ access: you bring your own subscriptions or API keys.
 A phone needs an address it can reach. Pick one, then set it as the public URL
 on the setup page so pairing links point there:
 
-- **T3 Connect**, no domain needed: **Devices → From anywhere → Set up**.
+- **T3 Connect**, no domain needed: **Access → T3 Connect → Set up**.
 - **One hostname behind a tunnel or proxy**: set `T3_SINGLE_PORT=8080` to serve
   T3 Code and the setup page together, and point Cloudflare Tunnel or your proxy
   at that port.

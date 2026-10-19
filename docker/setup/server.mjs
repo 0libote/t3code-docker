@@ -879,6 +879,11 @@ const status = async () => {
       volumeKind: disk.volumeKind,
       stateKind: disk.stateKind,
       workspaceKind: disk.workspaceKind,
+      // The Docker volume behind each, when it is one: a name, or for an
+      // anonymous volume the hash a command needs to copy it somewhere safer.
+      volumeName: disk.volumeName ?? null,
+      stateVolumeName: disk.stateVolumeName ?? null,
+      workspaceVolumeName: disk.workspaceVolumeName ?? null,
       volumeBytes: disk.volumeBytes,
       workspaceProjects: disk.workspaceProjects,
     },
@@ -903,7 +908,7 @@ const status = async () => {
     sourceControlCache: { at: scmSnap?.at ?? null, stale: scmSnap?.stale ?? true, source: scmSnap?.source ?? "unavailable" },
     // How long mise waits before offering a new release as the newest.
     releaseAgeMs,
-    updates: { refreshing: latestCache.refreshing(), manual: latestCache.manualPending(), errors: latestCache.errors() },
+    updates: { refreshing: latestCache.refreshing(), manual: latestCache.manualPending(), errors: latestCache.errors(), checkedAt: latestCache.checkedAt() },
     // Every other tool in the global mise config, added here or with `mise use -g`.
     packages: withLatest("package", packageRows),
     // Global instruction metadata; the editor fetches contents on demand.

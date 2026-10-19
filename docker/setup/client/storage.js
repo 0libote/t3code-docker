@@ -165,36 +165,56 @@ const T3StorageUI = (() => {
       patch(layer.panel, contents());
     };
 
+    // A section like every page's: its label, its card, and its own action.
+    const part = (id, title, body, action) => html`<section class="tc-section" aria-labelledby="${id}" data-key="${id}">
+      <div class="tc-section-head"><h2 class="tc-section-title" id="${id}">${title}</h2>${action ? html`<div class="tc-section-actions">${action}</div>` : ''}</div>${body}</section>`;
+
     const content = () => {
       const current = view(), running = busy(), disk = current.disk, op = current.operation;
       const statusError = error || current.policyError || current.error;
-      return html`<div class="tc-group tc-storage" data-key="storage-card">
-        <div class="tc-storage-disk">
-          <div class="tc-storage-disk-head"><span class="tc-row-name">${disk ? disk.title : 'Filesystem space'}</span>${disk ? html`<span class="tc-badge ${disk.tone === 'warn' || disk.tone === 'danger' ? 'tc-badge--' + disk.tone : 'tc-badge--outline'}">${disk.usedPercent}% used</span>` : ''}</div>
-          <div class="tc-storage-readouts"><div><span class="tc-readout-label">Available</span><span class="tc-storage-number">${disk ? disk.available : '—'}</span></div><div><span class="tc-readout-label">Used</span><span class="tc-readout-value">${disk ? disk.used : '—'}</span></div><div><span class="tc-readout-label">Capacity</span><span class="tc-readout-value">${disk ? disk.total : '—'}</span></div></div>
-          ${disk ? html`<div class="tc-progress tc-storage-meter" role="meter" aria-label="Filesystem usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${disk.usedPercent}" style="--value:${disk.usedPercent}%;--storage-tone:var(--${disk.tone === 'danger' ? 'danger' : disk.tone === 'warn' ? 'warn' : 'info'})"><span></span></div>` : ''}
-          <p class="tc-hint">Filesystem usage includes other containers and host files. Folder sizes below cover this container.</p>
-        </div>
-        <div class="tc-storage-cache-head"><div><h3 class="tc-row-name">Build & download caches</h3><p class="tc-hint">Recreated when needed. Your project files and installed tools are kept.</p></div><button class="tc-btn tc-btn--sm" type="button" data-cmd="storage.clean" data-id="all" data-key="storage-clean-all"${disabled(running || current.loading || current.refreshing || !current.ids.length)}>${icon('trash-2')}Clear caches</button></div>
-        <div class="tc-list tc-storage-cache-list">
-          ${current.cacheRows.length ? current.cacheRows.map((row) => html`<div class="tc-storage-cache-row" data-key="storage-${row.id}">
-            <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon(row.id === 'go' ? 'wrench' : 'download')}</span><div class="tc-row-main"><span class="tc-row-name">${row.label}</span><span class="tc-status">${row.unavailable || row.description}</span></div><span class="tc-storage-size tc-mono">${row.size}</span><button class="tc-btn tc-btn--sm" type="button" data-cmd="storage.clean" data-id="${row.id}" data-key="storage-clean-${row.id}" aria-label="Clear ${row.label}"${disabled(running || current.refreshing || !row.canClean)}>Clear</button></div>`)
-            : html`<div class="tc-storage-empty" role="status">${current.error ? 'Folder sizes are not available. Try refreshing.' : html`<span class="tc-spinner" aria-hidden="true"></span>Measuring storage…`}</div>`}
+      const lastRun = op && op.state !== 'running' && !statusError
+        ? (op.state === 'succeeded' ? op.removedCount !== undefined ? M.plural(op.removedCount, 'older version') + ' removed' : M.formatBytes(op.reclaimedBytes) + ' freed' : op.error || 'Cleanup didn’t finish')
+          + (op.finishedAt ? ' ' + M.relTime(op.finishedAt, Date.now()) : '') : null;
+      const trimmedVersions = op && op.removedCount !== undefined;
+      const policy = current.policy;
+      const refresh = html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-cmd="storage.refresh" data-key="storage-refresh" aria-label="Measure again" title="Measure again"${disabled(current.refreshing || running)}>${current.refreshing ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon('refresh-cw')}</button>`;
+      return html`<div class="tc-storage" data-key="storage-card">
+        ${part('storage-disk-title', 'Disk', html`<div class="tc-group"><div class="tc-storage-disk">
+          <div class="tc-storage-disk-head"><span class="tc-storage-number">${disk ? disk.available : '—'}</span><span class="tc-storage-of">${disk ? 'free of ' + disk.total : current.loading ? 'Measuring…' : 'Not measured yet'}</span>${disk && (disk.tone === 'warn' || disk.tone === 'danger') ? html`<span class="tc-badge tc-badge--${disk.tone}">${disk.usedPercent}% used</span>` : ''}</div>
+          ${disk ? html`<div class="tc-progress tc-storage-meter" role="meter" aria-label="Disk used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${disk.usedPercent}" aria-valuetext="${disk.usedPercent}% used" style="--value:${disk.usedPercent}%;--storage-tone:var(--${disk.tone === 'danger' ? 'danger' : disk.tone === 'warn' ? 'warn' : 'info'})"><span></span></div>` : ''}
         </div>
         ${current.progress || requesting ? html`<div class="tc-storage-operation" role="status"><span class="tc-spinner" aria-hidden="true"></span><span>${current.progress || 'Starting cleanup…'}</span><div class="tc-progress" data-indeterminate><span></span></div></div>` : ''}
         ${statusError ? html`<div class="tc-storage-message" role="alert">${icon('triangle-alert')}<span>${statusError}</span></div>` : ''}
-        ${op && op.state !== 'running' && !statusError ? html`<div class="tc-storage-last tc-hint">${icon(op.state === 'succeeded' ? 'check' : 'triangle-alert')}<span>${op.state === 'succeeded' ? op.removedCount !== undefined ? M.plural(op.removedCount, 'older version') + ' removed' : M.formatBytes(op.reclaimedBytes) + ' freed' : op.error || 'Cleanup did not finish'}${op.finishedAt ? ' · ' + M.relTime(op.finishedAt, Date.now()) : ''}</span></div>` : ''}
-        <div class="tc-storage-tools"><div><span class="tc-row-name">Older tool versions</span><p class="tc-hint">${current.policy.retainManagedVersions ? 'Trimmed after successful updates. Current, previous, and required versions are kept.' : 'Automatic trimming is off. You can review older versions here.'}</p></div><button class="tc-btn tc-btn--sm" type="button" data-cmd="storage.versions" data-key="storage-review"${disabled(running)}>Review</button></div>
-        <div class="tc-storage-foot"><button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="storage.preferences" data-key="storage-preferences">${icon('settings-2')}Maintenance<span class="tc-storage-auto-state">${current.policy.automatic ? 'On' : 'Manual'}</span></button><span class="tc-hint" role="status">${current.refreshing ? 'Measuring…' : current.checked}</span></div>
-        <button class="tc-storage-disclosure" type="button" data-cmd="storage.details" data-key="storage-details" aria-expanded="${String(expanded)}" aria-controls="storage-data"><span>Folder usage</span>${icon('chevron-down')}</button>
-        <div id="storage-data" class="tc-storage-data"${expanded ? '' : raw(' hidden')}>
-          ${current.dataRows.map((row) => html`<div class="tc-storage-data-row" data-key="storage-data-${row.id}"><div><span class="tc-row-name">${row.label}</span><span class="tc-storage-path tc-mono" title="${row.path}">${row.path}</span></div><span class="tc-storage-size tc-mono">${row.size}</span></div>`)}
-          <p class="tc-hint tc-storage-data-note">Projects, backups, agent profiles, and other caches are managed separately. Sizes are estimates in decimal GB.</p>
-        </div>
+        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>The disk is shared with anything else on it; the sizes below are this container’s.</span></div></div>`, refresh)}
+        ${part('storage-cache-title', 'Caches', html`<div class="tc-group">
+          <div class="tc-list">${current.cacheRows.length ? current.cacheRows.map((row) => html`<div class="tc-row tc-row--compact" data-key="storage-${row.id}">
+            <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon(row.id === 'go' ? 'wrench' : 'download')}</span>
+            <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">${row.label}</span><span class="tc-storage-size">${row.size}</span></div><span class="tc-status"><span class="tc-status-text">${row.unavailable || row.description}</span></span></div>
+            <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="storage.clean" data-id="${row.id}" data-key="storage-clean-${row.id}" aria-label="Clear ${row.label}"${disabled(running || current.refreshing || !row.canClean)}>Clear</button></div></div>`)
+            : html`<div class="tc-storage-empty" role="status">${current.error ? 'Couldn’t measure the caches. Measure again in a moment.' : html`<span class="tc-spinner" aria-hidden="true"></span>Measuring…`}</div>`}</div>
+          <div class="tc-card-foot tc-storage-foot">${icon('info', 'tc-icon--sm')}<span>${policy.automatic ? 'Cleared on their own when one grows past its limit.' : 'Cleared only when you choose.'} Builds and installs fill them again.</span><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="storage.preferences" data-key="storage-preferences">Settings</button></div>
+        </div>`)}
+        ${part('storage-versions-title', 'Older tool versions', html`<div class="tc-group"><div class="tc-list"><div class="tc-row tc-row--compact" data-key="storage-versions">
+          <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('history')}</span>
+          <div class="tc-row-main"><span class="tc-row-name">${policy.retainManagedVersions ? 'Trimmed after each update' : 'Kept until you trim them'}</span><span class="tc-status"><span class="tc-status-text">${trimmedVersions && lastRun ? lastRun + '. ' : ''}Current, previous and required versions always stay.</span></span></div>
+          <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="storage.versions" data-key="storage-review"${disabled(running)}>Review</button></div>
+        </div></div></div>`)}
+        ${part('storage-folders-title', 'Folders', html`<div class="tc-group">
+          <button class="tc-storage-disclosure" type="button" data-cmd="storage.details" data-key="storage-details" aria-expanded="${String(expanded)}" aria-controls="storage-data"><span>${expanded ? 'Hide folder sizes' : 'Show folder sizes'}</span>${icon('chevron-down')}</button>
+          <div id="storage-data" class="tc-storage-data"${expanded ? '' : raw(' hidden')}>
+            ${current.dataRows.map((row) => html`<div class="tc-storage-data-row" data-key="storage-data-${row.id}"><div><span class="tc-row-name">${row.label}</span><span class="tc-storage-path tc-mono" title="${row.path}">${row.path}</span></div><span class="tc-storage-size">${row.size}</span></div>`)}
+            <p class="tc-hint tc-storage-data-note">Projects, backups, agent profiles and other caches are managed elsewhere. Sizes are estimates.</p>
+          </div>
+        </div>`)}
+        ${!trimmedVersions && lastRun ? html`<p class="tc-page-foot tc-storage-last">${icon(op.state === 'succeeded' ? 'check' : 'triangle-alert', 'tc-icon--sm')}${lastRun}.</p>` : ''}
       </div>`;
     };
 
-    const actions = () => html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="storage.refresh" data-key="storage-refresh"${disabled(view().refreshing || busy())}>${view().refreshing ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon('refresh-cw')}Refresh</button>`;
+    // The page's one action: clear what can be cleared.
+    const actions = () => {
+      const current = view();
+      return html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="storage.clean" data-id="all" data-key="storage-clean-all"${disabled(busy() || current.loading || current.refreshing || !current.ids.length)}>Clear caches${current.cleanableBytes ? html` <span class="tc-storage-btn-size">${M.formatBytes(current.cleanableBytes)}</span>` : ''}</button>`;
+    };
     return { content, actions, observe, clean, refresh, preferences, reviewVersions,
       toggle: () => { expanded = !expanded; render(); },
       isBusy: () => busy() || view().refreshing,

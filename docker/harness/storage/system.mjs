@@ -19,12 +19,20 @@ export function coveringMount(target, mountinfo) {
   return best;
 }
 
-export function mountKind(target, mountinfo) {
+/**
+ * Where a path's mount comes from: `durable` (a named volume or a host
+ * directory), `anonymous` (a volume named by a hash, which a recreated
+ * container does not get back) or `none`, and the Docker volume's name when it
+ * is a volume, so a page can name it in the command that moves it.
+ */
+export function mountSource(target, mountinfo) {
   const mount = coveringMount(target, mountinfo);
-  if (!mount) return "none";
+  if (!mount) return { kind: "none", volume: null };
   const volume = /\/var\/lib\/docker\/volumes\/([^/]+)\/_data/.exec(mount.root);
-  return volume && /^[0-9a-f]{64}$/.test(volume[1]) ? "anonymous" : "durable";
+  return { kind: volume && /^[0-9a-f]{64}$/.test(volume[1]) ? "anonymous" : "durable", volume: volume ? volume[1] : null };
 }
+
+export const mountKind = (target, mountinfo) => mountSource(target, mountinfo).kind;
 
 export async function countProjects(workspace) {
   const isRepo = async (directory) => fs.stat(path.join(directory, ".git")).then(() => true, () => false);

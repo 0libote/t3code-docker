@@ -77,7 +77,7 @@ const geometry = () => {
         }
         return route.continue();
       });
-      const url = new URL(base); url.hash = 'environment'; if(embed) { url.searchParams.set('embed','t3'); url.searchParams.set('theme',theme); }
+      const url = new URL(base); url.hash = 'storage'; if(embed) { url.searchParams.set('embed','t3'); url.searchParams.set('theme',theme); }
       await page.goto(url.href);
       await page.getByLabel('Setup key',{exact:true}).fill(key); await page.getByRole('button',{name:'Unlock',exact:true}).click();
       await page.locator('[data-key=storage-clean-all]:not([disabled])').waitFor();
