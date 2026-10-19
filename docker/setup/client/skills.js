@@ -11,6 +11,10 @@ const T3SkillsUI = (() => {
         : { text: 'Unverified', tone: '' };
   const create = ({ api, getStatus, render, readMarkdown, downloadMarkdown }) => {
     let provider = null, inventory = null, loading = false, error = null, generation = 0, viewer = null, changing = null;
+    const filterKey = 't3-console-hide-bundled-skills';
+    let hideBundled = false;
+    try { hideBundled = localStorage.getItem(filterKey) === 'true'; } catch { /* this session only */ }
+    const visibleSkills = () => (inventory?.skills || []).filter((skill) => !hideBundled || skill.scope !== 'system');
     const importer = T3SkillImport.create({ api, providers, refresh: () => load(true) });
     const chooseDefault = () => {
       const installed = (getStatus()?.harnesses || []).filter((row) => row.installed).map((row) => row.id);
@@ -30,7 +34,7 @@ const T3SkillsUI = (() => {
     };
     const providerName = (id) => providers.find(([key]) => key === id)?.[1] || 'this agent';
     const coverageSummary = () => !inventory || loading ? ''
-      : M.plural(inventory.skills?.length || 0, 'skill');
+      : M.plural(visibleSkills().length, 'skill') + (hideBundled && inventory.skills?.some((skill) => skill.scope === 'system') ? ' · ' + (inventory.skills.length - visibleSkills().length) + ' hidden' : '');
     // What a skill's availability means for this agent, said once under the list.
     const coverageText = () => !inventory ? 'Refresh after changing skills outside the console.'
       : inventory.coverage === 'policy' ? 'These settings are ' + providerName(provider) + '’s own, for every project. A project’s settings can still turn a skill off. A change applies to new conversations.'
@@ -63,14 +67,15 @@ const T3SkillsUI = (() => {
     };
     const content = () => html`<div class="tc-group tc-skills"${inventory ? raw(' data-provider="' + inventory.provider + '"') : ''}>
       <div class="tc-skill-toolbar"><label class="tc-label" for="skill-provider">Agent</label><select class="tc-select tc-select--sm" id="skill-provider">${providers.map(([id, name]) => html`<option value="${id}"${(provider || chooseDefault()) === id ? raw(' selected') : ''}>${name}</option>`)}</select><span class="tc-hint tc-skill-count">${coverageSummary()}</span><span class="tc-spacer"></span><div class="tc-skill-actions">${actions()}</div></div>
+      <div class="tc-skill-filter"><label for="skill-hide-bundled">Hide bundled skills</label><button class="tc-switch" id="skill-hide-bundled" type="button" role="switch" aria-label="Hide bundled skills" aria-describedby="skill-filter-help" aria-checked="${String(hideBundled)}" data-cmd="skills.filter"></button><span class="tc-hint" id="skill-filter-help">Hide skills included with the agent from this list.</span></div>
       <div class="tc-skill-body" aria-live="polite" aria-busy="${String(loading)}">
         ${loading ? html`<p class="tc-skill-message tc-muted"><span class="tc-spinner" aria-hidden="true"></span>Reading skills…</p>` : ''}
         ${error ? html`<p class="tc-skill-message tc-danger" role="alert">${icon('circle-alert')}<span>Couldn’t read skills: ${error}</span></p>` : ''}
         ${!loading && !error && inventory ? html`
           ${inventory.nativeError ? html`<p class="tc-skill-message tc-warning" role="status">${icon('triangle-alert')}<span>${providerName(provider)} couldn’t be asked which skills it loads: ${inventory.nativeError}</span></p>` : ''}
           ${(inventory.warnings || []).map((warning) => html`<p class="tc-skill-message tc-warning" role="status">${icon('triangle-alert')}<span>${warning}</span></p>`)}
-          ${inventory.skills?.length ? html`<div class="tc-list">${inventory.skills.map(row)}</div>` : ''}
-          ${!inventory.skills?.length ? html`<div class="tc-empty tc-empty--compact tc-skill-empty"><span class="tc-empty-media" aria-hidden="true"><span class="tc-empty-icon">${icon('sparkles')}</span></span><span class="tc-empty-title">${inventory.warnings?.length ? 'No skills could be shown' : 'No skills yet'}</span><span class="tc-empty-desc">${inventory.warnings?.length ? 'The messages above say why.' : 'Nothing in ' + providerName(provider) + '’s global skill folders. Add one here, or install one from a source.'}</span></div>` : ''}
+          ${visibleSkills().length ? html`<div class="tc-list">${visibleSkills().map(row)}</div>` : ''}
+          ${!visibleSkills().length ? html`<div class="tc-empty tc-empty--compact tc-skill-empty"><span class="tc-empty-media" aria-hidden="true"><span class="tc-empty-icon">${icon('sparkles')}</span></span><span class="tc-empty-title">${inventory.skills?.length ? 'All skills are hidden' : inventory.warnings?.length ? 'No skills could be shown' : 'No skills yet'}</span><span class="tc-empty-desc">${inventory.skills?.length ? 'Turn off Hide bundled skills to show them.' : inventory.warnings?.length ? 'The messages above say why.' : 'Nothing in ' + providerName(provider) + '’s global skill folders. Add one here, or install one from a source.'}</span></div>` : ''}
           ${inventory.roots?.length ? html`<details class="tc-skill-locations" data-key="skill-locations"><summary>Looked in ${M.plural(inventory.roots.length, 'folder')}</summary>${inventory.roots.map((root) => html`<code>${root.path}</code>`)}</details>` : ''}
         ` : ''}
       </div>
@@ -192,6 +197,11 @@ const T3SkillsUI = (() => {
     return { content, actions, setState, install: () => importer.open(provider || chooseDefault()), view: (id, editing = false) => open(id, editing), add: () => { if (inventory?.canCreate) return open(null, true, true); },
       activate: () => { if (!inventory && !loading && !error) load(); },
       refresh: () => load(true),
+      toggleBundled: () => {
+        hideBundled = !hideBundled;
+        try { localStorage.setItem(filterKey, String(hideBundled)); } catch { /* this session only */ }
+        render();
+      },
       select: (id) => {
         if (!providers.some(([key]) => key === id) || id === provider) return;
         viewer?.layer.close('provider');

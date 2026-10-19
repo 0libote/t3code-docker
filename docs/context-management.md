@@ -102,6 +102,12 @@ and runtime metadata, as described below. Cursor, Grok and Muse still show
 **Unverified** availability. Plugin inventories and configured extra locations
 are outside the basic known-folder inventory.
 
+**Hide bundled skills** hides entries identified as system skills, such as those
+shipped with Codex. It only filters this list; the agent can still use them. The
+choice is remembered in this browser, and the count shows how many are hidden.
+User, administrator and plugin installations remain visible unless the provider
+identifies them as system skills.
+
 Inventory loads when the Skills tab opens or its agent changes. **Refresh skills**
 rescans after external changes. Concurrent requests share a lookup and results
 are cached for 15 seconds; regular `/status` polling does not scan skills.

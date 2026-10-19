@@ -59,6 +59,7 @@ const checkSelect = async (page, select, theme) => {
   let gateRead = false, releaseRead, oldReadStarted, readError = false, inventoryError = false;
   let saveError = true, gateSave = false, releaseSave, saveStarted;
   let stateError = true, gateState = false, releaseState, stateStarted, firstEnabled = true;
+  let bundledFixture = false;
   let policies = false, importFailure = true, gateImport = false, releaseImport, importStarted;
   let gateSource = false, releaseSource, sourceStarted;
   let gatePlan = false, releasePlan, planStarted, importPlanning = false;
@@ -77,7 +78,7 @@ const checkSelect = async (page, select, theme) => {
    canEdit: true, canRemove: true, revision: 'fixture-revision', removalRevision: 'fixture-removal', removalKind: 'directory', removalPath: '/fixture/local/review' });
   const inventoryFor = (provider) => ({ ok: true, provider, canCreate: true,
    creationTargets: [{ id: 'provider', name: 'Provider folder' }, ...(provider === 'codex' || provider === 'opencode' ? [{ id: 'shared', name: 'Shared .agents folder' }] : [])],
-   skills: [skill(provider, firstId, 'review'), skill(provider, secondId, 'manual-review')],
+   skills: [skill(provider, firstId, 'review'), skill(provider, secondId, 'manual-review'), ...(bundledFixture ? [{ ...skill(provider, 'c'.repeat(32), 'bundled-example'), scope: 'system', source: 'System', canToggle: false, canSetState: false }] : [])],
    coverage: provider === 'codex' ? 'native' : policies ? 'policy' : 'files', warnings: [], coverageText: provider + ' global skill inventory' });
   await page.route('**/context/skills**', async (route) => {
    const url = new URL(route.request().url()), provider = url.searchParams.get('provider');
@@ -168,6 +169,25 @@ const checkSelect = async (page, select, theme) => {
   assert.equal(await page.locator('#skill-provider').inputValue(), 'opencode');
   await page.locator('#skill-provider').selectOption('codex');
   await page.locator('.tc-skills[data-provider="codex"]').waitFor();
+  // Hiding bundled skills changes only the list, never the provider's settings.
+  bundledFixture = true;
+  await page.getByRole('button', { name: 'Refresh skills', exact: true }).click();
+  await page.getByRole('button', { name: 'View bundled-example', exact: true }).waitFor();
+  await capture('bundled-visible');
+  const beforeFilterMutations = mutations.length;
+  await page.getByRole('switch', { name: 'Hide bundled skills', exact: true }).click();
+  assert.equal(await page.locator('.tc-skill-row').count(), 2);
+  assert.equal(await page.locator('.tc-skill-count').innerText(), '2 skills · 1 hidden');
+  assert.equal(await page.getByRole('button', { name: 'View bundled-example', exact: true }).count(), 0);
+  assert.equal(mutations.length, beforeFilterMutations);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await capture('bundled-hidden');
+  await page.getByRole('switch', { name: 'Hide bundled skills', exact: true }).click();
+  assert.equal(await page.locator('.tc-skill-row').count(), 3);
+  bundledFixture = false;
+  await page.getByRole('button', { name: 'Refresh skills', exact: true }).click();
+  await page.getByRole('button', { name: 'View review', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'View bundled-example', exact: true }).count(), 0);
   // Codex's own on/off for each skill is a switch in its row.
   const codexStates = () => page.locator('.tc-skill-row [role="switch"]').evaluateAll((all) => all.map((el) => el.getAttribute('aria-checked')));
   const reviewSwitch = page.getByRole('switch', { name: 'review for Codex', exact: true });

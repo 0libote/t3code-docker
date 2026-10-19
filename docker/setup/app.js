@@ -3406,6 +3406,7 @@
     'storage.versions': () => storageUI.reviewVersions(),
     'storage.details': () => storageUI.toggle(),
     'skills.refresh': () => skillsUI.refresh(),
+    'skills.filter': () => skillsUI.toggleBundled(),
     'skills.view': (a) => skillsUI.view(a.id),
     'skills.add': () => skillsUI.add(),
     'skills.import': () => skillsUI.install(),
