@@ -1,0 +1,139 @@
+// Sample data for photographing the setup console, shared by
+// scripts/console-screens.js and scripts/readme-media.js.
+//
+// The console's own code renders every page; only its data is replaced:
+// /status, /ports, /providers and the skills inventories come from
+// scripts/fixtures/console, shifted to the present and changed per scenario,
+// and every POST is answered here without reaching the server.
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+const FIXTURES = path.join(__dirname, "..", "fixtures", "console");
+const fixture = (name) => JSON.parse(fs.readFileSync(path.join(FIXTURES, name), "utf8"));
+
+/** The console's own table of pages. */
+const routesTable = () => {
+  const context = vm.createContext({ URL });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "..", "docker/setup/client/routes.js"), "utf8"), context);
+  return vm.runInContext("T3Routes", context);
+};
+
+// ------------------------------------------------------------ the data --
+/** Move every timestamp in a fixture by the same amount, so "2 hours ago" stays true today. */
+const shiftTimes = (value, by) => {
+  if (Array.isArray(value)) return value.map((v) => shiftTimes(v, by));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, shiftTimes(v, by)]));
+  if (typeof value === "number" && value > 1.6e12 && value < 2.2e12) return value + by;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) return new Date(Date.parse(value) + by).toISOString();
+  return value;
+};
+
+const harness = (s, id) => s.harnesses.find((h) => h.id === id);
+const SCENARIOS = {
+  ready: (s) => {
+    s.paths.volumeKind = "durable";
+    s.paths.volumeName = "t3-home";
+    return s;
+  },
+  setup: (s, now) => {
+    s.publicUrl = null;
+    s.publicUrlSource = null;
+    s.sessions = [];
+    s.events = [];
+    s.paths.volumeKind = "durable";
+    s.connect = { ...s.connect, state: "off" };
+    const installing = ["opencode", "go", "rust", "bun", "deno", "uv"];
+    s.setup = {
+      state: "running", startedAt: now - 90_000, finishedAt: null, current: "opencode",
+      items: s.setup.items.map((item) => ({ ...item, state: item.id === "opencode" ? "installing" : installing.includes(item.id) ? "pending" : "done",
+        progress: item.id === "opencode" ? { phase: "downloading", done: 41_000_000, total: 96_000_000 } : undefined })),
+    };
+    for (const h of s.harnesses) {
+      if (h.managedBy) continue;
+      if (h.id === "claude" || h.id === "codex") { h.signedIn = false; h.credentialsPresent = false; h.latestVersion = h.installedVersion; }
+      else Object.assign(h, { installed: false, runnable: false, version: null, installedVersion: null, signedIn: null, credentialsPresent: false });
+    }
+    for (const t of s.toolchains) if (installing.includes(t.id)) Object.assign(t, { installed: false, version: null });
+    s.packages = [];
+    return s;
+  },
+  attention: (s) => {
+    Object.assign(harness(s, "codex"), { signedIn: false });
+    Object.assign(s.toolchains.find((t) => t.id === "go"), { failed: true, failure: "Download timed out after 120 s", operation: "update" });
+    s.storage.disk = { ...s.storage.disk, usedPercent: 86, availableBytes: 29_000_000_000 };
+    s.legacyEnv = ["GOROOT", "PATH"];
+    s.paths.volumeKind = "anonymous";
+    s.paths.volumeName = "6c1f0e9a4b2d8c7e5f3a1b9d0e8c6a4f2b7d5e3c1a9f8e6d4c2b0a7f5e3d1c9b";
+    return s;
+  },
+};
+const PORTS = {
+  ready: (p, now) => ({ ...p, tunnels: [{ port: 5173, state: "open", url: "https://quiet-river-1234.trycloudflare.com", startedAt: now - 12 * 60_000 }] }),
+  setup: (p) => ({ ...p, listening: [], details: [], tunnels: [] }),
+  attention: (p) => ({ ...p, tunnels: [{ port: 8787, state: "failed", error: "The tunnel could not reach Cloudflare’s edge" }] }),
+};
+
+/** /status for a scenario, as of now; `change` adjusts it further. */
+const statusFor = (scenario, change) => {
+  const base = fixture("status.json");
+  const now = Date.now();
+  const status = SCENARIOS[scenario](shiftTimes(base, now - base.storage.at), now);
+  return change ? change(status, now) || status : status;
+};
+const portsFor = (scenario, change) => {
+  const ports = PORTS[scenario](fixture("ports.json"), Date.now());
+  return change ? change(ports, Date.now()) || ports : ports;
+};
+
+/**
+ * Answer the console's data requests on `page` from the fixtures: every POST
+ * is accepted here and none reaches the server.
+ */
+const routeConsole = async (page, { status, ports }) => {
+  await page.route("**/*", (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const at = (suffix) => url.pathname.endsWith(suffix);
+    if (request.method() === "POST" && !at("/login")) return route.fulfill({ json: { ok: true } });
+    if (at("/status")) return route.fulfill({ json: status() });
+    if (at("/ports")) return route.fulfill({ json: ports() });
+    if (at("/providers")) return route.fulfill({ json: fixture("providers.json") });
+    if (at("/context/skills")) {
+      const provider = url.searchParams.get("provider") || "claude";
+      const name = `skills-${provider}.json`;
+      return fs.existsSync(path.join(FIXTURES, name)) ? route.fulfill({ json: fixture(name) })
+        : route.fulfill({ json: { ok: true, provider, coverage: "files", skills: [], roots: [] } });
+    }
+    return route.continue();
+  });
+};
+
+/** The console in a frame on its own origin, as T3 Code's settings show it. */
+const framed = async (page, url) => {
+  const host = new URL("/__console-screens-host", url).href;
+  await page.route(host, (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style><iframe src="${url}"></iframe>`,
+  }));
+  await page.goto(host, { waitUntil: "domcontentloaded" });
+  return (await page.waitForSelector("iframe")).contentFrame();
+};
+
+/** Unlock the console with its key and wait for the first page. */
+const unlock = async (target, key) => {
+  await target.waitForSelector("input[type=password]");
+  await target.fill("input[type=password]", key);
+  await target.click("button[type=submit]");
+  await target.waitForSelector("#page-overview .tc-page-head", { timeout: 30000 });
+};
+
+/** Go to a page (or a page's tab, "instructions/skills") and let its data land. */
+const visit = async (target, page, route) => {
+  await target.evaluate((r) => { location.hash = r; window.scrollTo(0, 0); }, route);
+  await target.waitForSelector(`#page-${route.split("/")[0]}:not([hidden]) .tc-page-head`, { timeout: 30000 });
+  await target.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(route === "instructions/skills" ? 1200 : 400);
+};
+
+module.exports = { FIXTURES, fixture, routesTable, shiftTimes, SCENARIOS, PORTS, statusFor, portsFor, routeConsole, framed, unlock, visit };

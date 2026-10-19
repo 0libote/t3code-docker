@@ -1670,10 +1670,12 @@ const T3Model = (() => {
     for (const l of linkRows(s.pairings, null, now)) add('Access', 'Revoke link ' + l.name + '…', 'trash-2', { cmd: 'link.revoke', id: l.id }, { quiet: true });
 
     if (!contextView(s).error) {
-      add('Instructions & skills', 'Edit global AGENTS.md…', 'pencil', { cmd: 'context.edit' }, { keywords: 'context instructions' });
-      if (contextView(s).present) add('Instructions & skills', 'Delete global AGENTS.md…', 'trash-2', { cmd: 'context.delete' }, { keywords: 'context instructions' });
+      add('Instructions & skills', 'Edit the shared AGENTS.md…', 'pencil', { cmd: 'context.edit' }, { keywords: 'context instructions global' });
+      if (contextView(s).present) add('Instructions & skills', 'Delete the shared AGENTS.md…', 'trash-2', { cmd: 'context.delete' }, { keywords: 'context instructions global' });
     }
-    for (const row of contextProviderRows(s).filter((row) => row.mode && !row.error)) add('Instructions & skills', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id }, { keywords: 'context' });
+    for (const row of contextProviderRows(s).filter((row) => row.mode === 'separate' && !row.error)) {
+      add('Instructions & skills', 'Edit ' + row.name + '’s ' + row.ownFile + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id }, { keywords: 'context instructions' });
+    }
     add('Access', 'Create pairing link', 'link', { cmd: 'pair.start' }, { shortcut: 'P' });
     const updates = updatesView(s, ui, now);
     const runtime = updates.runtime;
@@ -1822,47 +1824,71 @@ const T3Model = (() => {
     return { present: Boolean(file.present), bytes: file.bytes || 0, error: file.error || null };
   };
 
+  const PROVIDER_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+  // The file each agent reads on its own when it is not using the shared one.
+  const OWN_FILE = { claude: 'CLAUDE.md', codex: 'AGENTS.md', opencode: 'AGENTS.md' };
+
+  /** The shared AGENTS.md: how big it is, and which agents read it. */
   const contextAgentsMdRow = (status) => {
     const view = contextView(status);
+    const readers = contextProviderRows(status).filter((row) => row.mode === 'shared').map((row) => row.name);
     return {
       id: 'global',
       key: 'agentsmd:global',
       target: 'context-agentsmd',
-      name: 'Global AGENTS.md',
+      name: 'AGENTS.md',
       description: '',
       mono: 'AG',
       hue: '--id-toolchain',
-      version: view.present && view.bytes ? view.bytes + ' B' : null,
+      version: null,
       state: view.error ? 'unavailable' : 'ok',
-      status: { text: view.error || (view.present ? 'Shared instructions; linked to agent homes where supported' : 'Not set yet. Edit to add shared instructions.') },
-      badge: view.error ? { tone: 'warn', text: 'Unavailable' } : view.present ? { tone: 'ok', text: 'Set' } : null,
-      action: view.error ? null : { cmd: 'context.edit', label: 'Edit', icon: 'pencil' },
+      icon: 'file-text',
+      status: view.error ? { dot: 'danger', text: view.error }
+        : !view.present ? { text: 'Not written yet' + (readers.length ? ' · ' + listOf(readers) + (readers.length === 1 ? ' reads' : ' read') + ' it once you do' : '') }
+          : { text: formatBytes(view.bytes) + ' · ' + (readers.length ? 'read by ' + listOf(readers) : 'no agent reads it yet') },
+      badge: view.error ? { tone: 'warn', text: 'Unavailable' } : null,
+      action: view.error ? null : { cmd: 'context.edit', label: view.present ? 'Edit' : 'Write', icon: 'pencil' },
       menu: view.present && !view.error ? [{ cmd: 'context.delete', label: 'Delete…', icon: 'trash-2', danger: true }] : [],
       attention: false,
+      readers,
     };
   };
 
-  // Only show the agents in use: installed harnesses, plus any provider that
-  // already has instructions (so an uninstalled agent's leftover file can still
-  // be edited or cleared). Without harness facts, show everything as before.
+  /**
+   * Each agent's instructions, said as what it reads: the shared AGENTS.md, a
+   * file of its own, or nothing. Only the agents in use are listed: installed
+   * ones, plus any that already has instructions (so an uninstalled agent's
+   * leftover file can still be edited or cleared). Without harness facts,
+   * every provider is listed.
+   */
   const contextProviderRows = (status) => {
     const providers = status?.context?.providers || [];
     const harnesses = status?.harnesses;
     const installed = Array.isArray(harnesses) ? new Set(harnesses.filter((h) => h.installed).map((h) => h.id)) : null;
     const list = !installed || installed.size === 0 ? providers
       : providers.filter((file) => installed.has(file.provider) || file.mode || file.error);
-    return list.map((file) => ({
-      id: file.provider,
-      key: 'agentsmd:' + file.provider,
-      name: ({ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[file.provider] || file.provider) + ' instructions',
-      mark: file.provider, mono: 'AG', hue: '--id-toolchain',
-      status: file.error ? { dot: 'danger', text: file.error }
-        : file.mode === 'shared' ? { text: 'Uses the shared AGENTS.md' }
-          : file.mode === 'separate' ? { text: 'Separate file', code: file.path }
-            : { text: 'No instructions' },
-      badge: file.error ? { tone: 'warn', text: 'Unavailable' } : null,
-      mode: file.mode || null, sourceRevision: file.sourceRevision, error: file.error || null,
-    }));
+    return list.map((file) => {
+      const name = PROVIDER_NAMES[file.provider] || file.provider;
+      const own = OWN_FILE[file.provider] || 'AGENTS.md';
+      return {
+        id: file.provider,
+        key: 'agentsmd:' + file.provider,
+        name,
+        mark: file.provider, mono: 'AG', hue: '--id-toolchain',
+        ownFile: own,
+        status: file.error ? { dot: 'danger', text: file.error }
+          : file.mode === 'shared' ? { text: 'Reads the shared AGENTS.md' }
+            : file.mode === 'separate' ? { text: 'Reads its own ' + own }
+              : { text: 'Reads no global instructions' },
+        // What the row says under its name, beside the choice that already
+        // says what it reads: where its own file is, or why it reads nothing.
+        note: file.error ? null : file.mode === 'separate' ? file.path || null
+          : file.mode === 'shared' && !(status?.context?.agentsMd || {}).present ? 'The shared file isn’t written yet' : null,
+        path: file.path || null,
+        badge: file.error ? { tone: 'warn', text: 'Unavailable' } : null,
+        mode: file.mode || null, sourceRevision: file.sourceRevision, error: file.error || null,
+      };
+    });
   };
 
   // Automatic updates: the policy and last run from /status, as the Updates

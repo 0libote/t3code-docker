@@ -92,6 +92,8 @@
     portsAt: 0,
     providers: null,
     route: 'overview',
+    // Instructions & skills' open tab, from the address: #instructions/skills.
+    contextTab: 'instructions',
     toolFilter: '',
   };
   // What the page knows that /status cannot: see the header comment.
@@ -204,7 +206,7 @@
         loadProvidersOnce();
         tellAttention();
         checkHere();
-        if (state.route === 'instructions') skillsUI.activate();
+        if (state.route === 'instructions' && state.contextTab === 'skills') skillsUI.activate();
       } else if (!locked) {
         // Name the URL and the reason. "Could not read status" sent someone
         // hunting a migration bug when the page was calling the wrong path.
@@ -532,7 +534,8 @@
 
   // ------------------------------------------------------------- markup --
   // An agent shows its own mark; anything without one, its monogram.
-  const tile = (row, size) => row.mark && T3C.agentMarks[row.mark]
+  const tile = (row, size) => row.icon && !row.mark ? html`<span class="${cx('tc-tile tc-tile--icon', size && 'tc-tile--' + size)}" aria-hidden="true">${icon(row.icon)}</span>`
+    : row.mark && T3C.agentMarks[row.mark]
     ? html`<span class="${cx('tc-tile tc-tile--mark', size && 'tc-tile--' + size, row.dim && 'tc-tile--dim')}" aria-hidden="true">${raw(T3C.agentMark(row.mark))}</span>`
     : html`<span class="${cx('tc-tile', size && 'tc-tile--' + size, row.dim && 'tc-tile--dim')}" style="--_tile: var(${row.hue})" aria-hidden="true">${row.mono}</span>`;
   const dot = (tone, extra) => html`<span class="${cx('tc-dot', 'tc-dot--' + tone, extra)}"></span>`;
@@ -1559,28 +1562,55 @@
   // Metadata is polled; the editor loads instruction text on demand.
   const contextEditor = { loading: false, layer: null, content: '', saving: false, error: null, provider: null, revision: null, path: '', readError: false };
   const contextSwitching = new Set();
-  const contextProviderRow = (row) => html`
-    <div class="tc-row tc-context-provider" data-key="row-${row.key}">
+  /**
+   * What one agent reads at the start of a session, and the choice of it:
+   * the shared AGENTS.md, a file of its own, or nothing. Each choice says
+   * itself, so the row needs no explaining.
+   */
+  const contextProviderRow = (row) => {
+    const busy = contextSwitching.has(row.id);
+    const shared = M.contextView(state.status).present;
+    const options = [
+      ['shared', 'Shared AGENTS.md', !shared && row.mode !== 'shared'],
+      ['separate', 'Its own ' + row.ownFile, false],
+      ['none', 'No instructions', false],
+    ];
+    return html`
+    <div class="tc-row tc-row--compact tc-context-provider" data-key="row-${row.key}">
       ${tile(row)}
       <div class="tc-row-main">
         <div class="tc-row-title"><span class="tc-row-name">${row.name}</span>${badge(row.badge)}</div>
-        ${statusLine(row.status)}
-        <div class="tc-seg" role="group" aria-label="${row.name} source">
-          ${[['shared', 'Shared'], ['separate', 'Separate'], ['none', 'None']].map(([mode, label]) => html`<button type="button" data-cmd="context.provider.mode" data-id="${row.id}" data-mode="${mode}" aria-pressed="${String((row.mode || 'none') === mode)}"${contextSwitching.has(row.id) || row.error || (mode === 'shared' && !M.contextView(state.status).present) || (mode === 'none' && !row.mode) ? raw(' disabled') : ''}>${label}</button>`)}
-        </div>
+        ${row.error ? statusLine(row.status) : row.note ? html`<span class="tc-status"><span class="${cx('tc-status-text', row.mode === 'separate' && 'tc-mono tc-truncate')}" title="${row.note}">${row.note}</span></span>` : ''}
       </div>
-      <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="context.provider.edit" data-id="${row.id}"${!row.mode || row.error || contextSwitching.has(row.id) ? raw(' disabled') : ''}>${icon('pencil')}Edit</button></div>
+      <div class="tc-row-actions tc-row-actions--wrap">
+        ${row.mode && !row.error ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="context.provider.edit" data-id="${row.id}" aria-label="Edit what ${row.name} reads"${busy ? raw(' disabled') : ''}>${icon('pencil')}Edit</button>` : ''}
+        <select class="tc-select tc-select--sm tc-context-mode" data-context-mode="${row.id}" aria-label="What ${row.name} reads"${busy || row.error ? raw(' disabled') : ''}>${options.map(([mode, label, off]) => html`<option value="${mode}"${(row.mode || 'none') === mode ? raw(' selected') : ''}${off ? raw(' disabled') : ''}>${label}${off ? ' (write it first)' : ''}</option>`)}</select>${menuSlot()}
+      </div>
     </div>`;
+  };
 
-  const instructionsPage = (s) => html`
-    ${pageHead('instructions')}
-    ${pageNotices('instructions')}
-    ${section('cx-agentsmd', 'Instructions', html`<div class="tc-group">
-      <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map(contextProviderRow)}</div>
-      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Shared uses the global file. Separate restores the provider's previous file, or starts from the global file. Start a new agent session after saving.</span></div>
-    </div>`)}
-    ${M.contextView(s).error ? notice('danger', 'circle-alert', 'Could not read instructions', M.contextView(s).error) : ''}
-    ${section('cx-skills', 'Skills', skillsUI.content(), { actions: skillsUI.actions() })}`;
+  const CONTEXT_TABS = [['instructions', 'Instructions'], ['skills', 'Skills']];
+  /** Instructions and skills: two tabs on one page, each at an address of its own. */
+  const instructionsPage = (s) => {
+    const tab = state.contextTab;
+    const rows = M.contextProviderRows(s);
+    const view = M.contextView(s);
+    const panel = tab === 'skills'
+      ? skillsUI.content()
+      : html`
+        ${view.error ? notice('danger', 'circle-alert', 'Couldn’t read the instructions', view.error) : ''}
+        ${section('cx-agentsmd', 'Shared instructions', html`<div class="tc-group"><div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}</div></div>`)}
+        ${section('cx-agents', 'What each agent reads', html`<div class="tc-group">
+          ${rows.length ? html`<div class="tc-list">${rows.map(contextProviderRow)}</div>`
+            : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">No agent that reads global instructions is installed.</span></div>`}
+          <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Agents read these when a session starts. Start a new one after you save.</span></div>
+        </div>`)}`;
+    return html`
+      ${pageHead('instructions')}
+      <div class="tc-tabs" role="tablist" aria-label="Instructions and skills" data-key="cx-tabs">${CONTEXT_TABS.map(([value, label]) => html`<button class="tc-tab-button" type="button" role="tab" id="cx-tab-${value}" aria-controls="cx-panel" aria-selected="${String(tab === value)}" tabindex="${tab === value ? '0' : '-1'}" data-cmd="context.tab" data-value="${value}">${label}</button>`)}</div>
+      ${pageNotices('instructions')}
+      <div class="tc-tabpanel" role="tabpanel" id="cx-panel" aria-labelledby="cx-tab-${tab}" data-key="cx-panel-${tab}">${panel}</div>`;
+  };
 
   const downloadMarkdown = (filename, content) => {
     const url = URL.createObjectURL(new Blob([content], { type: 'text/markdown;charset=utf-8' }));
@@ -1603,8 +1633,9 @@
     if (contextEditor.layer) return;
     Object.assign(contextEditor, { content: '', original: '', loading: true, saving: false, error: null, provider, revision: null, path: '', readError: false });
     const providerName = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[provider];
-    const title = provider ? providerName + ' instructions' : 'Global AGENTS.md';
     const filename = provider === 'claude' ? 'CLAUDE.md' : 'AGENTS.md';
+    const title = provider ? providerName + '’s ' + filename : 'Shared AGENTS.md';
+    const readers = M.contextAgentsMdRow(state.status).readers;
     const isDirty = () => !contextEditor.loading && !contextEditor.readError && contextEditor.content !== contextEditor.original;
     const editorMeta = () => contextEditor.loading ? 'Loading…'
       : M.formatBytes(new TextEncoder().encode(contextEditor.content).length) + ' · ' + (isDirty() ? 'Unsaved changes' : contextEditor.revision ? 'Saved' : 'New file');
@@ -1614,13 +1645,13 @@
       returnTo: trigger,
       backdrop: 'ignore',
       render: () => html`
-        <div class="tc-sheet-head">${provider ? tile({ mark: provider }, 'lg') : html`<span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span>`}<div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="cx-title">${title}</h2><span class="tc-small tc-muted">${provider ? filename + ' for this provider' : 'One file for providers set to Shared'}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
+        <div class="tc-sheet-head">${provider ? tile({ mark: provider }, 'lg') : html`<span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span>`}<div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="cx-title">${title}</h2><span class="tc-small tc-muted">${provider ? 'Only ' + providerName + ' reads this file' : readers.length ? 'Read by ' + M.listOf(readers) : 'For every agent set to read it'}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
         <div class="tc-sheet-body">
           ${contextEditor.error ? notice('danger', 'circle-alert', 'Could not load or save instructions', contextEditor.error) : ''}
           ${provider && contextEditor.path ? html`<span class="tc-hint tc-context-path" title="${contextEditor.path}">${contextEditor.path}</span>` : ''}
           <div class="tc-editor-toolbar"><label class="tc-label" for="cx-input">Markdown</label><div class="tc-editor-tools"><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-sheet="upload" title="Replace this draft from a Markdown file"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${icon('upload')}Upload</button><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-sheet="download" title="Download, including unsaved edits"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${icon('download')}Download</button><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-sheet="copy"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''}>${icon('copy')}Copy</button></div><input id="cx-file" data-key="cx-file" type="file" accept=".md,text/markdown" aria-label="Upload instructions Markdown" hidden></div>
-          <textarea class="tc-input tc-input--area tc-editor-area" id="cx-input" data-key="cx-input" aria-describedby="cx-meta"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''} rows="14" spellcheck="false" placeholder="${provider ? '# ' + providerName + ' instructions\n\nWrite guidance only this provider should follow.' : '# Instructions\n\nWrite guidance that should apply across supported agents.'}">${contextEditor.content}</textarea>
-          <div class="tc-editor-meta"><span id="cx-meta" data-key="cx-meta">${editorMeta()}</span><span>${provider ? 'Saving updates this file wherever it is used. Symlinks stay in place.' : 'Separate provider files are kept.'}<span class="tc-desk-only"> Ctrl/⌘ S to save.</span></span></div>
+          <textarea class="tc-input tc-input--area tc-editor-area" id="cx-input" data-key="cx-input" aria-describedby="cx-meta"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''} rows="14" spellcheck="false" placeholder="${provider ? '# ' + providerName + ' instructions\n\nWrite guidance only ' + providerName + ' should follow.' : '# Instructions\n\nWrite guidance every agent reading this file should follow.'}">${contextEditor.content}</textarea>
+          <div class="tc-editor-meta"><span id="cx-meta" data-key="cx-meta">${editorMeta()}</span><span>${provider ? 'Saving updates this file wherever it is used. Symlinks stay in place.' : 'Agents with a file of their own keep it.'}<span class="tc-desk-only"> Ctrl/⌘ S to save.</span></span></div>
         </div>
         <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn tc-btn--primary" type="button" data-sheet="save"${!isDirty() || contextEditor.saving ? raw(' disabled') : ''}>${contextEditor.saving ? 'Saving…' : 'Save'}</button></div>`,
       focus: '#cx-input',
@@ -1684,7 +1715,7 @@
         if (!save.ok) { contextEditor.error = save.error; contextEditor.layer.render(); return; }
         contextEditor.layer.close('saved');
         const skipped = (save.data?.reconcile?.skipped || []).filter((target) => !target.preserved);
-        Kit.toast(provider ? 'Saved ' + providerName + ' instructions' : 'Saved global AGENTS.md', skipped.length ? { tone: 'warn', detail: skipped.map((t) => t.provider + ': ' + t.reason).join('; ') } : undefined);
+        Kit.toast(provider ? 'Saved ' + providerName + '’s ' + filename : 'Saved the shared AGENTS.md', skipped.length ? { tone: 'warn', detail: skipped.map((t) => t.provider + ': ' + t.reason).join('; ') } : undefined);
         loadStatus();
       }
     });
@@ -1771,9 +1802,10 @@
   // #agents, or an address a page had before it moved (#devices once it is
   // Access), which is rewritten in place so the address bar says where it is.
   const routeFromHash = () => {
-    const name = location.hash.replace(/^#\/?/, '').split(/[/?]/)[0];
+    const [name, sub] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
     const route = T3Routes.resolve(name);
-    if (route && route !== name) history.replaceState(null, '', '#' + route);
+    if (route && route !== name) history.replaceState(null, '', '#' + route + (sub ? '/' + sub : ''));
+    if (route === 'instructions') state.contextTab = sub === 'skills' ? 'skills' : 'instructions';
     return route && PAGES[route] ? route : 'overview';
   };
   const go = (route) => {
@@ -1800,7 +1832,7 @@
     }
     first = false;
     if (route === 'ports' && !state.ports) loadPorts();
-    if (route === 'instructions' && state.status) skillsUI.activate();
+    if (route === 'instructions' && state.contextTab === 'skills' && state.status) skillsUI.activate();
   };
   window.addEventListener('hashchange', () => show(routeFromHash(), keyboardNav));
   let keyboardNav = false;
@@ -3601,13 +3633,17 @@
     'device.rename': (a, el) => openDeviceRename(a.id, el),
     'link.revoke': (a) => confirmRevoke('pairing', a.id),
 
+    'context.tab': (a) => {
+      const hash = '#instructions' + (a.value === 'skills' ? '/skills' : '');
+      if (location.hash !== hash) location.hash = hash;
+    },
     'context.edit': (a, el) => openContextEditor(el),
     'context.delete': async () => {
       const view = M.contextView(state.status);
       if (!view.present) return;
       const confirmed = await Kit.confirm({
-        title: 'Delete global AGENTS.md?',
-        body: 'Removes the shared instructions file. Providers using Shared will have no instructions until you save new shared instructions or switch them to Separate.',
+        title: 'Delete the shared AGENTS.md?',
+        body: 'Agents set to read it read nothing until you write it again, or give them a file of their own.',
         confirm: 'Delete',
       });
       if (!confirmed) return;
@@ -3615,7 +3651,7 @@
       if (!current.ok) { Kit.toast('Could not delete instructions', { tone: 'danger', detail: current.error }); return; }
       const result = await api('/context/agents-md', { body: { delete: true, revision: current.data.revision } });
       if (!result.ok) { Kit.toast('Could not delete instructions', { tone: 'danger', detail: result.error }); return; }
-      Kit.toast('Deleted global AGENTS.md');
+      Kit.toast('Deleted the shared AGENTS.md');
       await loadStatus();
     },
     'context.provider.edit': (a, el) => {
@@ -3624,36 +3660,42 @@
     },
     'context.provider.mode': async (a, el) => {
       const row = M.contextProviderRows(state.status).find((entry) => entry.id === a.id);
-      if (!row || (row.mode || 'none') === a.mode || contextSwitching.has(a.id)) return;
+      // A choice that does not happen leaves the menu showing what is in effect.
+      const settle = () => {
+        const current = M.contextProviderRows(state.status).find((entry) => entry.id === a.id);
+        if (el && el.tagName === 'SELECT' && el.isConnected) el.value = (current && current.mode) || 'none';
+      };
+      if (!row || (row.mode || 'none') === a.mode || contextSwitching.has(a.id)) { settle(); return; }
       contextSwitching.add(a.id);
       render();
       try {
         if (a.mode === 'shared' && row.mode === 'separate') {
           const confirmed = await Kit.confirm({
-            title: 'Use shared instructions for ' + row.name.replace(' instructions', '') + '?',
-            body: 'Your separate file will be backed up and restored if you switch back to Separate. Its current contents will not be merged into the shared file.',
+            title: row.name + ': read the shared AGENTS.md?',
+            body: 'Its own ' + row.ownFile + ' is backed up, and comes back if you choose it again. Its contents aren’t added to the shared file.',
             confirm: 'Use shared', tone: 'primary',
           });
           if (!confirmed) return;
         }
         if (a.mode === 'none') {
           const confirmed = await Kit.confirm({
-            title: 'Remove instructions for ' + row.name.replace(' instructions', '') + '?',
+            title: row.name + ': read no instructions?',
             body: row.mode === 'separate'
-              ? 'Your separate file will be backed up and restored if you switch back to Separate.'
-              : 'The shared link for this provider will be removed. Its separate backup, if any, is kept for a later Separate.',
-            confirm: 'Remove',
+              ? 'Its own ' + row.ownFile + ' is backed up, and comes back if you choose it again.'
+              : 'It stops reading the shared AGENTS.md. A file of its own backed up earlier is kept for later.',
+            confirm: 'Read nothing',
           });
           if (!confirmed) return;
         }
         const result = await api('/context/agents-md', { body: { provider: a.id, mode: a.mode, sourceRevision: row.sourceRevision } });
-        if (!result.ok) { Kit.toast('Could not switch instructions', { tone: 'danger', detail: result.error }); return; }
-        Kit.toast(a.mode === 'shared' ? 'Using shared instructions' : a.mode === 'none' ? 'No instructions for this provider' : 'Using separate instructions');
+        if (!result.ok) { Kit.toast('Couldn’t change what ' + row.name + ' reads', { tone: 'danger', detail: result.error }); return; }
+        Kit.toast(row.name + (a.mode === 'shared' ? ' reads the shared AGENTS.md' : a.mode === 'none' ? ' reads no instructions' : ' reads its own ' + row.ownFile));
         await loadStatus();
         if (a.mode === 'separate') openContextEditor(el, a.id);
       } finally {
         contextSwitching.delete(a.id);
         render();
+        settle();
       }
     },
 
@@ -3713,8 +3755,22 @@
     render();
   });
   document.addEventListener('change', (e) => {
+    if (e.target.hasAttribute('data-context-mode')) run('context.provider.mode', { id: e.target.getAttribute('data-context-mode'), mode: e.target.value }, e.target);
     if (e.target.id === 'skill-provider') skillsUI.select(e.target.value);
     if (e.target.hasAttribute('data-skill-policy')) skillsUI.setState(e.target.getAttribute('data-skill-policy'), e.target.value);
+  });
+
+  // A tab list moves with the arrow keys, and the tab under focus opens.
+  document.addEventListener('keydown', (e) => {
+    const tab = e.target.closest && e.target.closest('[role="tab"]');
+    if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    const tabs = [...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
+    const at = tabs.indexOf(tab);
+    const next = e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs[tabs.length - 1]
+      : tabs[(at + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    e.preventDefault();
+    next.focus();
+    next.click();
   });
 
   // Navigation links keep their hrefs (middle-click, copy link); keyboard

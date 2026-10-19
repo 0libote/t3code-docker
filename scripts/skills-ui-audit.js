@@ -141,7 +141,7 @@ const checkSelect = async (page, select, theme) => {
    await page.getByRole('button', { name: /unlock/i }).click();
    await page.locator('#app').waitFor();
   }
-  await page.goto(base + (embedded ? '?embed=t3&theme=' + theme : '') + '#instructions');
+  await page.goto(base + (embedded ? '?embed=t3&theme=' + theme : '') + '#instructions/skills');
   await page.locator('[data-cmd="skills.view"]').first().waitFor();
   await page.locator('#skill-provider').selectOption('claude');
   await page.locator('.tc-skills[data-provider="claude"]').waitFor();
@@ -168,19 +168,22 @@ const checkSelect = async (page, select, theme) => {
   assert.equal(await page.locator('#skill-provider').inputValue(), 'opencode');
   await page.locator('#skill-provider').selectOption('codex');
   await page.locator('.tc-skills[data-provider="codex"]').waitFor();
-  assert.deepEqual(await page.locator('.tc-skill-row .tc-badge').allTextContents(), ['Enabled', 'Disabled']);
+  // Codex's own on/off for each skill is a switch in its row.
+  const codexStates = () => page.locator('.tc-skill-row [role="switch"]').evaluateAll((all) => all.map((el) => el.getAttribute('aria-checked')));
+  const reviewSwitch = page.getByRole('switch', { name: 'review for Codex', exact: true });
+  assert.deepEqual(await codexStates(), ['true', 'false']);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  await page.getByRole('button', { name: 'Disable review for Codex', exact: true }).click();
+  await reviewSwitch.click();
   await page.getByText('Codex settings changed. Refresh required.', { exact: true }).waitFor();
   await page.locator('.tc-toast[data-tone="danger"] [data-toast-close]').click();
-  await page.getByRole('button', { name: 'Disable review for Codex', exact: true }).waitFor();
-  assert.deepEqual(await page.locator('.tc-skill-row .tc-badge').allTextContents(), ['Enabled', 'Disabled']);
+  await page.waitForFunction(() => !document.querySelector('.tc-skill-row [role="switch"]:disabled'));
+  assert.deepEqual(await codexStates(), ['true', 'false'], 'a refused change leaves the switch as it was');
   stateError = false; gateState = true;
   const stateSaving = new Promise((resolve) => { stateStarted = resolve; });
-  await page.getByRole('button', { name: 'Disable review for Codex', exact: true }).click(); await stateSaving;
+  await reviewSwitch.click(); await stateSaving;
   assert.equal(await page.locator('[data-cmd="skills.state"]:disabled').count(), 2);
   assert.equal(await page.getByRole('button', { name: 'Refresh skills', exact: true }).isDisabled(), true);
-  assert.deepEqual(await page.locator('.tc-skill-row .tc-badge').allTextContents(), ['Enabled', 'Disabled'], 'no optimistic availability');
+  assert.deepEqual(await codexStates(), ['true', 'false'], 'no optimistic availability');
   await page.locator('#skill-provider').selectOption('opencode');
   await page.locator('.tc-skills[data-provider="opencode"]').waitFor();
   const stateSaved = page.waitForResponse((response) => response.url().endsWith('/context/skills/state'));
@@ -188,10 +191,10 @@ const checkSelect = async (page, select, theme) => {
   assert.equal(await page.locator('#skill-provider').inputValue(), 'opencode');
   assert.equal(await page.locator('[data-cmd="skills.state"]').count(), 0, 'late native result must not replace another provider');
   await page.locator('#skill-provider').selectOption('codex');
-  await page.getByRole('button', { name: 'Enable review for Codex', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.tc-skill-row [role="switch"]')?.getAttribute('aria-checked') === 'false');
   const enabled = page.waitForResponse((response) => response.url().endsWith('/context/skills/state'));
-  await page.getByRole('button', { name: 'Enable review for Codex', exact: true }).click(); await enabled;
-  await page.getByRole('button', { name: 'Disable review for Codex', exact: true }).waitFor();
+  await reviewSwitch.click(); await enabled;
+  await page.waitForFunction(() => document.querySelector('.tc-skill-row [role="switch"]')?.getAttribute('aria-checked') === 'true');
 
   gateRead = true;
   const readStarted = new Promise((resolve) => { oldReadStarted = resolve; });
@@ -274,12 +277,12 @@ const checkSelect = async (page, select, theme) => {
    const savedPolicy = page.waitForResponse((response) => response.url().endsWith('/context/skills/state'));
    releaseState(); await savedPolicy;
    await page.waitForFunction((expected) => document.querySelector('[data-skill-policy]')?.value === expected && !document.querySelector('[data-skill-policy]').disabled, chosen);
-   assert.ok((await page.locator('.tc-skill-row .tc-badge').first().innerText()).includes(chosen));
+   assert.equal(await page.locator('.tc-skill-row .tc-badge').count(), 0, 'the policy menu says the state; no badge repeats it');
   }
   inventoryError = true;
   const refreshed = page.waitForRequest((request) => request.url().includes('refresh=1'));
   await page.getByRole('button', { name: 'Refresh skills', exact: true }).click(); await refreshed;
-  await page.getByText('Could not read skills: Fixture inventory unavailable', { exact: true }).waitFor();
+  await page.getByText('Couldn’t read skills: Fixture inventory unavailable', { exact: true }).waitFor();
   assert.equal(await page.locator('.tc-skill-row').count(), 0, 'stale states must be hidden after a failed refresh');
   inventoryError = false;
   await page.getByRole('button', { name: 'Refresh skills', exact: true }).click();

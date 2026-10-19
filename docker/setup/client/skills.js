@@ -2,6 +2,7 @@
 const T3SkillsUI = (() => {
   'use strict';
   const { html, raw, icon } = Kit;
+  const M = T3Model;
   const providers = [['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['cursor', 'Cursor'], ['grok', 'Grok Build'], ['muse', 'Muse Code'], ['antigravity', 'Antigravity']];
   const stateOf = (skill) => skill.error ? { text: 'Unavailable', tone: 'warn' }
     : skill.stateAuthority === 'user-policy' ? { text: skill.stateLabel, tone: skill.state === 'off' || skill.state === 'deny' ? '' : 'ok' }
@@ -27,32 +28,55 @@ const T3SkillsUI = (() => {
       else error = response.error;
       render();
     };
-    const coverageSummary = () => !inventory || loading ? 'Global skills'
-      : (inventory.skills?.length || 0) + (inventory.skills?.length === 1 ? ' skill' : ' skills') + ' · ' + (inventory.coverage === 'policy' ? 'User policy checked' : inventory.coverage === 'native' ? 'Provider checked' : 'Files only');
+    const providerName = (id) => providers.find(([key]) => key === id)?.[1] || 'this agent';
+    const coverageSummary = () => !inventory || loading ? ''
+      : M.plural(inventory.skills?.length || 0, 'skill');
+    // What a skill's availability means for this agent, said once under the list.
+    const coverageText = () => !inventory ? 'Refresh after changing skills outside the console.'
+      : inventory.coverage === 'policy' ? 'These settings are ' + providerName(provider) + '’s own, for every project. A project’s settings can still turn a skill off. A change applies to new conversations.'
+        : inventory.coverage === 'native' && provider === 'codex' ? 'Codex reports which it loads. A change applies to new conversations.'
+          : 'Skill files found on disk. ' + providerName(provider) + ' doesn’t say here which it loads.';
+    /** The one control a skill row has: a policy, a switch, or what it is. */
+    const control = (skill) => {
+      if (skill.canSetState) {
+        const label = provider === 'claude' ? 'Visibility' : 'Permission';
+        return html`<select class="tc-select tc-select--sm tc-skill-policy" data-skill-policy="${skill.id}" aria-label="${label} for ${skill.name}"${changing ? raw(' disabled') : ''}>${skill.stateOptions.map((option) => html`<option value="${option.value}"${option.value === skill.state ? raw(' selected') : ''}>${option.label}</option>`)}</select>`;
+      }
+      if (skill.canToggle) {
+        const busy = changing?.id === skill.id && changing.provider === provider;
+        return html`<label class="tc-switch-hit" for="skill-switch-${skill.id}"><button class="tc-switch" id="skill-switch-${skill.id}" type="button" role="switch" aria-checked="${String(skill.state === 'enabled')}" aria-label="${skill.name} for Codex" data-cmd="skills.state" data-id="${skill.id}"${changing ? raw(' disabled') : ''}${busy ? raw(' aria-busy="true"') : ''}></button></label>`;
+      }
+      const status = stateOf(skill);
+      return html`<span class="tc-badge${status.tone ? ' tc-badge--' + status.tone : ''}">${status.text}</span>`;
+    };
+    /** A skill in a line: its name and what it is for, opening to the whole of it, and its control. */
+    const row = (skill) => {
+      const flag = skill.error ? { tone: 'warn', text: 'Unavailable' } : skill.metadataError ? { tone: 'warn', text: 'Check its metadata' } : null;
+      return html`<div class="tc-row tc-row--compact tc-skill-row" data-key="skill-${skill.id}">
+        <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('sparkles')}</span>
+        <button class="tc-row-main tc-skill-open" type="button" data-cmd="skills.view" data-id="${skill.id}" aria-label="View ${skill.name}">
+          <span class="tc-row-title"><span class="tc-row-name">${skill.name}</span>${flag ? html`<span class="tc-badge tc-badge--${flag.tone}">${flag.text}</span>` : ''}</span>
+          ${skill.description ? html`<span class="tc-skill-description" title="${skill.description}">${skill.description}</span>` : ''}
+        </button>
+        <div class="tc-row-actions">${control(skill)}</div>
+      </div>`;
+    };
     const content = () => html`<div class="tc-group tc-skills"${inventory ? raw(' data-provider="' + inventory.provider + '"') : ''}>
-      <div class="tc-skill-toolbar"><label class="tc-label" for="skill-provider">Provider</label><select class="tc-select" id="skill-provider">${providers.map(([id, name]) => html`<option value="${id}"${(provider || chooseDefault()) === id ? raw(' selected') : ''}>${name}</option>`)}</select><span class="tc-spacer"></span><span class="tc-hint tc-skill-count">${coverageSummary()}</span></div>
-      <div aria-live="polite" aria-busy="${String(loading)}">
+      <div class="tc-skill-toolbar"><label class="tc-label" for="skill-provider">Agent</label><select class="tc-select tc-select--sm" id="skill-provider">${providers.map(([id, name]) => html`<option value="${id}"${(provider || chooseDefault()) === id ? raw(' selected') : ''}>${name}</option>`)}</select><span class="tc-hint tc-skill-count">${coverageSummary()}</span><span class="tc-spacer"></span><div class="tc-skill-actions">${actions()}</div></div>
+      <div class="tc-skill-body" aria-live="polite" aria-busy="${String(loading)}">
         ${loading ? html`<p class="tc-skill-message tc-muted"><span class="tc-spinner" aria-hidden="true"></span>Reading skills…</p>` : ''}
-        ${error ? html`<p class="tc-skill-message tc-danger" role="alert">Could not read skills: ${error}</p>` : ''}
+        ${error ? html`<p class="tc-skill-message tc-danger" role="alert">${icon('circle-alert')}<span>Couldn’t read skills: ${error}</span></p>` : ''}
         ${!loading && !error && inventory ? html`
-          <p class="tc-skill-message tc-hint">${inventory.coverage === 'policy' ? 'Availability reflects this provider’s user policy.' : inventory.coverage === 'native' ? 'Availability checked by Codex in this environment.' : 'Files found on disk. This provider does not expose a verified availability check here.'}</p>
-          ${inventory.nativeError ? html`<p class="tc-skill-message tc-warning" role="status">${icon('triangle-alert')}<span>Native checks unavailable: ${inventory.nativeError}</span></p>` : ''}
+          ${inventory.nativeError ? html`<p class="tc-skill-message tc-warning" role="status">${icon('triangle-alert')}<span>${providerName(provider)} couldn’t be asked which skills it loads: ${inventory.nativeError}</span></p>` : ''}
           ${(inventory.warnings || []).map((warning) => html`<p class="tc-skill-message tc-warning" role="status">${icon('triangle-alert')}<span>${warning}</span></p>`)}
-          <div class="tc-list">${(inventory.skills || []).map((skill) => {
-            const status = stateOf(skill);
-            const initials = skill.name.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'SK';
-            return html`<div class="tc-row tc-skill-row" data-key="skill-${skill.id}"><span class="tc-tile" style="--_tile: var(--id-toolchain)" aria-hidden="true">${initials}</span><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">${skill.name}</span><span class="tc-badge${status.tone ? ' tc-badge--' + status.tone : ''}">${status.text}</span></div>
-              ${skill.description ? html`<p class="tc-small tc-muted tc-skill-description">${skill.description}</p>` : ''}
-              <span class="tc-hint">${skill.source}${skill.metadataError ? ' · Metadata needs attention' : ''}${skill.effectiveStateText ? ' · ' + skill.effectiveStateText : ''}</span></div>
-              <div class="tc-row-actions">${skill.canSetState ? html`<label class="tc-skill-policy"><span class="tc-hint">${provider === 'claude' ? 'Visibility' : 'Permission'}</span><select class="tc-select" data-skill-policy="${skill.id}" aria-label="${provider === 'claude' ? 'Visibility' : 'Permission'} for ${skill.name}"${changing ? raw(' disabled') : ''}>${skill.stateOptions.map((option) => html`<option value="${option.value}"${option.value === skill.state ? raw(' selected') : ''}>${option.label}</option>`)}</select></label>` : ''}${skill.canToggle ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.state" data-id="${skill.id}" aria-label="${skill.state === 'enabled' ? 'Disable' : 'Enable'} ${skill.name} for Codex"${changing ? raw(' disabled') : ''}>${changing?.id === skill.id && changing.provider === provider ? 'Saving…' : skill.state === 'enabled' ? 'Disable' : 'Enable'}</button>` : ''}${skill.canEdit ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.edit" data-id="${skill.id}" aria-label="Edit ${skill.name}">${icon('pencil')}Edit</button>` : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.view" data-id="${skill.id}" aria-label="View ${skill.name}">${icon('book-open')}View</button></div></div>`;
-          })}</div>
-          ${!inventory.skills?.length ? html`<div class="tc-empty tc-empty--compact tc-skill-empty"><span class="tc-empty-media" aria-hidden="true"><span class="tc-empty-icon">${icon('book-open')}</span></span><span class="tc-empty-title">${inventory.warnings?.length ? 'No skills could be shown' : 'No skills found'}</span><span class="tc-empty-desc">${inventory.warnings?.length ? 'Review the scan messages above.' : 'Nothing in the checked global folders for ' + (providers.find(([id]) => id === provider)?.[1] || 'this provider') + '. Add a skill here, or refresh after installing one elsewhere.'}</span>${!inventory.warnings?.length && inventory.canCreate ? html`<button class="tc-btn tc-btn--primary tc-btn--sm tc-skill-empty-action" type="button" data-cmd="skills.add">${icon('plus')}Add skill</button>` : ''}</div>` : ''}
-          ${inventory.roots?.length ? html`<details class="tc-skill-locations" data-key="skill-locations"><summary>Checked ${inventory.roots.length} global ${inventory.roots.length === 1 ? 'folder' : 'folders'}</summary>${inventory.roots.map((root) => html`<code>${root.path}</code>`)}</details>` : ''}
+          ${inventory.skills?.length ? html`<div class="tc-list">${inventory.skills.map(row)}</div>` : ''}
+          ${!inventory.skills?.length ? html`<div class="tc-empty tc-empty--compact tc-skill-empty"><span class="tc-empty-media" aria-hidden="true"><span class="tc-empty-icon">${icon('sparkles')}</span></span><span class="tc-empty-title">${inventory.warnings?.length ? 'No skills could be shown' : 'No skills yet'}</span><span class="tc-empty-desc">${inventory.warnings?.length ? 'The messages above say why.' : 'Nothing in ' + providerName(provider) + '’s global skill folders. Add one here, or install one from a source.'}</span></div>` : ''}
+          ${inventory.roots?.length ? html`<details class="tc-skill-locations" data-key="skill-locations"><summary>Looked in ${M.plural(inventory.roots.length, 'folder')}</summary>${inventory.roots.map((root) => html`<code>${root.path}</code>`)}</details>` : ''}
         ` : ''}
       </div>
-      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>${inventory?.skills?.length && inventory.coverage === 'policy' ? 'User policies apply to every installation with the same ' + (provider === 'claude' ? 'name' : 'native skill ID') + '. Project or managed settings can further restrict use; start a new conversation after changing a policy.' : inventory?.skills?.length && provider === 'codex' && inventory.coverage === 'native' ? 'Availability applies to Codex only. Start a new conversation after changing it; existing conversations may keep loaded instructions.' : 'Refresh after changing skills outside the console. Project/session settings and custom provider environments can change locations or availability.'}</span></div>
+      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>${coverageText()}</span></div>
     </div>`;
-    const actions = () => html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.import">${icon('download')}Install from source</button>${inventory?.canCreate ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.add">${icon('plus')}Add skill</button>` : ''}<button class="tc-btn tc-btn--sm tc-btn--ghost" type="button" data-cmd="skills.refresh"${loading || changing ? raw(' disabled') : ''}>${icon('refresh-cw')}Refresh skills</button>`;
+    const actions = () => html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-cmd="skills.refresh" aria-label="Refresh skills" title="Refresh skills"${loading || changing ? raw(' disabled') : ''}>${icon('refresh-cw')}</button><button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.import">${icon('download')}Install from source</button>${inventory?.canCreate ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="skills.add">${icon('plus')}Add skill</button>` : ''}`;
     const setState = async (id, state) => {
       const row = inventory?.skills?.find((skill) => skill.id === id);
       if ((!row?.canToggle && !row?.canSetState) || loading || changing) return;

@@ -40,6 +40,7 @@ const assert = require('node:assert/strict');
  await page.locator('[data-cmd="context.edit"]').waitFor();
  assert.equal(await page.locator('html').getAttribute('data-theme'),theme);
  assert.equal(await page.locator('#page-instructions .tc-section').count(),2);
+ assert.equal(await page.getByRole('tab',{name:'Instructions',exact:true}).getAttribute('aria-selected'),'true');
  assert.equal(await page.locator('[data-cmd="context.edit"]').innerText(),'Edit');
  const checkCentered = async () => {
    const box = await page.getByRole('dialog').boundingBox();
@@ -148,30 +149,31 @@ const assert = require('node:assert/strict');
  }
  assert.equal(providerSaves,4);
  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
- // Per-provider source selection is explicit and updates after a successful save.
- const sharedButton = page.locator('[data-cmd="context.provider.mode"][data-id="codex"][data-mode="shared"]');
- const separateButton = page.locator('[data-cmd="context.provider.mode"][data-id="codex"][data-mode="separate"]');
- await sharedButton.click();
+ // What each agent reads is one choice, and it says what is in effect: a
+ // cancelled or failed change shows the old choice again.
+ const mode = page.locator('[data-context-mode="codex"]');
+ assert.equal(await mode.inputValue(),'separate');
+ await mode.selectOption('shared');
  await page.getByRole('alertdialog').waitFor();
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  assert.equal(modeSaves,0);
- assert.equal(await separateButton.getAttribute('aria-pressed'),'true');
- await sharedButton.click();
+ assert.equal(await mode.inputValue(),'separate','a cancelled change shows the choice in effect');
+ await mode.selectOption('shared');
  await page.getByRole('button',{name:'Use shared',exact:true}).click();
- await page.waitForFunction(() => document.querySelector('[data-cmd="context.provider.mode"][data-id="codex"][data-mode="shared"]')?.getAttribute('aria-pressed') === 'true');
+ await page.waitForFunction(() => document.querySelector('[data-context-mode="codex"]')?.value === 'shared' && !document.querySelector('[data-context-mode="codex"]').disabled);
  await page.locator('[data-cmd="context.provider.edit"][data-id="codex"]').click();
- await page.getByRole('heading',{name:'Global AGENTS.md',exact:true}).waitFor();
+ await page.getByRole('heading',{name:'Shared AGENTS.md',exact:true}).waitFor();
  await page.waitForFunction(() => document.querySelector('#cx-input')?.value === '# Shared fixture');
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
- await separateButton.click();
+ await mode.selectOption('separate');
  await page.waitForFunction(() => document.querySelector('#cx-input')?.value === '# Existing codex');
- assert.equal(await separateButton.getAttribute('aria-pressed'),'true');
+ assert.equal(await mode.inputValue(),'separate');
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  failMode = true;
- await sharedButton.click();
+ await mode.selectOption('shared');
  await page.getByRole('button',{name:'Use shared',exact:true}).click();
  await page.getByText('Source changed while switching',{exact:true}).waitFor();
- assert.equal(await separateButton.getAttribute('aria-pressed'),'true');
+ await page.waitForFunction(() => document.querySelector('[data-context-mode="codex"]')?.value === 'separate');
  assert.equal(modeSaves,3);
  // Failed reads cannot turn into a save of blank content.
  await page.route('**/context/agents-md?provider=*', route => route.fulfill({status:400,json:{ok:false,error:'Instruction file unavailable'}}));
@@ -191,8 +193,9 @@ const assert = require('node:assert/strict');
  await page.reload();
  await page.getByText(oversizedError,{exact:true}).first().waitFor();
  assert.equal(await page.locator('[data-cmd="context.edit"]').count(),0);
- assert.equal(await page.locator('[data-cmd="context.provider.edit"][data-id="codex"]').isDisabled(),true);
- assert.equal(await separateButton.getAttribute('aria-pressed'),'true');
+ assert.equal(await page.locator('[data-cmd="context.provider.edit"][data-id="codex"]').count(),0,'an unreadable file offers no editor');
+ assert.equal(await mode.isDisabled(),true);
+ assert.equal(await mode.inputValue(),'separate');
  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
  assert.deepEqual(errors,[]);
  console.log('PASS Context interactions:',theme,width+'x'+height,embedded?'embedded':'standalone');

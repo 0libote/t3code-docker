@@ -25,6 +25,10 @@ Issues and pull requests are welcome. Before opening one:
   machine, and nothing it presses reaches the server. Screenshots go to
   `/tmp/t3-console-screens`; `--routes`, `--sizes`, `--themes` and
   `--scenarios` narrow a run. Attach the pages you changed to the pull request.
+  `node scripts/readme-media.js` rebuilds the README's picture
+  (`docs/media/setup-{light,dark}.png`) and the Ports guide's
+  (`docs/media/ports-panel.png`) from the same data; run it when a change
+  shows on Overview, Agents or Ports.
   `node scripts/ui-audit.js http://127.0.0.1:23780/__setup/ dev` measures the
   same pages for clipped text, uneven buttons and misaligned glyphs.
   `node scripts/storage-ui-audit.js http://127.0.0.1:23780/__setup/ dev`
