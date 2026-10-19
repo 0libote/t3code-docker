@@ -1,0 +1,71 @@
+{
+ "available": true,
+ "listening": [
+  4321,
+  5173,
+  5174,
+  5180,
+  8787,
+  8790,
+  8800,
+  8850,
+  9229
+ ],
+ "details": [
+  {
+   "port": 4321,
+   "process": "astro",
+   "address": "::1",
+   "looksLikeDatabase": false
+  },
+  {
+   "port": 5173,
+   "process": "vite",
+   "address": "::1",
+   "looksLikeDatabase": false
+  },
+  {
+   "port": 5174,
+   "process": "vite",
+   "address": "::1",
+   "looksLikeDatabase": false
+  },
+  {
+   "port": 5180,
+   "process": "vite",
+   "address": "::1",
+   "looksLikeDatabase": false
+  },
+  {
+   "port": 8787,
+   "process": "workerd",
+   "address": "127.0.0.1",
+   "looksLikeDatabase": false
+  },
+  {
+   "port": 8790,
+   "process": "main",
+   "address": "127.0.0.1",
+   "looksLikeDatabase": false
+  },
+  {
+   "port": 8800,
+   "process": "main",
+   "address": "127.0.0.1",
+   "looksLikeDatabase": false
+  },
+  {
+   "port": 8850,
+   "process": "serve",
+   "address": "127.0.0.1",
+   "looksLikeDatabase": false
+  },
+  {
+   "port": 9229,
+   "process": "workerd",
+   "address": "127.0.0.1",
+   "looksLikeDatabase": false
+  }
+ ],
+ "tunnels": []
+}

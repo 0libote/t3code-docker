@@ -7,16 +7,17 @@
 // because the corrupted result still parses. Kept as a real file, nothing
 // rewrites it between here and the browser.
 //
-// Four scripts share one scope, in this order: client/base.js (BASE, where the
-// API lives), design/ui.js (window.T3C: icons and copy), client/model.js
+// Five scripts share one scope, in this order: client/base.js (BASE, where the
+// API lives), design/ui.js (window.T3C: icons and copy), client/routes.js
+// (T3Routes: the table of pages), client/model.js
 // (T3Model: what every row, badge and step should say, as pure functions) and
 // client/kit.js (Kit: markup, patching, overlays, toasts, keys). This file is
 // the console on top of them:
 //
 //   data      /status every 15s (3s while work runs), /ports every 4s, paused
 //             while the tab is hidden
-//   routes    #overview #devices #agents #toolchains #ports #environment #more
-//   pages     one renderer per route, markup in, Kit.patch out
+//   routes    one per page in client/routes.js, plus #more on a phone
+//   pages     one renderer per route, its head first, markup in, Kit.patch out
 //   commands  every button carries data-cmd; the palette runs the same table
 //   flows     pairing, sign-in, API keys, versions, confirmations
 //
@@ -91,7 +92,6 @@
     portsAt: 0,
     providers: null,
     route: 'overview',
-    agentFilter: 'all',
     toolFilter: '',
   };
   // What the page knows that /status cannot: see the header comment.
@@ -594,9 +594,9 @@
   const versionLabel = (row) => {
     if (!row.version) return '';
     if (row.versionTo) return html`<span class="tc-version">${row.version} <span class="tc-version-arrow" aria-label="to">→</span> ${row.versionTo}</span>`;
-    // While work runs the row shows its progress instead.
-    const glyph = row.updateAvailable && row.state !== 'running' && row.state !== 'queued';
-    return html`<span class="tc-version">${row.version}${glyph ? html` <span class="tc-version-next" role="img" aria-label="Update available: ${row.latest}">${icon('circle-arrow-up')}</span>` : ''}</span>`;
+    // A newer release says where it goes; while work runs the row shows its progress instead.
+    const next = row.updateAvailable && row.state !== 'running' && row.state !== 'queued';
+    return html`<span class="tc-version">${row.version}${next ? html` <span class="tc-version-arrow" aria-label="update available:">→</span> <span class="tc-version-to">${row.latest}</span>` : ''}</span>`;
   };
   const progressBar = (p) => html`<div class="tc-progress"${p && p.pct !== null ? '' : raw(' data-indeterminate')} style="--value: ${p && p.pct !== null ? p.pct : 0}%" role="progressbar" aria-label="Progress"${p && p.pct !== null ? raw(' aria-valuenow="' + p.pct + '" aria-valuemin="0" aria-valuemax="100"') : ''}><span></span></div>`;
   const phaseText = (p, kind) => {
@@ -612,9 +612,11 @@
     const variant = a.variant === 'primary' && opts.primary === false ? null : a.variant;
     return html`<button class="${btnClass(variant)}" type="button" data-cmd="${a.cmd}" data-target="${row.target}" data-id="${row.id}" data-key="act-${row.key}">${a.icon ? icon(a.icon) : ''}${a.label}</button>`;
   };
+  // A row without a menu keeps its place, so every row's one action lines up.
+  const menuSlot = () => html`<span class="tc-row-menu-slot" aria-hidden="true"></span>`;
   const menuButton = (row) => row.menu.length
     ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for ${row.name}" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-' + row.key))}" data-cmd="row.menu" data-target="${row.target}" data-id="${row.id}" data-key="menu-${row.key}">${icon('ellipsis')}</button>`
-    : '';
+    : menuSlot();
 
   /** An agent or toolchain row: tile, name and version, one status line, one verb, a menu. */
   const resourceRow = (row, opts = {}) => {
@@ -622,7 +624,7 @@
     const noticeError = M.rowError(row, 'notice');
     const detail = (source) => html` <button class="tc-row-details" type="button" data-cmd="row.error" data-target="${row.target}" data-id="${row.id}" data-source="${source}" data-key="error-${source}-${row.key}" aria-label="${source === 'notice' ? 'Notice' : 'Error'} details for ${row.name}">Details</button>`;
     return html`
-    <div class="${cx('tc-row', (row.state === 'running' || row.state === 'signing') && 'tc-row--expanded')}" data-key="row-${row.key}">
+    <div class="${cx('tc-row tc-row--compact', (row.state === 'running' || row.state === 'signing') && 'tc-row--expanded')}" data-key="row-${row.key}">
       ${tile(row)}
       <div class="tc-row-main">
         <div class="tc-row-title"><span class="tc-row-name"${row.description ? html` title="${row.description}"` : ''}>${row.name}</span>${versionLabel(row)}${badge(row.badge)}</div>
@@ -639,6 +641,25 @@
       <div class="tc-section-head"><${raw(level || 'h2')} class="tc-section-title" id="${id}">${title}</${raw(level || 'h2')}>${actions ? html`<div class="tc-section-actions">${actions}</div>` : ''}</div>
       ${body}
     </section>`;
+  /**
+   * The top of every page: its title, one line saying what it is for with a
+   * link to the guide that explains the rest, and the page's main action.
+   * Pages carry no explanation tables of their own; the guide is one press away.
+   */
+  const learnMore = (doc) => doc ? html`<a class="tc-page-learn" href="${T3Routes.docUrl(doc, state.status?.image?.version)}" target="_blank" rel="noopener">Learn more<span class="tc-sr"> (opens the guide in a new tab)</span></a>` : '';
+  const pageHead = (route, { title, sub, actions, doc } = {}) => {
+    const page = T3Routes.page(route) || {};
+    const line = sub === undefined ? page.summary : sub;
+    const guide = doc === undefined ? page.doc : doc;
+    return html`
+      <header class="tc-page-head" data-key="page-head">
+        <div class="tc-page-head-text">
+          <h1 class="tc-page-title" id="title-${route}">${title || page.title}</h1>
+          ${line || guide ? html`<p class="tc-page-sub">${line || ''}${line && guide ? ' ' : ''}${learnMore(guide)}</p>` : ''}
+        </div>
+        ${actions ? html`<div class="tc-page-head-actions">${actions}</div>` : ''}
+      </header>`;
+  };
   const muted = (text) => html`<span class="tc-small tc-muted">${text}</span>`;
   // An empty state's icon, on its card with two more fanned out behind it.
   const emptyIcon = (name, cls) => html`<span class="tc-empty-media" aria-hidden="true"><span class="tc-empty-icon">${icon(name, cls)}</span></span>`;
@@ -670,33 +691,34 @@
   const skeletonGroup = (rows) => html`<div class="tc-group" aria-hidden="true">${Array.from({ length: rows }, (_, i) => html`<div class="tc-skel-row"><span class="tc-skel tc-skel--tile"></span><span class="tc-skel" style="width:${[38, 52, 30, 44][i % 4]}%"></span></div>`)}</div>`;
 
   // ------------------------------------------------------- page notices --
-  /** What could not be read, or is not current, above the page it affects. */
+  /**
+   * What could not be read, above the page it affects. Only failures are
+   * said: a slow read, or one answered from the last check while a fresh one
+   * runs, fills in by itself and is no news to anyone.
+   */
   const pageNotices = (route) => {
     const s = state.status;
     const out = [];
     if (state.statusError) {
-      out.push(notice('danger', 'circle-alert', 'Could not read status',
+      out.push(notice('danger', 'circle-alert', 'Couldn’t reach the setup service',
         html`From <code>${BASE + '/status'}</code>: ${state.statusError}.${BASE ? '' : html` If this page is served under a path prefix, set <code>T3_SETUP_BASE_PATH</code>.`}`,
         html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="refresh">${icon('refresh-cw')}Retry</button>`));
     }
     if (!s) return out;
+    // What the first start is still installing, on every page but Overview,
+    // whose checklist and activity already say it.
+    const banner = M.setupBanner(s);
+    if (banner && route !== 'overview') {
+      out.push(html`<div class="tc-notice tc-notice--progress" role="status" data-key="setup-progress"><span class="tc-spinner tc-info" aria-hidden="true"></span><div class="tc-notice-body"><span class="tc-notice-desc"><strong>First start</strong> · ${banner.text}</span></div>${progressBar({ pct: banner.pct })}<span class="tc-op-pct">${banner.done}/${banner.total}</span></div>`);
+    }
     // A part that could not be read says so, instead of rendering as "none".
     if ((s.degraded || []).length) {
-      out.push(notice('warn', 'triangle-alert', 'Some of this is unreadable right now',
-        'Could not read ' + M.listOf(s.degraded.map((d) => d.what)) + '. Try refreshing in a moment.'));
+      out.push(notice('warn', 'triangle-alert', 'Some details couldn’t be read',
+        'Couldn’t read ' + M.listOf(s.degraded.map((d) => d.what)) + '. The console tries again on its own.'));
     }
-    if (route === 'devices' || route === 'overview') {
-      const lists = Object.values(s.authLists || {});
-      const unavailable = lists.some((entry) => !entry.available);
-      const failed = lists.some((entry) => entry.error);
-      if (unavailable || failed) {
-        out.push(notice(failed ? 'warn' : null, failed ? 'triangle-alert' : 'refresh-cw',
-          failed ? 'Device details could not refresh' : 'Reading device details',
-          failed ? 'T3 Code has not returned a fresh list. Available details are from the last successful check; missing details are unavailable. The console retries automatically.'
-            : 'Pairing links and paired devices are loading in the background. This page updates automatically.'));
-      } else if (lists.some((entry) => entry.stale)) {
-        out.push(notice(null, 'history', null, 'Device details are from the last successful check while a fresh read finishes.'));
-      }
+    if ((route === 'devices' || route === 'overview') && Object.values(s.authLists || {}).some((entry) => entry.error)) {
+      out.push(notice('warn', 'triangle-alert', 'Couldn’t refresh the device list',
+        'Showing devices from the last check. The console keeps trying.'));
     }
     const setup = s.setup;
     if (setup && (route === 'overview' || route === 'agents' || route === 'toolchains' || route === 'sourcecontrol')) {
@@ -705,20 +727,14 @@
       // stops after three failures in a row, which is nearly always no network.
       const failed = M.setupFailures(s);
       if (setup.state !== 'running' && failed.length) {
-        const title = failed.length === 1 ? 'First start could not install ' + (failed[0].name || failed[0].id)
+        const title = failed.length === 1 ? 'First start couldn’t install ' + (failed[0].name || failed[0].id)
           : 'First start left ' + M.plural(failed.length, 'install') + ' unfinished';
         out.push(notice('warn', 'triangle-alert', title,
-          html`Try again from ${failed.length === 1 ? 'the row' : 'each row'}. <button class="tc-row-details" type="button" data-cmd="setup.errors" data-key="setup-errors-${route}" aria-label="Setup failure details">Details</button>`));
+          html`Try again from ${failed.length === 1 ? 'its row' : 'each row'}. <button class="tc-row-details" type="button" data-cmd="setup.errors" data-key="setup-errors-${route}" aria-label="Setup failure details">Details</button>`));
       } else if (setup.state === 'interrupted') {
         const done = items.filter((i) => i.state === 'done').length;
         out.push(notice(null, 'history', 'First start stopped part way', done + ' of ' + items.length + ' installed. It carries on the next time the container starts.'));
       }
-    }
-    // The sign-in state below is the last definite answer, not a fresh probe:
-    // offline, the refresh exceeds its budget and warms the next poll instead.
-    const cache = route === 'agents' ? s.harnessCache : route === 'sourcecontrol' ? s.sourceControlCache : null;
-    if (cache && cache.stale && (cache.source === 'cache' || cache.source === 'cheap')) {
-      out.push(notice(null, 'history', null, 'Sign-in state is from the last check while a fresh one finishes. It refreshes on the next poll.'));
     }
     return out;
   };
@@ -737,7 +753,7 @@
       <section class="tc-group tc-group--brand" aria-labelledby="ready-title" data-key="readiness">
         <div class="tc-ready">
           <div class="tc-ready-head">
-            <div class="tc-ready-heading"><span class="tc-small tc-muted">Setup · ${r.done} of ${r.total} done</span><h1 class="tc-ready-title" id="ready-title">${r.title}</h1></div>
+            <div class="tc-ready-heading"><span class="tc-small tc-muted">Setup · ${r.done} of ${r.total} done</span><h2 class="tc-ready-title" id="ready-title">${r.title}</h2></div>
             <span class="tc-spacer"></span>
             <div class="tc-ready-meter" aria-hidden="true">${r.steps.map((step) => html`<span${step.done ? raw(' data-done') : ''}></span>`)}</div>
           </div>
@@ -761,7 +777,7 @@
     <section class="tc-group tc-group--brand" aria-labelledby="ready-title" data-key="ready">
       <div class="tc-ready-line">
         <span class="tc-check-mark" aria-hidden="true">${icon('check')}</span>
-        <div class="tc-row-main"><h1 class="tc-ready-line-title" id="ready-title">Ready</h1><span class="tc-status">${M.readySummary(s, ui)}</span></div>
+        <div class="tc-row-main"><h2 class="tc-ready-line-title" id="ready-title">Ready</h2><span class="tc-status">${M.readySummary(s, ui)}</span></div>
         ${EMBED ? '' : html`<a class="tc-btn tc-btn--sm" href="${t3Url()}" target="_blank" rel="noopener">Open T3 Code${icon('arrow-right')}</a>`}
       </div>
     </section>`;
@@ -784,7 +800,7 @@
       lines.push(html`<div class="tc-op" data-key="op-done-${f.key}"><span class="tc-op-line">${icon(f.ok ? 'circle-check' : 'circle-alert', f.ok ? 'tc-ok' : 'tc-danger')}<span class="tc-truncate">${f.text}</span></span><span class="tc-op-pct" title="${M.absTime(f.at)}">${M.relTime(f.at, n)}</span></div>`);
     }
     if (!lines.length) return '';
-    return section('act-title', 'Activity', html`<div class="tc-group"><div class="tc-card-body tc-op-list">${lines}</div></div>`, { actions: muted('Runs in the background') });
+    return section('act-title', 'Activity', html`<div class="tc-group"><div class="tc-card-body tc-op-list">${lines}</div></div>`);
   };
 
   const glanceSection = (s, ports, n) => {
@@ -799,19 +815,19 @@
     const readout = (label, value, sub) => html`<div class="tc-readout"><span class="tc-readout-label">${label}</span><span class="tc-readout-value">${value}</span>${sub ? html`<span class="tc-small tc-muted">${sub}</span>` : ''}</div>`;
     const paths = s.paths || {};
     return section('glance-title', 'At a glance', html`<div class="tc-group"><div class="tc-readouts">
-      ${readout('Devices', s.authLists?.session.available === false ? 'Not available yet' : sessions.length + ' paired', s.authLists?.session.available === false ? 'Reading in the background' : s.authLists?.session.stale ? 'From the last check' : lastSeen)}
+      ${readout('Devices', s.authLists?.session.available === false ? 'Not available yet' : sessions.length + ' paired', s.authLists?.session.available === false ? 'Reading in the background' : lastSeen)}
       ${readout('Agents', signed + ' of ' + installed.length + ' signed in', updates ? M.plural(updates, 'update') + ' available' : 'all current')}
       ${readout('Ports', published.length ? html`${dot('info')}${published.length} published` : 'None published', published.length ? published.map((p) => p.port + (p.startedAt ? ' · ' + M.duration((n - p.startedAt) / 1000) : '')).join(', ') : ports ? M.plural(M.portRows(ports, ui, n).length, 'port') + ' listening' : '')}
       ${Number.isFinite(paths.volumeBytes) ? readout('Volume', M.formatBytes(paths.volumeBytes), paths.volume) : ''}
     </div></div>`);
   };
 
-  const deviceRow = (d, { revoke, fresh } = {}) => html`
+  /** A paired device: what it is, when it was last here, and (on Devices) its menu. */
+  const deviceRow = (d, { manage, fresh } = {}) => html`
     <div class="tc-row tc-row--compact tc-device-row" data-key="dev-${d.id}">
       <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon(d.icon)}</span>
-      <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name" title="${d.name}">${d.name}</span>${fresh ? html`<span class="tc-badge tc-badge--ok">New</span>` : ''}</div><span class="tc-status" title="${d.seenTitle}">${[d.status, d.ends].filter(Boolean).join(' · ')}</span></div>
-      ${revoke ? html`<div class="tc-row-actions"><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="device.rename" data-key="rename-${d.id}" data-id="${d.id}" aria-label="Rename ${d.name}">Rename</button><button class="tc-btn tc-btn--danger tc-btn--sm" type="button" data-cmd="device.revoke" data-id="${d.id}" aria-label="Revoke ${d.name}">Revoke</button></div>`
-        : d.connected ? html`<span class="tc-dot tc-dot--ok" role="img" aria-label="Connected"></span>` : html`<span></span>`}
+      <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name" title="${d.name}">${d.name}</span>${d.connected ? html`<span class="tc-dot tc-dot--ok tc-dot--live" role="img" aria-label="Connected now"></span>` : ''}${fresh ? html`<span class="tc-badge tc-badge--ok">New</span>` : ''}</div><span class="tc-status" title="${d.seenTitle}">${[d.status, d.ends].filter(Boolean).join(' · ')}</span></div>
+      ${manage ? html`<div class="tc-row-actions"><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for ${d.name}" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-dev-' + d.id))}" data-cmd="device.menu" data-id="${d.id}" data-key="menu-dev-${d.id}">${icon('ellipsis')}</button></div>` : ''}
     </div>`;
 
   const recentSection = (s, n) => {
@@ -837,13 +853,18 @@
 
   const overviewPage = (s, n) => {
     const r = M.readiness(s, ui);
-    const needs = M.needsYou(s, state.ports, ui);
+    // Until setup is done, signing agents in is its last step: said there, not twice.
+    const needs = M.needsYou(s, state.ports, ui).filter((item) => r.ready || item.state !== 'signin');
     const devices = M.deviceRows(s.sessions, n);
     // A link to the one page they all live on; from several, each row's own
     // action is the way in.
     const pages = new Set(needs.map(needsPage));
     const [page] = pages;
+    const actions = r.ready
+      ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="pair.start">${icon('plus')}Pair a device</button>`
+      : EMBED ? '' : html`<a class="tc-btn tc-btn--sm" href="${t3Url()}" target="_blank" rel="noopener">${icon('external-link')}Open T3 Code</a>`;
     return html`
+      ${pageHead('overview', { actions })}
       ${pageNotices('overview')}
       ${s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? notice(s.storage.disk.usedPercent >= 90 ? 'danger' : 'warn', 'server',
         s.storage.disk.usedPercent >= 90 ? 'Disk space is nearly full' : 'Disk space is running low',
@@ -966,7 +987,7 @@
           <div class="tc-field"><label class="tc-label" for="pair-label">Label <span class="tc-label-opt">optional</span></label><input id="pair-label" class="tc-input" value="${pair.label}" placeholder="e.g. iPhone" maxlength="64" autocomplete="off" spellcheck="false"></div>
           <div class="tc-field"><span class="tc-label" id="ttl-label">Expires in</span><div class="tc-seg" role="group" aria-labelledby="ttl-label">${TTLS.map(([value, label]) => html`<button type="button" aria-pressed="${String(pair.ttl === value)}" data-cmd="pair.ttl" data-value="${value}">${label}</button>`)}</div></div>
         </div>
-        <button class="${cx('tc-btn', !noUrl && 'tc-btn--primary')}" type="button" data-cmd="pair.start" data-key="pair-create"${pair.minting || noUrl ? raw(' disabled') : ''}>${pair.minting ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon('link')}Create pairing link<span class="tc-kbd tc-desk-only" aria-hidden="true">P</span></button>
+        <button class="${cx('tc-btn', !noUrl && 'tc-btn--primary')}" type="button" data-cmd="pair.start" data-key="pair-create" aria-keyshortcuts="P" title="Create pairing link · P"${pair.minting || noUrl ? raw(' disabled') : ''}>${pair.minting ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon('link')}Create pairing link</button>
         ${noUrl ? html`<div class="tc-pair-form-note">${notice('warn', 'triangle-alert', 'Set the public URL first', 'A pairing link points at it: the address your phone or browser uses to reach this server.', urlButtons(s, 'tc-btn--sm', 'tc-choice'))}</div>` : ''}
         ${pair.error && !noUrl ? html`<p class="tc-hint tc-hint--err tc-pair-form-note" role="alert">${pair.error}</p>` : ''}
       </div></div>`;
@@ -1007,7 +1028,7 @@
             ${m.qr ? html`<div class="tc-pair-qr"><div class="tc-qr" role="img" aria-label="QR code for the pairing link" data-keep>${qrSvg(m.qr)}</div><div class="tc-qr-caption">Scan with the T3 Code app</div></div>` : ''}
           </div>
         </div>
-        <div class="tc-card-foot" aria-live="polite"><span class="tc-spinner tc-info" aria-hidden="true"></span><span>Listening for the device…<span class="tc-desk-only"> this page updates on its own.</span></span><span class="tc-spacer"></span><button class="tc-btn tc-btn--danger tc-btn--xs" type="button" data-cmd="link.revoke" data-id="${m.id}">Revoke link</button></div>
+        <div class="tc-card-foot" aria-live="polite"><span class="tc-spinner tc-info" aria-hidden="true"></span><span>Listening for the device…<span class="tc-desk-only"> this page updates on its own.</span></span><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="link.revoke" data-id="${m.id}">Revoke link</button></div>
       </div>`;
   };
 
@@ -1021,39 +1042,37 @@
       ? (m.label ? '“' + m.label + '” · ' : '') + 'single use · expires ' + M.relTime(m.expiresAt, n)
       : null;
     return html`
+      ${pageHead('devices')}
       ${pageNotices('devices')}
-      ${section('pair-title', 'Pair a device', ceremony ? pairCeremony(m, s, n) : pairForm(s), { actions: sub ? muted(sub) : null })}
+      ${section('pair-title', 'Pair a device', ceremony ? pairCeremony(m, s, n) : pairForm(s),
+        { actions: ceremony ? html`${sub ? muted(sub) : ''}<button class="tc-btn tc-btn--sm" type="button" data-cmd="pair.new" aria-keyshortcuts="P" title="New link · P">${icon('plus')}New link</button>` : null })}
       ${section('paired-title', 'Paired devices', devices.length
-        ? html`<div class="tc-group"><div class="tc-list">${devices.map((d) => deviceRow(d, { revoke: true, fresh: d.id === pair.freshSession }))}</div></div>`
-        : s.authLists?.session.available === false ? html`<div class="tc-group"><div class="tc-empty" role="status">
-            ${emptyIcon('smartphone')}
-            <span class="tc-empty-title">Device list is not available yet</span>
-            <span class="tc-empty-desc">Reading paired devices in the background. This page updates automatically.</span>
+        ? html`<div class="tc-group"><div class="tc-list">${devices.map((d) => deviceRow(d, { manage: true, fresh: d.id === pair.freshSession }))}</div></div>`
+        : s.authLists?.session.available === false ? html`<div class="tc-group"><div class="tc-empty tc-empty--compact" role="status">
+            <span class="tc-spinner tc-info" aria-hidden="true"></span><span class="tc-empty-desc">Reading paired devices…</span>
           </div></div>`
         : html`<div class="tc-group"><div class="tc-empty">
             ${emptyIcon('smartphone')}
             <span class="tc-empty-title">No devices paired yet</span>
             <span class="tc-empty-desc">Create a link above, then scan it with the phone you want to drive this server from.</span>
-            <span class="tc-mono tc-muted tc-empty-cmd">or run t3-pair in the container</span>
-          </div></div>`,
-      { actions: ceremony ? html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="pair.new">${icon('plus')}New link<span class="tc-kbd tc-desk-only" aria-hidden="true">P</span></button>` : devices.length ? muted(String(devices.length)) : null })}
+          </div></div>`)}
       ${links.length ? section('links-title', 'Unused links', html`<div class="tc-group"><div class="tc-list">${links.map((l) => html`
         <div class="tc-row tc-row--compact" data-key="link-${l.id}">
           <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('link')}</span>
           <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">${l.name}</span>${l.waiting ? html`<span class="tc-badge tc-badge--info">Waiting</span>` : ''}</div><span class="tc-status" title="${l.expiresTitle}">${l.status}</span></div>
-          <div class="tc-row-actions"><button class="tc-btn tc-btn--danger tc-btn--sm" type="button" data-cmd="link.revoke" data-id="${l.id}" aria-label="Revoke link ${l.name}">Revoke</button></div>
+          <div class="tc-row-actions"><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for link ${l.name}" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-link-' + l.id))}" data-cmd="link.menu" data-id="${l.id}" data-key="menu-link-${l.id}">${icon('ellipsis')}</button></div>
         </div>`)}</div></div>`) : ''}
-      ${section('anywhere-title', 'From anywhere', connectCard(s))}
-      ${devices.length ? '' : notice(null, 'history', 'Sessions last 30 days', 'After that the device asks to pair again, which takes a few seconds here. Threads, projects and agent sign-ins are kept on the volume.')}`;
+      ${section('anywhere-title', 'From anywhere', connectCard(s))}`;
   };
 
-  /** T3 Connect on Devices: where it stands, and the one thing to do next. */
+  /** T3 Connect: where it stands, the one thing to do next, and a menu for the rest. */
   const connectCard = (s) => {
     const view = M.connectView(s);
+    const menu = view.menu || [];
     return html`<div class="tc-group"><div class="tc-list"><div class="tc-row tc-row--compact" data-key="connect">
       <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('globe')}</span>
       <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">T3 Connect</span>${badge(view.badge)}</div><span class="tc-status tc-status--prose">${view.text}</span></div>
-      ${view.action ? html`<div class="tc-row-actions tc-row-actions--wrap"><button class="${cx('tc-btn tc-btn--sm', view.action.cmd === 'connect.off' && 'tc-btn--danger')}" type="button" data-cmd="${view.action.cmd}">${view.action.icon ? icon(view.action.icon) : ''}${view.action.label}</button></div>` : ''}
+      ${view.action || menu.length ? html`<div class="tc-row-actions">${view.action ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="${view.action.cmd}">${view.action.icon ? icon(view.action.icon) : ''}${view.action.label}</button>` : ''}${menu.length ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for T3 Connect" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-connect'))}" data-cmd="connect.menu" data-key="menu-connect">${icon('ellipsis')}</button>` : ''}</div>` : ''}
     </div></div></div>`;
   };
 
@@ -1061,7 +1080,7 @@
   const updateCheckButton = (s, scope, phone = false) => {
     const view = M.updateCheckView(s, scope, ui.updatePosting || ui.updateAwaiting);
     const warning = !view.checking && view.failures.length > 0;
-    return html`<button class="${cx('tc-btn tc-btn--sm tc-update-check', phone && 'tc-btn--icon tc-phone-only', !phone && 'tc-update-check--label', warning && 'tc-btn--warning')}" type="button" data-cmd="updates.check" data-scope="${scope}" data-key="updates-${scope}-${phone ? 'phone' : 'header'}" aria-label="${view.label}" title="${view.checking && !view.manual ? 'Checking in the background. Click to request a fresh check.' : view.label}" aria-disabled="${String(Boolean(view.manual))}">${view.checking ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon(warning ? 'circle-alert' : 'refresh-cw')}${phone ? '' : view.checking ? 'Checking…' : warning ? 'Review checks' : view.label}</button>`;
+    return html`<button class="${cx('tc-btn tc-btn--sm tc-update-check', phone && 'tc-btn--icon tc-phone-only', !phone && 'tc-update-check--label tc-desk-only', warning && 'tc-btn--warning')}" type="button" data-cmd="updates.check" data-scope="${scope}" data-key="updates-${scope}-${phone ? 'phone' : 'header'}" aria-label="${view.label}" title="${view.checking && !view.manual ? 'Checking in the background. Click to request a fresh check.' : view.label}" aria-disabled="${String(Boolean(view.manual))}">${view.checking ? html`<span class="tc-spinner" aria-hidden="true"></span>` : icon(warning ? 'circle-alert' : 'refresh-cw')}${phone ? '' : view.checking ? 'Checking…' : warning ? 'Review checks' : view.label}</button>`;
   };
 
   const settleSoftwareCheck = (s) => {
@@ -1129,64 +1148,62 @@
     });
     layer.panel.addEventListener('click', (e) => { if (e.target.closest('[data-error-close]')) layer.close('close'); });
   };
+  /**
+   * Update all, a fresh check and the automatic-update settings for one scope
+   * (`harness` or `toolchain`): labelled at a desk, icons on a phone.
+   */
+  const updateControls = (s, n, scope) => {
+    const rows = scope === 'harness' ? M.agentRows(s, ui, n) : [...M.toolchainRows(s, ui, n), ...M.packageRows(s, ui, n)];
+    const auto = M.autoUpdateView(s, n);
+    const line = scope === 'harness' ? auto.providersLine : auto.toolchainsLine;
+    const on = scope === 'harness' ? auto.policy.providers.enabled : auto.policy.toolchains.enabled;
+    const updateAll = rows.some((r) => r.updateAvailable)
+      ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="${scope === 'harness' ? 'harness.updateAll' : 'tools.updateAll'}">${icon('circle-arrow-up')}Update all</button>` : '';
+    return html`${updateAll}${updateCheckButton(s, scope)}${updateCheckButton(s, scope, true)}<button class="tc-btn tc-btn--ghost tc-btn--sm tc-desk-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${line})" title="Automatic updates: ${line}">${icon('settings-2')}${on ? 'Auto-update on' : 'Auto-update'}</button><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${line})" title="Automatic updates: ${line}">${icon('settings-2')}</button>`;
+  };
+
   const agentsPage = (s, n) => {
     const rows = M.agentRows(s, ui, n);
-    const needs = rows.filter((r) => r.attention || r.updateAvailable);
-    const shown = state.agentFilter === 'attention' ? needs : rows;
-    const filter = html`${updateCheckButton(s, 'harness', true)}<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings" title="Automatic update settings">${icon('settings-2')}</button><div class="tc-seg" role="group" aria-label="Show">${[['all', 'All'], ['attention', 'Needs you']].map(([value, label]) => html`<button type="button" aria-pressed="${String(state.agentFilter === value)}" data-cmd="agents.filter" data-value="${value}">${label}${value === 'attention' && needs.length ? html` <span class="tc-num">${needs.length}</span>` : ''}</button>`)}</div>`;
     return html`
+      ${pageHead('agents', { actions: updateControls(s, n, 'harness') })}
       ${pageNotices('agents')}
-      ${section('ag-title', 'Agents', html`<div class="tc-group">
-        ${shown.length ? html`<div class="tc-list">${shown.map((row) => resourceRow(row))}</div>`
-          : rows.length ? html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-title">Nothing needs you</span><span class="tc-empty-desc">No known updates or sign-in issues.</span></div>`
-            : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Agent state is not readable right now.</span></div>`}
-        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Then turn each provider on in T3 Code under Settings → Providers. Muse Code requires Nightly.</span></div>
-      </div>`, { actions: filter })}
-      ${section('ag-how', 'How sign-in works', html`<div class="tc-group"><dl class="tc-kv">
-        <dt>Credentials</dt><dd class="tc-kv-prose">On the state volume at <code>${(s.paths && s.paths.volume) || '/home/t3'}</code>. They survive a recreate.</dd>
-        <dt>Signed-in check</dt><dd class="tc-kv-prose">Asks each CLI when supported. Muse Code checks sign-in on the first message.</dd>
-        <dt>From a shell</dt><dd><code>t3-login claude</code><span class="tc-subtle">·</span><code>t3-harness list</code></dd>
-      </dl></div>`)}`;
+      <div class="tc-group" data-key="agents-list">
+        ${rows.length ? html`<div class="tc-list">${rows.map((row) => resourceRow(row))}</div>`
+          : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Couldn’t read the agents just now. The console tries again on its own.</span></div>`}
+        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Turn each agent on in T3 Code under Settings → Providers.</span></div>
+      </div>`;
   };
 
   // ----------------------------------------------------------- toolchains --
-  const INCLUDED = [
-    ['terminal', 'Node and Python', 'with npm, pip'],
-    ['terminal', 'git, git-lfs, ssh', 'version control'],
-    ['wrench', 'clang, CMake, GDB', 'native builds'],
-    ['server', 'psql, redis-cli', 'databases'],
-    ['activity', 'ffmpeg, ImageMagick', 'media'],
-    ['globe', 'Headless Chromium', 'browser image', 'browser'],
-  ];
+  // What every image already has, said once under the lists rather than as a
+  // section of its own: none of it is managed here.
+  const IN_THE_IMAGE = ['Node', 'Python', 'git', 'clang', 'CMake', 'psql', 'redis-cli', 'ffmpeg', 'ImageMagick'];
   const toolchainsPage = (s, n) => {
     const rows = M.toolchainRows(s, ui, n);
     const added = M.packageRows(s, ui, n);
-    const paths = s.paths || {};
     const browserImage = (s.image && s.image.variant === 'browser') || Boolean(s.browser);
-    const size = Number.isFinite(paths.toolchainsBytes) ? M.formatBytes(paths.toolchainsBytes) + (paths.toolchains ? ' in ' + paths.toolchains : '') : null;
     // A filter once the list is long enough to need one; it matches the name,
     // the commands a tool provides and its description.
     const filterable = added.length > 6;
     const q = filterable ? state.toolFilter.trim().toLowerCase() : '';
     const shown = q ? added.filter((r) => [r.name, r.id, ...(r.bins || []), r.description || ''].join(' ').toLowerCase().includes(q)) : added;
-    const addButton = html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="package.add" data-key="tool-add">${icon('plus')}Add a tool<span class="tc-kbd tc-desk-only" aria-hidden="true">N</span></button>`;
+    const addButton = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="package.add" data-key="tool-add" aria-keyshortcuts="N" title="Add a tool · N">${icon('plus')}Add a tool</button>`;
     const filter = filterable ? html`<div class="tc-inputwrap tc-tool-filter">${icon('search')}<input class="tc-input tc-input--sm" id="tool-filter" type="search" placeholder="Filter" aria-label="Filter added tools" autocomplete="off" spellcheck="false"></div>` : '';
     return html`
+      ${pageHead('toolchains', { actions: updateControls(s, n, 'toolchain') })}
       ${pageNotices('toolchains')}
-      ${section('tc-title', 'Toolchains', html`<div class="tc-group">
+      ${section('tc-title', 'Default toolchains', html`<div class="tc-group">
         ${rows.length ? html`<div class="tc-list">${rows.map((row) => resourceRow(row))}</div>`
-          : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Toolchain state is not readable right now.</span></div>`}
+          : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Couldn’t read the toolchains just now. The console tries again on its own.</span></div>`}
         <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Available in every directory. A project that pins a version in <code>mise.toml</code> or <code>.tool-versions</code> gets that one instead.</span></div>
-      </div>`, { actions: html`${updateCheckButton(s, 'toolchain', true)}<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-phone-only" type="button" data-cmd="auto.settings" aria-label="Automatic update settings" title="Automatic update settings">${icon('settings-2')}</button>${size ? muted(size) : ''}` })}
+      </div>`)}
       ${section('pk-title', 'Added tools', html`<div class="tc-group">
         ${shown.length ? html`<div class="tc-list">${shown.map((row) => resourceRow(row))}</div>`
           : added.length ? html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">No added tool matches “${state.toolFilter.trim()}”.</span></div>`
             : toolsEmpty()}
-        <div class="tc-card-foot">${icon('terminal', 'tc-icon--sm')}<span>Anything in mise’s registry, or a backend spec like <code>npm:prettier</code>. Tools added with <code>mise use -g</code> in a terminal show up here too.</span></div>
+        ${added.length ? html`<div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Tools added with <code class="tc-nowrap">mise use -g</code> in a terminal show up here too.</span></div>` : ''}
       </div>`, { actions: html`${filter}${addButton}` })}
-      ${section('img-title', 'In the image', html`<div class="tc-group"><div class="tc-included">${INCLUDED.filter((i) => !i[3] || browserImage).map(([ic, what, note]) => html`<div>${icon(ic)}<span>${what}</span><span class="tc-included-what">${note}</span></div>`)}</div></div>`,
-        { actions: muted('Updated by pulling a new image') })}
-      ${notice(null, 'shield-check', 'Exact versions stay pinned', html`mise records exact versions, for added tools too, and never falls back to another tool on <code>PATH</code>. Updates happen only when you press Update, run <code>mise use</code>, or opt in to automatic updates.`)}`;
+      <p class="tc-page-foot">Also in the image: ${M.listOf([...IN_THE_IMAGE, ...(browserImage ? ['headless Chromium'] : [])])}.</p>`;
   };
 
   // A first look at what can be added: one press opens the sheet on that tool.
@@ -1194,7 +1211,7 @@
   const toolsEmpty = () => html`<div class="tc-empty">
     ${emptyIcon('plus')}
     <span class="tc-empty-title">Add any tool mise can install</span>
-    <span class="tc-empty-desc">Cloud CLIs, other languages, linters: about a thousand tools, each pinned to an exact version like the toolchains above.</span>
+    <span class="tc-empty-desc">Cloud CLIs, other languages, linters: about a thousand tools, each pinned to an exact version like the toolchains above. Or name one with a backend, like <code class="tc-nowrap">npm:prettier</code>.</span>
     <div class="tc-chips" role="group" aria-label="Suggestions">${QUICK_ADD.map((name) => html`<button class="tc-chip-btn" type="button" data-cmd="package.add" data-id="${name}">${name}</button>`)}</div>
     <button class="tc-btn tc-btn--primary tc-btn--sm tc-empty-cta" type="button" data-cmd="package.add">${icon('plus')}Add a tool</button>
   </div>`;
@@ -1204,27 +1221,22 @@
   // provider apart from the CLI's name, and who it is signed in as.
   const sourceControlPage = (s, n) => {
     const rows = M.sourceControlRows(s, ui, n);
-    const withProvider = (row) => Object.assign({}, row, {
-      status: Object.assign({}, row.status, { text: [row.provider, row.status.text].filter(Boolean).join(' · ') }),
-    });
+    const updates = M.managedSourceControlRows(s, ui, n).some((r) => r.updateAvailable);
     return html`
+      ${pageHead('sourcecontrol', { actions: updates ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="scm.updateAll">${icon('circle-arrow-up')}Update all</button>` : '' })}
       ${pageNotices('sourcecontrol')}
-      ${section('sc-title', 'Source control', html`<div class="tc-group">
-        ${rows.length ? html`<div class="tc-list">${rows.map((row) => resourceRow(withProvider(row)))}</div>`
-          : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Source control state is not readable right now.</span></div>`}
-        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>T3 Code opens pull requests through these. Bitbucket needs none: add its token in T3 Code under Settings → Source Control.</span></div>
-      </div>`)}
-      ${section('sc-how', 'How sign-in works', html`<div class="tc-group"><dl class="tc-kv">
-        <dt>Device code</dt><dd class="tc-kv-prose">GitHub and Azure DevOps: approve a code on github.com or Microsoft’s page, from any device. There is no token to make.</dd>
-        <dt>Tokens</dt><dd class="tc-kv-prose">GitLab, Forgejo, Gitea, and GitHub Enterprise: a token you make on the server. The CLI gets it on stdin or in its environment, never on a command line, and it only counts once the server accepts it.</dd>
-        <dt>Credentials</dt><dd class="tc-kv-prose">On the state volume at <code>${(s.paths && s.paths.volume) || '/home/t3'}</code>. They survive a recreate.</dd>
-        <dt>From a shell</dt><dd><code>t3-harness source-control</code></dd>
-      </dl></div>`)}`;
+      <div class="tc-group" data-key="scm-list">
+        ${rows.length ? html`<div class="tc-list">${rows.map((row) => resourceRow(row))}</div>`
+          : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Couldn’t read the source control CLIs just now. The console tries again on its own.</span></div>`}
+        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Bitbucket needs no CLI: add its token in T3 Code under Settings → Source Control.</span></div>
+      </div>`;
   };
 
   // ---------------------------------------------------------------- ports --
   const portRow = (p) => {
-    const tileEl = html`<span class="tc-tile tc-tile--port"${p.state === 'open' || p.state === 'starting' ? raw(' data-live') : ''} aria-hidden="true">${p.port}</span>`;
+    // The number is the row's name; the tile says whether it is out on the internet.
+    // A link or an error needs the row's width, so on a phone its buttons go under it.
+    const tileEl = html`<span class="tc-tile tc-tile--icon tc-tile--port-state"${p.state === 'open' || p.state === 'starting' ? raw(' data-live') : ''} aria-hidden="true">${icon(p.state === 'open' || p.state === 'starting' ? 'globe' : 'ethernet-port')}</span>`;
     const proc = p.process ? html`<code>${p.process}</code>` : null;
     const where = p.address && p.address !== '0.0.0.0' && p.address !== '*' && p.address !== '::' ? html`<span class="tc-mono">${p.address}</span>` : null;
     const joinParts = (parts) => parts.filter(Boolean).map((x, i) => i ? html` · ${x}` : x);
@@ -1235,57 +1247,53 @@
     if (p.state === 'open') {
       title = html`${title}<span class="tc-badge tc-badge--info">Published</span>`;
       status = html`<span class="tc-status"><a class="tc-mono tc-truncate" href="${p.url}" target="_blank" rel="noopener">${p.url}</a></span>`;
-      actions = html`
-        <span class="tc-desk-only tc-row-actions-inline">${copyButton(p.url, 'Copy URL for port ' + p.port, { iconOnly: true, ghost: false, size: 'tc-btn--sm' })}<button class="${cx('tc-btn tc-btn--icon tc-btn--sm', p.expanded && 'tc-btn--pressed')}" type="button" data-cmd="port.qr" data-id="${p.port}" aria-label="Show QR code for port ${p.port}" aria-expanded="${String(p.expanded)}" data-key="qr-${p.port}">${icon('qr-code')}</button></span>
-        <button class="tc-btn tc-btn--danger tc-btn--sm" type="button" data-cmd="port.stop" data-id="${p.port}" data-key="stop-${p.port}">Stop</button>`;
-      // On a phone the QR and the URL are the row; on a desktop, one press away.
-      panel = html`<div class="${cx('tc-row-panel tc-port-panel', !p.expanded && 'tc-phone-only')}">
+      // The link is what a published port is for: one press copies it, and
+      // the QR code, opening it and stopping it are in its menu.
+      actions = html`${copyButton(p.url, 'Copy link', { ghost: false, size: 'tc-btn--sm' })}<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for port ${p.port}" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-port-' + p.port))}" data-cmd="port.menu" data-id="${p.port}" data-key="menu-port-${p.port}">${icon('ellipsis')}</button>`;
+      // The QR code, for another device, once asked for.
+      panel = p.expanded ? html`<div class="tc-row-panel tc-port-panel">
         ${p.qr ? html`<div class="tc-qr" role="img" aria-label="QR code for port ${p.port}" data-keep>${qrSvg(p.qr)}</div>` : ''}
-        <div class="tc-stack tc-port-panel-text"><span class="tc-hint tc-desk-only">Scan to open port ${p.port} on another device.</span>${copyField(p.url.replace(/^https:\/\//, ''), { actions: copyButton(p.url, 'Copy URL for port ' + p.port, { iconOnly: true, size: 'tc-btn--sm' }) })}</div>
-      </div>`;
+        <div class="tc-stack tc-port-panel-text"><span class="tc-hint">Scan to open port ${p.port} on another device.</span></div>
+      </div>` : '';
     } else if (p.state === 'starting') {
       title = html`${title}<span class="tc-badge tc-badge--info"><span class="tc-spinner" aria-hidden="true"></span>Publishing</span>`;
       status = html`<span class="tc-status"><span class="tc-status-text">${joinParts([proc, 'waiting for a public hostname…'])}</span></span>${progressBar(null)}`;
-      actions = html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="port.stop" data-id="${p.port}" data-key="stop-${p.port}">Cancel</button>`;
+      actions = html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="port.stop" data-id="${p.port}" data-key="stop-${p.port}">Cancel</button>${menuSlot()}`;
     } else if (p.state === 'failed') {
       title = html`${title}<span class="tc-badge tc-badge--danger">Failed</span>`;
       status = statusLine({ dot: 'danger', text: p.error || 'The tunnel failed' });
-      actions = html`<button class="tc-btn tc-btn--warning tc-btn--sm" type="button" data-cmd="port.publish" data-id="${p.port}" data-key="pub-${p.port}">${icon('refresh-cw')}Retry</button>`;
+      actions = html`<button class="tc-btn tc-btn--warning tc-btn--sm" type="button" data-cmd="port.publish" data-id="${p.port}" data-key="pub-${p.port}">${icon('refresh-cw')}Retry</button>${menuSlot()}`;
     } else {
       status = p.db
         ? html`<span class="tc-status">${dot('warn')}<span class="tc-status-text">${joinParts([proc, 'looks like a database, so Publish asks first'])}</span></span>`
         : html`<span class="tc-status"><span class="tc-status-text">${proc || where ? joinParts([proc, where]) : p.listening ? 'Listening in the container' : 'Not listening right now'}</span></span>`;
-      actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="port.publish" data-id="${p.port}" data-key="pub-${p.port}">${p.db ? 'Publish…' : 'Publish'}</button>`;
+      actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="port.publish" data-id="${p.port}" data-key="pub-${p.port}">${p.db ? 'Publish…' : 'Publish'}</button>${menuSlot()}`;
     }
     return html`
-      <div class="${cx('tc-row', p.expanded && 'tc-row--expanded')}" data-key="port-${p.port}">
+      <div class="${cx('tc-row tc-row--compact', p.expanded && 'tc-row--expanded')}" data-key="port-${p.port}">
         ${tileEl}
         <div class="tc-row-main"><div class="tc-row-title">${title}</div>${status}</div>
-        <div class="tc-row-actions">${actions}</div>
+        <div class="${cx('tc-row-actions', (p.state === 'open' || p.state === 'failed') && 'tc-row-actions--wrap')}">${actions}</div>
         ${panel}
       </div>`;
   };
 
   const portsPage = (s, n) => {
     const ports = state.ports;
-    if (!ports) return html`${pageNotices('ports')}${skeletonGroup(3)}`;
+    const head = pageHead('ports');
+    if (!ports) return html`${head}${pageNotices('ports')}${skeletonGroup(3)}`;
     if (ports.available === false) {
-      return html`${pageNotices('ports')}${section('pl-title', 'Listening in the container', html`<div class="tc-group"><div class="tc-empty tc-empty--compact"><span class="tc-empty-title">Publishing is unavailable in this build</span><span class="tc-empty-desc">cloudflared is not in this image, so ports cannot get a public URL from here.</span></div></div>`)}`;
+      return html`${head}${pageNotices('ports')}<div class="tc-group"><div class="tc-empty tc-empty--compact"><span class="tc-empty-title">Publishing isn’t available in this image</span><span class="tc-empty-desc">It has no cloudflared, so a port can’t get a public address from here.</span></div></div>`;
     }
     const rows = M.portRows(ports, ui, n);
     return html`
+      ${head}
       ${pageNotices('ports')}
-      ${section('pl-title', 'Listening in the container', html`<div class="tc-group">
+      ${section('pl-title', 'Listening in this container', html`<div class="tc-group">
         ${rows.length ? html`<div class="tc-list">${rows.map(portRow)}</div>`
-          : html`<div class="tc-empty tc-empty--compact">${emptyIcon('ethernet-port')}<span class="tc-empty-title">Nothing is listening yet</span><span class="tc-empty-desc">Start a dev server in a T3 Code terminal and it appears here within a few seconds.</span></div>`}
-        <div class="tc-card-foot">${icon('terminal', 'tc-icon--sm')}<span>From a terminal: <code>t3-expose 5173</code> publishes, <code>t3-expose stop 3000</code> stops.</span></div>
-      </div>`, { actions: muted('Checks every few seconds') })}
-      ${section('pl-how', 'How publishing works', html`<div class="tc-group"><dl class="tc-kv">
-        <dt>Tunnel</dt><dd class="tc-kv-prose">A Cloudflare quick tunnel. No account, no DNS record, no certificate.</dd>
-        <dt>Address</dt><dd class="tc-kv-prose">A random <code>trycloudflare.com</code> hostname with HTTPS, new each time you publish.</dd>
-        <dt>Bound to 127.0.0.1</dt><dd class="tc-kv-prose">Included. Most dev servers listen on loopback, and those are the ones that need this most.</dd>
-      </dl></div>`)}
-      ${notice('warn', 'triangle-alert', 'A published URL is public', 'It is random and stops working the moment you stop it, but anyone holding it can reach that port. Publish a dev server, not your database.')}`;
+          : html`<div class="tc-empty tc-empty--compact">${emptyIcon('ethernet-port')}<span class="tc-empty-title">Nothing is listening yet</span><span class="tc-empty-desc">Start a dev server in a T3 Code terminal and it shows up here within a few seconds.</span></div>`}
+        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>A published address is public: anyone who has it can open that port. Stop it when you’re done.</span></div>
+      </div>`)}`;
   };
 
   const publishPort = async (port) => {
@@ -1338,7 +1346,7 @@
   const keyRow = (source) => {
     const view = KEY_STATES[source] || KEY_STATES.env;
     return html`<div class="tc-row tc-row--compact tc-row--plain" data-key="setup-key">
-      <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Setup key</span><span class="tc-badge tc-badge--${view.tone}">${view.badge}</span></div>
+      <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Setup key</span>${view.badge ? html`<span class="tc-badge tc-badge--${view.tone}">${view.badge}</span>` : ''}</div>
         <span class="tc-status tc-status--prose">${view.text}</span>
         ${keyView.value ? html`<div class="tc-key-field">${copyField(keyView.value, { label: 'Copy', wrap: true })}</div>` : ''}
       </div>
@@ -1391,6 +1399,7 @@
     const legacy = s.legacyEnv || [];
     const legacyVars = legacy.filter((name) => name !== 'PATH');
     return html`
+      ${pageHead('environment', { actions: html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="diagnostics">${icon('copy')}<span data-label>Copy diagnostics</span></button>` })}
       ${pageNotices('environment')}
       ${legacy.length ? notice('warn', 'triangle-alert', 'Settings left over from an older image',
         html`This container’s environment still has ${legacyVars.map((name, i) => html`${i ? (i === legacyVars.length - 1 ? ' and ' : ', ') : ''}<code>${name}</code>`)}${legacy.includes('PATH') ? html`${legacyVars.length ? ' and ' : ''}the old <code>PATH</code>` : ''}, from an image that shipped its own Go, Rust, Bun and Deno. Everything this image starts ignores them. Remove them from the container’s settings so <code>docker exec</code> stops seeing them too; the image sets its own <code>PATH</code>.`) : ''}
@@ -1423,7 +1432,7 @@
         <dt>Headless Chromium</dt><dd>${s.browser.chromium ? html`${dot('ok')}Ready` : html`${dot('warn')}Missing`}</dd>
         ${s.browser.playwrightMcp ? html`<dt>Playwright MCP</dt><dd><span class="tc-mono tc-mono--body">${s.browser.playwrightMcp}</span></dd>` : ''}
         ${s.browser.devtoolsMcp ? html`<dt>Chrome DevTools MCP</dt><dd><span class="tc-mono tc-mono--body">${s.browser.devtoolsMcp}</span></dd>` : ''}
-      </dl></div>`, { actions: muted('Wired into Claude Code, Codex and OpenCode') }) : ''}
+      </dl><div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Claude Code, Codex and OpenCode are set up to use these.</span></div></div>`) : ''}
       ${section('ev-console', 'This console', html`<div class="tc-group"><div class="tc-list">
         ${keySource ? keyRow(keySource) : ''}
         ${viaT3(s)
@@ -1445,12 +1454,13 @@
     const scmAttention = scm.filter((c) => c.attention).length;
     const scmSigned = scm.filter((c) => c.auth && c.auth.status === 'authenticated').length;
     return html`
-      ${section('pm-title', 'More', html`<div class="tc-group">
+      ${pageHead('more')}
+      ${section('pm-title', 'Pages', html`<div class="tc-group">
         <a class="tc-linkrow" href="#context">${icon('book-open')}Context<span class="tc-linkrow-aside">${M.contextView(s).present ? 'Instructions set' : 'Not set yet'}</span>${icon('chevron-right')}</a>
         <a class="tc-linkrow" href="#toolchains">${icon('wrench')}Toolchains<span class="tc-linkrow-aside">${failedTools ? M.plural(failedTools, 'needs', 'need') + ' you' : tools + ' installed'}</span>${icon('chevron-right')}</a>
         <a class="tc-linkrow" href="#sourcecontrol">${icon('git-pull-request')}Source control<span class="tc-linkrow-aside">${scmAttention ? M.plural(scmAttention, 'needs', 'need') + ' you' : scmSigned + ' signed in'}</span>${icon('chevron-right')}</a>
         <a class="tc-linkrow" href="#environment">${icon('settings-2')}Environment<span class="tc-linkrow-aside tc-truncate">${M.imageLabel(image).version || ''}</span>${icon('chevron-right')}</a>
-      </div>`, { level: 'h1' })}
+      </div>`)}
       ${section('pm-app', 'Appearance', html`<div class="tc-group"><div class="tc-linkrow">Theme${EMBED ? html`<span class="tc-linkrow-aside">Follows T3 Code</span>` : themeSeg()}</div></div>`)}
       ${section('pm-srv', 'This server', html`<div class="tc-group">
         <div class="tc-readouts tc-readouts--two">
@@ -1478,10 +1488,11 @@
           ${[['shared', 'Shared'], ['separate', 'Separate'], ['none', 'None']].map(([mode, label]) => html`<button type="button" data-cmd="context.provider.mode" data-id="${row.id}" data-mode="${mode}" aria-pressed="${String((row.mode || 'none') === mode)}"${contextSwitching.has(row.id) || row.error || (mode === 'shared' && !M.contextView(state.status).present) || (mode === 'none' && !row.mode) ? raw(' disabled') : ''}>${label}</button>`)}
         </div>
       </div>
-      <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="context.provider.edit" data-id="${row.id}"${!row.mode || row.error || contextSwitching.has(row.id) ? raw(' disabled') : ''}>${icon('pencil')}Edit</button></div>
+      <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="context.provider.edit" data-id="${row.id}"${!row.mode || row.error || contextSwitching.has(row.id) ? raw(' disabled') : ''}>${icon('pencil')}Edit</button>${menuSlot()}</div>
     </div>`;
 
   const contextPage = (s) => html`
+    ${pageHead('context')}
     ${pageNotices('context')}
     ${section('cx-agentsmd', 'Instructions', html`<div class="tc-group">
       <div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}${M.contextProviderRows(s).map(contextProviderRow)}</div>
@@ -1615,111 +1626,69 @@
   };
 
   // ---------------------------------------------------------------- shell --
-  const ROUTES = ['overview', 'devices', 'agents', 'context', 'toolchains', 'sourcecontrol', 'ports', 'environment', 'more'];
-  const TITLES = { overview: 'Overview', devices: 'Devices', agents: 'Agents', context: 'Context', toolchains: 'Toolchains', sourcecontrol: 'Source control', ports: 'Ports', environment: 'Environment', more: 'More' };
   const PAGES = { overview: overviewPage, devices: devicesPage, agents: agentsPage, context: contextPage, toolchains: toolchainsPage, sourcecontrol: sourceControlPage, ports: portsPage, environment: environmentPage, more: morePage };
-  // On a phone, Context, Toolchains, Source control and Environment live under More.
-  const TAB_OF = { context: 'more', toolchains: 'more', sourcecontrol: 'more', environment: 'more' };
+  const ROUTES = Object.keys(PAGES);
+  const titleOf = (route) => (T3Routes.page(route) || {}).title || route;
 
-  const navBadge = (b) => {
-    if (!b) return { cls: 'tc-nav-count', text: '', hidden: true };
-    if (b.tone) return { cls: 'tc-badge tc-badge--' + b.tone + ' tc-badge--count', text: String(b.count), hidden: !b.count };
-    return { cls: 'tc-nav-count', text: String(b.count ?? ''), hidden: b.count === undefined };
+  /** A sidebar mark: a count of what needs the person, or a quiet sign of work or of something live. */
+  const NAV_MARK = {
+    warn: (b) => ({ cls: 'tc-nav-badge tc-badge tc-badge--warn tc-badge--count', text: String(b.count), title: M.plural(b.count, 'thing needs', 'things need') + ' you' }),
+    running: (b) => ({ cls: 'tc-nav-badge tc-nav-mark tc-nav-mark--running', text: '', title: M.plural(b.count, 'install') + ' running' }),
+    live: (b) => ({ cls: 'tc-nav-badge tc-nav-mark tc-nav-mark--live', text: '', title: M.plural(b.count, 'port') + ' published' }),
   };
+  const navMark = (b) => (!b ? null : b.tone === 'warn' ? NAV_MARK.warn(b) : NAV_MARK[b.kind] ? NAV_MARK[b.kind](b) : null);
 
   const renderShell = (s, n) => {
     const badges = M.navBadges(s, state.ports, ui);
     for (const route of ROUTES) {
       const el = $('nav-' + route);
+      const mark = navMark(badges[route]);
       if (el) {
-        const b = navBadge(badges[route]);
-        if (el.className !== b.cls) el.className = b.cls;
-        if (el.textContent !== b.text) el.textContent = b.text;
-        el.hidden = b.hidden;
-        const tone = badges[route] && badges[route].tone;
-        el.title = tone === 'warn' ? b.text + ' need you' : tone === 'info' ? b.text + ' active' : '';
+        const cls = mark ? mark.cls : 'tc-nav-badge';
+        if (el.className !== cls) el.className = cls;
+        if (el.textContent !== (mark ? mark.text : '')) el.textContent = mark ? mark.text : '';
+        el.hidden = !mark;
+        // Said with the link's name, so a screen reader hears "Agents, 2 things need you".
+        if (mark) el.setAttribute('aria-label', mark.title); else el.removeAttribute('aria-label');
+        el.title = mark ? mark.title : '';
       }
       const tab = $('tab-' + route);
-      if (tab) tab.hidden = !(badges[route] && badges[route].tone === 'warn' && badges[route].count);
+      if (tab) tab.hidden = !(badges[route] && badges[route].tone === 'warn');
     }
     const server = s.server || {};
     const image = s.image || {};
     patch($('server-card'), html`
       <div class="tc-server-row">${dot(server.ok ? 'ok' : 'danger', server.ok && 'tc-dot--live')}<strong>${server.ok ? 'Running' : 'Not answering'}</strong></div>
-      ${server.version ? html`<div class="tc-server-version tc-mono">${server.version}</div>` : ''}
-      <div class="tc-server-row"><span class="tc-mono tc-truncate" title="${M.imageLabel(image).full || ''}">${M.imageLabel(image).text || 'unversioned build'}</span></div>`);
+      <div class="tc-server-row"><span class="tc-mono tc-truncate" title="${['T3 Code ' + (server.version || ''), 'image ' + (M.imageLabel(image).full || 'unversioned')].join(' · ')}">${M.imageLabel(image).text || 'unversioned build'}</span></div>`);
     patch($('phone-status'), html`${dot(server.ok ? 'ok' : 'danger', server.ok && 'tc-dot--live')}${server.ok ? 'Running' : 'Down'}`);
     for (const link of document.querySelectorAll('[data-open-t3]')) if (link.getAttribute('href') !== t3Url()) link.setAttribute('href', t3Url());
     for (const link of document.querySelectorAll('[data-open-tab]')) if (link.getAttribute('href') !== BASE + '/' + location.hash) link.setAttribute('href', BASE + '/' + location.hash);
-
-    // The banner: what the first start is still installing.
-    const banner = M.setupBanner(s);
-    const bannerEl = $('banner');
-    bannerEl.hidden = !banner;
-    if (banner) {
-      patch(bannerEl, html`<span class="tc-spinner tc-info" aria-hidden="true"></span><span class="tc-banner-text"><strong>First start</strong> · ${banner.text}</span><span class="tc-spacer"></span>${progressBar({ pct: banner.pct })}<span class="tc-op-pct">${banner.done}/${banner.total}</span>`);
-    }
-  };
-
-  const renderTopbar = (s, n) => {
-    const route = state.route;
-    const summary = s ? M.summaries(s, state.ports, ui, n, location.host)[route] : null;
-    const crumb = $('crumb');
-    if (crumb.textContent !== TITLES[route]) crumb.textContent = TITLES[route];
-    const sum = $('summary');
-    if (summary) {
-      if (sum.textContent !== summary.text) sum.textContent = summary.text;
-      sum.classList.toggle('tc-mono', Boolean(summary.mono));
-    } else if (sum.textContent) sum.textContent = '';
-    let actions = '';
-    if (s) {
-      if (route === 'overview') {
-        actions = M.readiness(s, ui).ready
-          ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="pair.start">${icon('plus')}Pair a device</button>`
-          : EMBED ? '' : html`<a class="tc-btn tc-btn--sm" href="${t3Url()}" target="_blank" rel="noopener">${icon('external-link')}Open T3 Code</a>`;
-      } else if (route === 'agents' || route === 'toolchains') {
-        const rows = route === 'agents' ? M.agentRows(s, ui, n) : [...M.toolchainRows(s, ui, n), ...M.packageRows(s, ui, n)];
-        const hasUpdates = rows.some((r) => r.updateAvailable);
-        if (route === 'agents') {
-          const auto = M.autoUpdateView(s, n);
-          actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="harness.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}${updateCheckButton(s, 'harness')}<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${auto.providersLine})" title="Automatic updates: ${auto.providersLine}">${icon('settings-2')}${auto.policy.providers.enabled ? 'Auto-update on' : 'Auto-update'}</button>`;
-        }
-        else {
-          const auto = M.autoUpdateView(s, n);
-          actions = html`${hasUpdates ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="tools.updateAll">${icon('circle-arrow-up')}Update all</button>` : ''}${updateCheckButton(s, 'toolchain')}<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.settings" aria-label="Automatic update settings (${auto.toolchainsLine})" title="Automatic toolchain updates: ${auto.toolchainsLine}">${icon('settings-2')}${auto.policy.toolchains.enabled ? 'Auto-update on' : 'Auto-update'}</button>`;
-        }
-      } else if (route === 'sourcecontrol') {
-        if (M.managedSourceControlRows(s, ui, n).some((r) => r.updateAvailable)) actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="scm.updateAll">${icon('circle-arrow-up')}Update all</button>`;
-      } else if (route === 'ports') {
-        actions = html`<span class="tc-small tc-muted">Same list as <code>t3-expose</code></span>`;
-      } else if (route === 'environment') {
-        actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="diagnostics">${icon('copy')}<span data-label>Copy diagnostics</span></button>`;
-      }
-    }
-    patch($('page-actions'), actions);
   };
 
   const render = () => {
     const s = state.status;
     const n = now();
     if (s) renderShell(s, n);
-    renderTopbar(s, n);
     const route = state.route;
     const el = $('page-' + route);
     if (!el) return;
     if (!s) {
       // Still waiting for the first answer: keep the skeleton, unless the
       // answer was an error worth showing.
-      if (state.statusError) patch(el, html`${pageNotices(route)}${skeletonGroup(3)}`);
+      if (state.statusError) patch(el, html`${pageHead(route)}${pageNotices(route)}${skeletonGroup(3)}`);
       return;
     }
     patch(el, PAGES[route](s, n));
   };
 
   // --------------------------------------------------------------- routes --
+  // #agents, or an address a page had before it moved (#devices once it is
+  // Access), which is rewritten in place so the address bar says where it is.
   const routeFromHash = () => {
     const name = location.hash.replace(/^#\/?/, '').split(/[/?]/)[0];
-    return ROUTES.includes(name) ? name : 'overview';
+    const route = T3Routes.resolve(name);
+    if (route && route !== name) history.replaceState(null, '', '#' + route);
+    return route && PAGES[route] ? route : 'overview';
   };
   const go = (route) => {
     if (location.hash === '#' + route) show(route, true);
@@ -1733,14 +1702,14 @@
     for (const page of document.querySelectorAll('.tc-page[data-route]')) page.hidden = page.getAttribute('data-route') !== route;
     for (const link of document.querySelectorAll('[data-nav]')) {
       const here = link.getAttribute('data-nav') === route
-        || (link.closest('.tc-tabbar') && link.getAttribute('data-nav') === TAB_OF[route]);
+        || (link.closest('.tc-tabbar') && link.getAttribute('data-nav') === T3Routes.tabOf(route));
       if (here) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
     }
     render();
     if (changed && !first) {
       window.scrollTo(0, 0);
-      Kit.announce(TITLES[route]);
+      Kit.announce(titleOf(route));
       if (focus) $('main').focus({ preventScroll: true });
     }
     first = false;
@@ -3495,11 +3464,40 @@
       if (input) input.focus();
     },
     'pair.ttl': (a) => { pair.ttl = a.value; render(); },
+    'device.menu': (a, el) => {
+      const d = M.deviceRows((state.status || {}).sessions, now()).find((row) => row.id === a.id);
+      if (!d) return;
+      Kit.menu(el, {
+        label: d.name + ' actions',
+        head: { title: d.name, sub: d.status, tile: html`<span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon(d.icon)}</span>` },
+        items: [
+          { label: 'Rename…', icon: 'pencil', run: () => openDeviceRename(d.id, el) },
+          { sep: true },
+          { label: 'Revoke…', icon: 'log-out', danger: true, run: () => confirmRevoke('session', d.id) },
+        ],
+      });
+    },
+    'link.menu': (a, el) => {
+      const l = M.linkRows((state.status || {}).pairings, null, now()).find((row) => row.id === a.id);
+      if (!l) return;
+      Kit.menu(el, {
+        label: 'Link ' + l.name + ' actions',
+        head: { title: l.name, sub: l.status, tile: html`<span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('link')}</span>` },
+        items: [{ label: 'Revoke link…', icon: 'trash-2', danger: true, run: () => confirmRevoke('pairing', l.id) }],
+      });
+    },
+    'connect.menu': (a, el) => {
+      const view = M.connectView(state.status);
+      if (!(view.menu || []).length) return;
+      Kit.menu(el, {
+        label: 'T3 Connect actions',
+        head: { title: 'T3 Connect', sub: view.badge ? view.badge.text : null, tile: html`<span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('globe')}</span>` },
+        items: view.menu.map((m) => m.sep ? m : Object.assign({}, m, { run: () => run(m.cmd, m.args || {}, el) })),
+      });
+    },
     'device.revoke': (a) => confirmRevoke('session', a.id),
     'device.rename': (a, el) => openDeviceRename(a.id, el),
     'link.revoke': (a) => confirmRevoke('pairing', a.id),
-
-    'agents.filter': (a) => { state.agentFilter = a.value; render(); },
 
     'context.edit': (a, el) => openContextEditor(el),
     'context.delete': async () => {
@@ -3557,6 +3555,21 @@
       }
     },
 
+    'port.menu': (a, el) => {
+      const port = Number(a.id);
+      const p = M.portRows(state.ports, ui, now()).find((row) => row.port === port);
+      if (!p || p.state !== 'open') return;
+      Kit.menu(el, {
+        label: 'Port ' + port + ' actions',
+        head: { title: 'Port ' + port, sub: M.hostOf(p.url), tile: html`<span class="tc-tile tc-tile--icon tc-tile--lg tc-tile--port-state" data-live aria-hidden="true">${icon('globe')}</span>` },
+        items: [
+          ...(Kit.isPhone() ? [] : [{ label: p.expanded ? 'Hide the QR code' : 'Show a QR code', icon: 'qr-code', run: () => run('port.qr', { id: String(port) }, el) }]),
+          { label: 'Open the link', icon: 'external-link', run: () => window.open(p.url, '_blank', 'noopener') },
+          { sep: true },
+          { label: 'Stop publishing', icon: 'circle-stop', run: () => stopPort(port) },
+        ],
+      });
+    },
     'port.publish': (a) => publishPort(Number(a.id)),
     'port.stop': (a) => stopPort(Number(a.id)),
     'port.qr': (a) => {
@@ -3628,8 +3641,8 @@
   // ------------------------------------------------------------ shortcuts --
   Kit.bind('mod+k', openPalette);
   Kit.bind('/', openPalette);
-  for (const [key, route] of [['o', 'overview'], ['d', 'devices'], ['a', 'agents'], ['c', 'context'], ['t', 'toolchains'], ['s', 'sourcecontrol'], ['p', 'ports'], ['e', 'environment']]) {
-    Kit.bind('g ' + key, () => { keyboardNav = true; go(route); });
+  for (const page of T3Routes.PAGES) {
+    if (page.key) Kit.bind('g ' + page.key, () => { keyboardNav = true; go(page.route); });
   }
   Kit.bind('p', () => {
     if (pair.showForm || !pair.minted || pair.minted.outcome) run('pair.start');

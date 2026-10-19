@@ -188,10 +188,12 @@ const t3Sessions = createT3Sessions({ baseUrl: `http://127.0.0.1:${T3_PORT}` });
 // The page's own view model, run here once so that the count T3 Code's
 // settings show beside Setup is the one the console's own badges add up to.
 const Model = (() => {
-  const { code } = ASSETS.console.find((script) => script.path === "client/model.js");
   const context = vm.createContext({ URL });
-  vm.runInContext(`${code}\nthis.T3Model = T3Model;`, context, { filename: "client/model.js" });
-  return context.T3Model;
+  for (const path of ["client/routes.js", "client/model.js"]) {
+    const { code } = ASSETS.console.find((script) => script.path === path);
+    vm.runInContext(code, context, { filename: path });
+  }
+  return vm.runInContext("T3Model", context);
 })();
 
 const health = async () => {

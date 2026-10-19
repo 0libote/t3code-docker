@@ -18,6 +18,15 @@ Issues and pull requests are welcome. Before opening one:
   `docker/t3-client/setup-bridge.js`, and prints a pairing link.
   `scripts/setup-bridge-audit.js` checks those pages in a browser, through the
   same router.
+  `node scripts/console-screens.js` photographs every setup page in light and
+  dark, on a phone, a tablet, a desktop and inside T3 Code, in three states:
+  set up, first start, and everything needing attention at once. Its data
+  comes from `scripts/fixtures/console`, so the pictures do not depend on the
+  machine, and nothing it presses reaches the server. Screenshots go to
+  `/tmp/t3-console-screens`; `--routes`, `--sizes`, `--themes` and
+  `--scenarios` narrow a run. Attach the pages you changed to the pull request.
+  `node scripts/ui-audit.js http://127.0.0.1:23780/__setup/ dev` measures the
+  same pages for clipped text, uneven buttons and misaligned glyphs.
   `node scripts/storage-ui-audit.js http://127.0.0.1:23780/__setup/ dev`
   checks storage layouts and keyboard flows in light/dark and embedded modes.
   Its storage data and mutations are intercepted, so it cannot clean a real

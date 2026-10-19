@@ -8,9 +8,10 @@ advance, and still gives you no TLS or access from outside your LAN.
 
 The setup page's **Ports** page lists what is listening and which process runs
 it (`vite`, `next-server`), including servers bound to `127.0.0.1`, which is
-the usual default. **Publish** gives you a public `https://` URL and a QR code
-for opening it on another device. A port that looks like a database asks for
-confirmation first.
+the usual default. **Publish** gives you a public `https://` URL, and **Copy
+link** copies it; the port's **⋯** menu shows a QR code for opening it on
+another device, opens the link, or stops publishing. A port that looks like a
+database asks for confirmation first.
 
 <p align="center">
   <img src="media/ports-panel.png" alt="The Ports page, listing what is listening in the container" width="100%">

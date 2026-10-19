@@ -204,7 +204,7 @@ const audit = () => {
   }
 
   // -- 5. buttons in one action group with different heights ---------------
-  for (const group of document.querySelectorAll(".tc-row-actions, .tc-dialog-foot, .tc-sheet-foot, .tc-topbar-actions")) {
+  for (const group of document.querySelectorAll(".tc-row-actions, .tc-dialog-foot, .tc-sheet-foot, .tc-page-head-actions")) {
     const btns = [...group.querySelectorAll(".tc-btn")].filter(visible);
     if (btns.length < 2) continue;
     const hs = new Set(btns.map((b) => Math.round(box(b).height * 100) / 100));
@@ -324,6 +324,11 @@ const audit = () => {
     }));
     await page.waitForTimeout(300);
   };
+  // Renaming is in a device's menu: a popover at a desk, a bottom sheet on a phone.
+  const openRename = async (page) => {
+    await page.click(`[data-cmd="device.menu"][data-id="${DEVICE_ID}"]`);
+    await page.click(".tc-layer .tc-menu-item:has-text('Rename')");
+  };
   const STATES = [
     ...ROUTES.map((route) => [route, async (page) => {
       await page.evaluate((r) => { location.hash = r; }, route);
@@ -332,7 +337,7 @@ const audit = () => {
     ["rename device", async (page) => {
       if (!DEVICE_ID) return;
       await page.evaluate(() => { location.hash = "devices"; });
-      await page.click(`[data-cmd="device.rename"][data-id="${DEVICE_ID}"]`);
+      await openRename(page);
       await page.waitForSelector(".tc-layer #device-label");
       const layout = await page.evaluate(() => {
         const form = document.querySelector('.tc-device-rename');
@@ -360,7 +365,7 @@ const audit = () => {
     }],
     ["long device label", async (page) => {
       if (!DEVICE_ID) return;
-      await page.click(`[data-cmd="device.rename"][data-id="${DEVICE_ID}"]`);
+      await openRename(page);
       await page.waitForSelector(".tc-layer #device-label");
       if (await page.inputValue(".tc-layer #device-label") !== DEVICE_LABEL) throw new Error("The rename field lost the saved label");
       await page.fill(".tc-layer #device-label", DEVICE_LONG_LABEL);
@@ -370,7 +375,7 @@ const audit = () => {
     }],
     ["rename long label", async (page) => {
       if (!DEVICE_ID) return;
-      await page.click(`[data-cmd="device.rename"][data-id="${DEVICE_ID}"]`);
+      await openRename(page);
       await page.waitForSelector(".tc-layer #device-label");
       if (await page.inputValue(".tc-layer #device-label") !== DEVICE_LONG_LABEL) throw new Error("The rename field lost a maximum-length label");
     }],
