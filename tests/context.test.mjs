@@ -234,7 +234,9 @@ test("Context offers only global instructions and never adds attention", () => {
   assert.equal(row.action.cmd, "context.edit");
   assert.equal(row.attention, false);
   const items = M.paletteItems(status, null, ui, Date.now()).filter((i) => i.group === "Instructions & skills");
-  assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.label === "Edit global AGENTS.md…"));
+  assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.label === "Edit the shared AGENTS.md…"));
+  assert.equal(row.action.label, "Write", "a file not written yet is written, not edited");
+  assert.match(row.status.text, /^Not written yet/);
   assert.ok(items.every((i) => !/skill|setup|project/i.test(i.label)));
 });
 
@@ -249,7 +251,7 @@ test("oversized instructions remain visible without editor or delete actions", (
   assert.equal(row.menu.length, 0);
   assert.equal(M.contextProviderRows(status)[0].mode, 'separate');
   assert.equal(M.contextProviderRows(status)[0].error, error);
-  assert.equal(M.paletteItems(status, null, ui, Date.now()).filter((i) => i.group === 'Context').length, 0);
+  assert.equal(M.paletteItems(status, null, ui, Date.now()).filter((i) => i.group === 'Instructions & skills').length, 0);
 });
 
 test("existing provider files appear in Context and edits preserve their permissions and separation", async (t) => {
@@ -342,11 +344,13 @@ test("unknown, absent, dangling and directory provider targets cannot be overwri
 test("provider view rows and palette expose each discovered file", () => {
   const status = { context: { providers: [{ provider: 'claude', path: '/custom/CLAUDE.md', mode: 'separate' }] } };
   const row = M.contextProviderRows(status)[0];
-  assert.equal(row.name, 'Claude Code instructions');
+  assert.equal(row.name, 'Claude Code');
   assert.equal(row.mark, 'claude');
   assert.equal(row.badge, null);
-  assert.equal(row.status.text, 'Separate file');
-  assert.equal(row.status.code, '/custom/CLAUDE.md');
+  assert.equal(row.status.text, 'Reads its own CLAUDE.md');
+  assert.equal(row.path, '/custom/CLAUDE.md');
+  assert.equal(M.contextProviderRows({ context: { providers: [{ provider: 'codex', mode: 'shared' }] } })[0].status.text, 'Reads the shared AGENTS.md');
+  assert.equal(M.contextProviderRows({ context: { providers: [{ provider: 'codex', mode: null }] } })[0].status.text, 'Reads no global instructions');
   assert.ok(M.paletteItems(status, null, ui, Date.now()).some((i) => i.cmd.cmd === 'context.provider.edit' && i.cmd.id === 'claude'));
 });
 
@@ -504,4 +508,15 @@ test("global deletion checks revisions, removes shared links and preserves separ
   assert.equal(await fs.readFile(targets[1].path, 'utf8'), '# Shared');
   assert.equal(await fs.readFile(targets[0].path + '.t3-context-backup', 'utf8'), '# Original');
   for (const target of [targets[0], targets[2]]) await assert.rejects(fs.lstat(target.path), { code: 'ENOENT' });
+});
+
+test("the shared file says which agents read it", () => {
+  const status = { context: { agentsMd: { present: true, bytes: 1200 }, providers: [
+    { provider: 'claude', mode: 'shared' }, { provider: 'codex', mode: 'shared' }, { provider: 'opencode', mode: 'separate' }] } };
+  const row = M.contextAgentsMdRow(status);
+  assert.equal(row.status.text, '1 kB · read by Claude Code and Codex');
+  assert.equal(row.action.label, 'Edit');
+  assert.equal(row.menu.map((m) => m.cmd).join(), 'context.delete');
+  const unread = M.contextAgentsMdRow({ context: { agentsMd: { present: true, bytes: 10 }, providers: [{ provider: 'codex', mode: 'separate' }] } });
+  assert.equal(unread.status.text, '10 B · no agent reads it yet');
 });

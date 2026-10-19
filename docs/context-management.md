@@ -1,7 +1,8 @@
 # Global agent instructions
 
-**Setup → Context** edits shared global instructions and existing provider
-instruction files. The editor is centered
+**Setup → Instructions & skills** edits the shared AGENTS.md and each agent's
+own instruction file, on its **Instructions** tab; skills are on its **Skills**
+tab (`#instructions/skills`). The editor is centered
 on desktop and opens as a bottom sheet on phones. Uploading a Markdown file
 replaces the draft; only **Save** applies it. Downloads include unsaved edits.
 
@@ -15,19 +16,22 @@ missing native files:
 | Codex | `~/.codex/AGENTS.md` | `CODEX_HOME` |
 | OpenCode | `~/.config/opencode/AGENTS.md` | `XDG_CONFIG_HOME` (config root) |
 
-Each provider has a **Shared / Separate / None** selector:
+The shared file's row says which agents read it. Under **What each agent
+reads**, each agent has one choice of three:
 
-- **Shared** uses the global file, so subsequent global edits reach that provider.
-  **Edit** opens the shared editor. Switching an existing separate file to Shared
+- **Shared AGENTS.md** uses the global file, so subsequent global edits reach
+  that agent. **Edit** opens the shared editor. Switching an existing own file to it
   asks for confirmation and backs up its directory entry next to the native file,
   with the suffix `.t3-context-backup`. Existing backups are never overwritten.
-- **Separate** uses the provider's own file. Switching back restores its previous
+- **Its own** `CLAUDE.md` or `AGENTS.md` uses the agent's own file, with its path
+  under the agent's name. Switching back restores its previous
   file, including the original permissions or relative symlink. If there is no
   previous file, it starts with a copy of the shared instructions; before shared
-  instructions exist, it starts with a Markdown heading. The separate editor
-  opens after switching. Later shared edits leave the separate file alone.
-- **None** removes the native link or parks a separate file in its backup slot.
-  Later global edits leave it disconnected; Separate restores the backup.
+  instructions exist, it starts with a Markdown heading. Its editor opens after
+  switching. Later shared edits leave its own file alone.
+- **Nothing** removes the native link or parks its own file in its backup slot,
+  after asking. Later global edits leave it disconnected; choosing its own file
+  again restores the backup.
   Deleting the global file disconnects shared providers and keeps backups.
   Creating the global file again bootstraps missing native links.
 
@@ -35,7 +39,8 @@ Source choices are inferred from the native files and links; there is no new
 manifest format. Provider IDs select fixed paths, so callers cannot supply an
 arbitrary file path. A stale source selection is refused. A failed switch rolls
 back the original entry when possible, and a preserved backup can be restored
-with Separate after an interrupted switch.
+by choosing the agent's own file after an interrupted switch. A cancelled or
+failed change leaves the choice showing what is in effect.
 
 Provider edits load the file's current contents and follow symlinks to the real
 file, preserving the chain and file permissions. Other agents using the same
@@ -74,7 +79,9 @@ links remain distinct installations. OpenCode's flat global Markdown files
 are included too. Environment overrides for Claude, Codex, XDG and Grok roots
 are honored.
 
-**View** opens raw Markdown in a desktop dialog or phone sheet. Copy and
+Each skill is one row: its name and description, and one control. Pressing the
+name opens the skill, with its raw Markdown, where it lives, **Edit** and
+**Remove**, in a desktop dialog or phone sheet. Copy and
 download preserve its text; skill Markdown is not rendered as HTML or executed.
 Metadata uses a pinned vendored YAML parser, including quoted names and folded
 descriptions. Parse problems, missing targets and oversized files stay visible.
@@ -95,7 +102,7 @@ and runtime metadata, as described below. Cursor, Grok and Muse still show
 **Unverified** availability. Plugin inventories and configured extra locations
 are outside the basic known-folder inventory.
 
-Inventory loads when Context opens or its provider changes. **Refresh skills**
+Inventory loads when the Skills tab opens or its agent changes. **Refresh skills**
 rescans after external changes. Concurrent requests share a lookup and results
 are cached for 15 seconds; regular `/status` polling does not scan skills.
 Bodies load separately through authenticated, discovered-installation IDs.
@@ -279,7 +286,7 @@ Custom paths require their own mounts. The rest of `.gemini` is left in place.
 
 ### Native Codex availability
 
-**Enable** and **Disable** appear for user skills verified by the managed Codex
+A switch in the row turns on or off user skills verified by the managed Codex
 inventory, including shared and package-tracked user skills. The console sends
 the selected installation's path to Codex's native `skills/config/write` method.
 It changes Codex availability only, leaves Markdown and other providers alone,
@@ -303,7 +310,7 @@ can remain in existing conversations, and project/session settings may differ.
 
 ### Claude visibility and OpenCode permissions
 
-Claude's **Visibility** menu preserves all four native `skillOverrides` states:
+Claude's **Visibility** menu, in each skill's row, preserves all four native `skillOverrides` states:
 On, Name only, Manual only and Off. The console edits only the selected name in
 the resolved user `settings.json`, requires strict JSON, and preserves unrelated
 settings, file mode and symlinks. Claude silently ignores commented settings
@@ -318,7 +325,7 @@ is actually listed; frontmatter and managed settings can still restrict use.
 Duplicate names share the same native override. Plugin policies stay with the
 plugin manager.
 
-OpenCode's **Permission** menu offers Allowed, Ask before use and Denied. V1 uses
+OpenCode's **Permission** menu, in the same place, offers Allowed, Ask before use and Denied. V1 uses
 `permission.skill` by skill name; V2 uses ordered `permissions` rules and native
 path-derived skill IDs. The editor preserves JSONC comments, unrelated policies
 and wildcard rules, and changes an exact rule or appends one after existing
