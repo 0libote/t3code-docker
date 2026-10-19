@@ -13,10 +13,14 @@ import test from "node:test";
 import vm from "node:vm";
 import { compareVersions } from "../docker/harness/version.mjs";
 
-const source = readFileSync(new URL("../docker/setup/client/model.js", import.meta.url), "utf8");
+// In the page's order: the route table, then the model that reads it.
 const context = vm.createContext({ URL });
-vm.runInContext(`${source}\nthis.T3Model = T3Model;`, context, { filename: "model.js" });
-const M = context.T3Model;
+for (const file of ["routes.js", "model.js"]) {
+  const source = readFileSync(new URL(`../docker/setup/client/${file}`, import.meta.url), "utf8");
+  vm.runInContext(source, context, { filename: file });
+}
+const M = vm.runInContext("T3Model", context);
+const R = vm.runInContext("T3Routes", context);
 // Objects built inside the vm have their own prototypes; compare as plain data.
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
@@ -192,12 +196,12 @@ test("a row shows exactly the one verb its state calls for", () => {
   const claude = row(s, "claude");
   assert.equal(claude.state, "update");
   assert.equal(claude.action.cmd, "harness.update");
-  assert.equal(claude.status.text, "Signed in · 1.1.0 is available");
+  assert.equal(claude.status.text, "Signed in", "the version says there is a newer one; the status does not repeat it");
   assert.equal(claude.menu[0].label, "Update to 1.1.0");
 
   const codex = row(s, "codex");
   assert.equal(codex.action, null, "signed in and current: menu only");
-  assert.equal(codex.status.text, "Signed in · stored API key");
+  assert.equal(codex.status.text, "Signed in with an API key");
   assert.ok(codex.menu.some((m) => m.label === "Use an API key…"));
 
   const opencode = row(s, "opencode");
@@ -208,7 +212,7 @@ test("a row shows exactly the one verb its state calls for", () => {
   assert.equal(grok.state, "signin");
   assert.equal(grok.action.cmd, "harness.signin");
   assert.equal(grok.action.variant, "primary");
-  assert.deepEqual(plain(grok.status), { dot: "warn", text: "Not signed in · device code" });
+  assert.deepEqual(plain(grok.status), { dot: "warn", text: "Not signed in" });
   assert.equal(grok.attention, true);
 
   const cursor = row(s, "cursor");
@@ -234,7 +238,7 @@ test("Muse offers opt-in install, sign-in and updates without claiming saved cre
   assert.equal(signedOut.action.cmd, "harness.signin");
   assert.ok(signedOut.menu.some((item) => item.cmd === "harness.apikey"));
   const saved = at({ signedIn: null, credentialsPresent: true });
-  assert.equal(saved.status.text, "Credentials saved · sign-in checked on the first message");
+  assert.equal(saved.status.text, "Credentials saved, checked when you first use it");
   assert.equal(saved.attention, false);
   const update = at({ signedIn: null, credentialsPresent: true, installedVersion: "1.4.7-R99.1", latestVersion: "1.4.7-R100.1" });
   assert.equal(update.action.cmd, "harness.update");
@@ -258,8 +262,8 @@ test("OpenCode v2 releases can be found by major prefix, preserving release-age 
 
 test("OpenCode names saved providers without calling browser accounts API keys", () => {
   const s = statusWith();
-  assert.equal(row(s, "opencode", { providerNames: ["Anthropic", "DeepSeek"] }).status.text, "2 saved providers · Anthropic, DeepSeek");
-  assert.equal(row(s, "opencode", { providerNames: ["Anthropic"] }).status.text, "1 saved provider · Anthropic");
+  assert.equal(row(s, "opencode", { providerNames: ["Anthropic", "DeepSeek"] }).status.text, "Keys saved for Anthropic and DeepSeek");
+  assert.equal(row(s, "opencode", { providerNames: ["Anthropic"] }).status.text, "Key saved for Anthropic");
 });
 
 test("work in flight replaces the verb with progress and, for our own work, Cancel", () => {
@@ -322,7 +326,7 @@ test("failures keep the row usable and say what happened", () => {
   assert.deepEqual(plain(row(s, "opencode").status), { dot: "danger", text: "Install failed: 404" });
   assert.equal(row(s, "grok").state, "unsupported");
   assert.equal(row(s, "grok").action, null);
-  assert.equal(row(s, "cursor").status.text, "Sign-in state not readable");
+  assert.equal(row(s, "cursor").status.text, "Couldn’t check its sign-in");
 });
 
 test("the row being signed in says so and offers nothing else", () => {
@@ -354,7 +358,7 @@ test("toolchains follow the same rules without sign-in", () => {
   });
   // Each wears its own project's mark.
   assert.deepEqual(plain(M.toolchainRows(s, ui(), NOW).map((r) => r.mark)), ["go", "rust", "bun", "deno", "uv"]);
-  assert.equal(tool(s, "go").status.text, "Installed · up to date");
+  assert.equal(tool(s, "go").status.text, "Up to date");
   const rust = tool(s, "rust");
   assert.equal(rust.state, "running");
   assert.equal(rust.versionTo, "1.98.1");
@@ -388,6 +392,36 @@ test("readiness has exactly one next step, and collapses when everything is done
   }
   assert.equal(M.readiness(cases[4], ui()).ready, true);
   assert.equal(M.readiness(cases[4], ui()).title, "Ready");
+});
+
+test("the agents step finishes once an agent can work, and is never left without a way forward", () => {
+  const step = (s) => plain(M.readiness(s, ui()).steps.find((x) => x.id === "agents"));
+  // Muse's sign-in is only checked on first use: saved credentials count, so a
+  // server whose only agent is Muse is set up rather than stuck at three of four.
+  const museOnly = statusWith({ harnesses: [harness("muse", { signedIn: null, credentialsPresent: true })] });
+  assert.equal(step(museOnly).done, true);
+  assert.equal(M.readiness(museOnly, ui()).ready, true);
+  const alongside = statusWith({ harnesses: [harness("claude"), harness("muse", { signedIn: null, credentialsPresent: true })] });
+  assert.equal(step(alongside).done, true, "Muse beside a signed-in agent does not hold the step open");
+  // A sign-in that could not be checked at all is no proof: the step waits,
+  // says why, and offers the way to the agents.
+  const unreadable = step(statusWith({ harnesses: [harness("claude", { signedIn: null, credentialsPresent: false })] }));
+  assert.equal(unreadable.done, false);
+  assert.match(unreadable.desc, /Couldn’t check whether Claude Code is signed in/);
+  assert.deepEqual(unreadable.action, { cmd: "goto", route: "agents", label: "Open agents", variant: "primary" });
+  // Every step that is not done offers something, except while the first start
+  // is still installing the agents it is waiting for.
+  const states = [
+    statusWith({ harnesses: [] }),
+    statusWith({ harnesses: [harness("claude", { signedIn: false })] }),
+    statusWith({ harnesses: [harness("claude", { installed: false, version: null, installedVersion: null })] }),
+  ];
+  for (const s of states) {
+    for (const x of plain(M.readiness(s, ui()).steps)) if (!x.done) assert.ok(x.action, `${x.id} has a next step`);
+  }
+  const installing = step(statusWith({ harnesses: [harness("claude", { installed: false, version: null, installedVersion: null })], setup: { state: "running", items: [] } }));
+  assert.equal(installing.action, null);
+  assert.match(installing.desc, /still installing/);
 });
 
 test("the public URL step offers this page's address when T3 Code answers on it, and a form otherwise", () => {
@@ -466,10 +500,12 @@ test("T3 Connect reads as one state with at most one next step", () => {
   const on = view(saved({ state: "on", desired: true, authenticated: true, linked: true, relayHost: "relay.t3.codes" }));
   assert.equal(on.state, "on");
   assert.match(on.text, /through relay\.t3\.codes\./);
-  assert.equal(on.action.cmd, "connect.off");
+  assert.equal(on.action, null, "on, nothing is owed: turning it off is in its menu");
+  assert.deepEqual(on.menu.map((m) => m.cmd), ["connect.off"]);
+  assert.equal(on.menu[0].danger, true);
 
   assert.equal(view(saved({ state: "signin", desired: true })).action.cmd, "connect.setup");
-  assert.deepEqual(view(null), { state: "unknown", badge: null, text: "Its state could not be read just now.", action: null });
+  assert.deepEqual(view(null), { state: "unknown", badge: null, text: "Couldn’t read its state just now.", action: null });
 });
 
 test("the palette offers what T3 Connect needs next, and a restart when T3 Code can take one", () => {
@@ -488,7 +524,7 @@ test("a later step that needs the user is a warning, not a second todo", () => {
   const agents = r.steps.find((step) => step.id === "agents");
   assert.equal(agents.state, "warn");
   assert.equal(agents.desc, "Grok Build and Cursor are installed but not signed in.");
-  assert.equal(agents.action.label, "Review 2");
+  assert.equal(agents.action.label, "Sign in");
   assert.notEqual(agents.action.variant, "primary");
   assert.equal(r.title, "Pair your first device");
   assert.equal(r.done, 2);
@@ -516,7 +552,7 @@ test("needs-you lists failures before sign-ins before updates", () => {
   assert.deepEqual(plain(M.needsYou(s, null, ui()).map((r) => r.id)), ["opencode", "codex", "claude"]);
 });
 
-test("navigation badges warn about what needs the user, and count what is live", () => {
+test("navigation badges count what needs the user, and only mark what is running or live", () => {
   const s = statusWith({
     harnesses: [harness("grok", { signedIn: false }), harness("cursor", { signedIn: false }), harness("claude")],
     toolchains: [toolchain("rust", { inProgress: true, operation: "update" }), toolchain("go")],
@@ -524,9 +560,10 @@ test("navigation badges warn about what needs the user, and count what is live",
   const ports = { available: true, listening: [3000, 5173], tunnels: [{ port: 3000, state: "open", url: "https://a.trycloudflare.com" }] };
   const b = M.navBadges(s, ports, ui());
   assert.deepEqual(plain(b.agents), { tone: "warn", count: 2 });
-  assert.deepEqual(plain(b.toolchains), { tone: "info", count: 1 });
-  assert.deepEqual(plain(b.ports), { tone: "info", count: 1 });
-  assert.deepEqual(plain(b.devices), { count: 1 });
+  assert.deepEqual(plain(b.toolchains), { tone: "info", kind: "running", count: 1 });
+  assert.deepEqual(plain(b.ports), { tone: "info", kind: "live", count: 1 });
+  assert.equal(b.devices, null, "how many devices there are is the page's to say, not the sidebar's");
+  assert.equal(M.navBadges(statusWith(), null, ui()).agents, null, "nothing to say, no mark");
   const failedPort = { available: true, listening: [8080], tunnels: [{ port: 8080, state: "failed", error: "edge" }] };
   assert.deepEqual(plain(M.navBadges(s, failedPort, ui()).ports), { tone: "warn", count: 1 });
 });
@@ -626,7 +663,7 @@ test("the palette puts what needs the user first, then everything by group", () 
   const items = M.paletteItems(s, { available: true, listening: [5173], tunnels: [] }, ui(), NOW);
   const ranked = M.searchPalette(items, "");
   assert.equal(ranked[0].group, "Needs you");
-  assert.ok(ranked.slice(0, 3).some((i) => i.label === "Sign in Grok Build"));
+  assert.ok(ranked.slice(0, 3).some((i) => i.label === "Sign in to Grok Build"));
   assert.ok(ranked.some((i) => i.group === "Go to" && i.label === "Agents" && i.shortcut === "G A"));
   assert.ok(!ranked.some((i) => i.group === "Devices"), "devices only appear when searched for");
 });
@@ -711,7 +748,7 @@ test("a query finds items by the words people use, in any order", () => {
   const top = (q) => M.searchPalette(items, q)[0]?.label;
   assert.equal(top("go to env"), "Environment");
   assert.equal(top("log out"), "Lock console");
-  assert.equal(top("login grok"), "Sign in Grok Build");
+  assert.equal(top("login grok"), "Sign in to Grok Build");
   assert.equal(top("toolch"), "Toolchains", "the group with the best match leads");
 });
 
@@ -742,7 +779,7 @@ test("an install that failed asks for a retry and counts as needing the user", (
   assert.deepEqual(plain(claude.menu.map((m) => m.cmd)), ["harness.version"], "nothing to uninstall");
   assert.deepEqual(plain(M.needsYou(s, null, ui()).map((r) => r.id)).sort(), ["claude", "go"]);
   assert.deepEqual(plain(M.navBadges(s, null, ui()).toolchains), { tone: "warn", count: 1 });
-  assert.ok(M.paletteItems(s, null, ui(), NOW).some((i) => i.label === "Retry Go" && i.attention));
+  assert.ok(M.paletteItems(s, null, ui(), NOW).some((i) => i.label === "Retry installing Go" && i.attention));
 });
 
 test("a row's error is not repeated when its status line already says it", () => {
@@ -751,6 +788,23 @@ test("a row's error is not repeated when its status line already says it", () =>
   assert.equal(tool(s, "go", { notices: new Map([["toolchain:go", { tone: "danger", text: failure }]]) }).notice, undefined);
   const other = tool(s, "go", { notices: new Map([["toolchain:go", { tone: "warn", text: "The setup service restarted" }]]) });
   assert.equal(other.notice.text, "The setup service restarted");
+});
+
+test("a home or state folder that a recreate would leave behind needs the user", () => {
+  const paths = (volumeKind, stateKind = "durable") => statusWith({ paths: { volumeKind, stateKind } });
+  assert.deepEqual(plain(M.serverWarnings(paths("anonymous"))), ["home"]);
+  assert.deepEqual(plain(M.serverWarnings(paths("durable", "anonymous"))), ["state"]);
+  assert.deepEqual(plain(M.serverWarnings(paths("none"))), ["home"], "not mounted at all is lost too");
+  assert.deepEqual(plain(M.serverWarnings(paths(null, null))), [], "not measured yet is not a warning");
+  assert.deepEqual(plain(M.navBadges(paths("anonymous"), null, ui()).environment), { tone: "warn", count: 1 });
+  assert.equal(M.attentionCount(paths("anonymous"), null, ui()), 1, "T3 Code's Setup entry counts it");
+  assert.equal(M.attentionCount(paths("durable"), null, ui()), 0);
+});
+
+test("a channel name where a release would be is no release to wait for", () => {
+  const rust = M.toolchainRows(statusWith({ releaseAgeMs: DAY, toolchains: [toolchain("rust", { version: "1.99.1", latestVersion: "1.99.1", newestVersion: "stable" })] }), ui(), NOW)[0];
+  assert.equal(rust.held, null);
+  assert.equal(rust.status.text, "With clippy and rustfmt · up to date");
 });
 
 test("settings an older image left behind flag Environment", () => {
@@ -781,7 +835,7 @@ test("an added tool reads like a toolchain row, under its own commands", () => {
   assert.equal(rg.description, "searches directories");
   assert.deepEqual(plain(rg.menu.map((m) => m.cmd || "sep")), ["package.version", "sep", "package.uninstall"]);
   const jq = pkgRow(s, "jq");
-  assert.equal(jq.status.text, "Installed · 1.1.0 is available", "a command named like the tool goes unsaid");
+  assert.equal(jq.status.text, "Installed", "a command named like the tool goes unsaid, and the version says there is a newer one");
   assert.deepEqual(plain(jq.action), { cmd: "package.update", label: "Update" });
   assert.equal(jq.menu[0].label, "Update to 1.1.0");
   assert.equal(pkgRow(s, "node").status.text, "Provides node, npm, npx and 1 more");
@@ -942,19 +996,21 @@ test("agents offer new stable releases immediately, including from an older save
   });
   const claude = row(s, "claude");
   assert.equal(claude.updateAvailable, true);
-  assert.equal(claude.status.text, "Signed in · 2.1.288 is available");
+  assert.equal(claude.status.text, "Signed in");
   assert.equal(claude.action.cmd, "harness.update");
   assert.equal(claude.menu.some((m) => m.cmd === "release.now"), false);
   const behind = row(statusWith({ releaseAgeMs: DAY, harnesses: [harness("claude", { installedVersion: "2.1.286", version: "2.1.286", latestVersion: "2.1.287", newestVersion: "2.1.288", newestReleasedAt: new Date(out).toISOString() })] }), "claude");
   assert.equal(behind.action.cmd, "harness.update");
-  assert.equal(behind.status.text, "Signed in · 2.1.288 is available");
+  assert.equal(behind.status.text, "Signed in");
+  assert.equal(behind.latest, "2.1.288", "the row's version shows where the update goes");
   // Already on it, or no date to say when: nothing claims a wait it cannot time.
   assert.equal(row(statusWith({ harnesses: [harness("claude", { installedVersion: "2.1.288", version: "2.1.288", latestVersion: "2.1.287", newestVersion: "2.1.288" })] }), "claude").held, null);
   const undated = row(statusWith({ harnesses: [harness("claude", { installedVersion: "2.1.287", version: "2.1.287", latestVersion: "2.1.287", newestVersion: "2.1.288" })] }), "claude");
-  assert.equal(undated.status.text, "Signed in · 2.1.288 is available");
+  assert.equal(undated.status.text, "Signed in");
+  assert.equal(undated.latest, "2.1.288");
   // A toolchain says so too, but only takes mise's newest: no menu item.
   const go = M.toolchainRows(statusWith({ releaseAgeMs: DAY, toolchains: [toolchain("go", { version: "1.27.1", latestVersion: "1.27.1", newestVersion: "1.27.2", newestReleasedAt: new Date(out).toISOString() })] }), ui(), NOW)[0];
-  assert.equal(go.status.text, "Installed · 1.27.2 is out · mise offers it in 21 hours");
+  assert.equal(go.status.text, "Installed · 1.27.2 available in 21 hours");
   assert.equal(go.menu.some((m) => m.cmd === "release.now"), false);
 });
 
@@ -976,7 +1032,7 @@ test("Antigravity reads as an agent T3 Code installs and signs in itself", () =>
   const at = (h, extra) => row(statusWith({ harnesses: [harness("claude"), h] }), "antigravity", extra);
   const missing = at(ag({ installed: false, version: null, installedVersion: null }));
   assert.equal(missing.state, "missing");
-  assert.equal(missing.status.text, "Not installed · 657 MB, installed by T3 Code");
+  assert.equal(missing.status.text, "Not installed · a 657 MB download, through T3 Code");
   assert.equal(missing.action.cmd, "harness.install");
   assert.equal(missing.mark, "antigravity");
   const unchecked = at(ag());
@@ -987,7 +1043,7 @@ test("Antigravity reads as an agent T3 Code installs and signs in itself", () =>
   assert.equal(unchecked.menu.some((m) => m.cmd === "harness.version"), false, "T3 installs the release it supports");
   assert.equal(M.needsYou(statusWith({ harnesses: [harness("claude"), ag()] }), null, ui()).some((i) => i.id === "antigravity"), false);
   const signedIn = at(ag({ signedIn: true, account: "dev@example.com", t3Status: "ready" }));
-  assert.equal(signedIn.status.text, "Signed in · dev@example.com");
+  assert.equal(signedIn.status.text, "Signed in as dev@example.com");
   assert.ok(signedIn.menu.some((m) => m.cmd === "harness.signin" && m.label === "Sign in again"));
   const signedOut = at(ag({ signedIn: false }));
   assert.equal(signedOut.state, "signin");
@@ -997,7 +1053,7 @@ test("Antigravity reads as an agent T3 Code installs and signs in itself", () =>
   assert.equal(off.action.cmd, "harness.enable");
   const update = at(ag({ latestVersion: "1.2.0", signedIn: true }));
   assert.equal(update.state, "update");
-  assert.equal(update.status.text, "Signed in · 1.2.0 is available");
+  assert.equal(update.status.text, "Signed in");
   const error = at(ag({ t3Status: "error", t3Message: "Google requires an eligible Antigravity subscription for this account." }));
   assert.equal(error.status.text, "Google requires an eligible Antigravity subscription for this account.");
   const down = at(ag({ reachable: false, error: "T3 Code did not answer" }));
@@ -1035,7 +1091,7 @@ test("a source control CLI says which host it is for and who is signed in", () =
 
   const glab = scmRow(s, "glab");
   assert.equal(glab.provider, "GitLab");
-  assert.equal(glab.status.text, "Signed in as ana on gitlab.com · 1.1.0 is available");
+  assert.equal(glab.status.text, "Signed in as ana on gitlab.com");
   assert.equal(glab.action.cmd, "toolchain.update");
 
   // Installed and signed out: T3 Code cannot use it, so it wants the user.
@@ -1076,7 +1132,7 @@ test("source control rows keep sign-in within reach in every state, and say why 
   assert.equal(glab.state, "failed");
   assert.notEqual(glab.action.cmd, "scm.signin");
   assert.ok(glab.menu.some((m) => m.cmd === "scm.signin"), "sign-in is still reachable");
-  assert.ok(M.paletteItems(failed, null, ui(), NOW).some((i) => i.label === "Sign in GitLab CLI"));
+  assert.ok(M.paletteItems(failed, null, ui(), NOW).some((i) => i.label === "Sign in to GitLab CLI"));
 
   // Not known: the reason, signing in again to the same host, and out of it.
   const unknown = scmRow(statusWith({ sourceControl: [scm("glab", { auth: { status: "unknown", account: null, host: "git.example.com",
@@ -1156,7 +1212,7 @@ test("source control counts with the toolchains: needs-you, badges, update all, 
   // Its own page, with its own badge; the Toolchains page is not blamed for it.
   const badges = M.navBadges(s, null, ui());
   assert.deepEqual(plain(badges.sourcecontrol), { tone: "warn", count: 1 });
-  assert.equal(badges.toolchains.tone, undefined);
+  assert.equal(badges.toolchains, null);
   assert.equal(badges.more.count, 1, "on a phone, More carries it");
   assert.equal(M.attentionCount(s, null, ui()), 1);
   assert.equal(M.summaries(s, null, ui(), NOW).sourcecontrol.text, "1 of 3 CLIs signed in");
@@ -1169,8 +1225,8 @@ test("source control counts with the toolchains: needs-you, badges, update all, 
   assert.equal(items.find((i) => i.label === "Install Gitea CLI").group, "Source control");
   assert.deepEqual(plain(items.find((i) => i.label === "Source control" && i.group === "Go to").cmd), { cmd: "goto", route: "sourcecontrol" });
   assert.ok(!labels.some((l) => /(Install|Update|Uninstall) GitHub CLI/.test(l)), "the image's gh is not installed here");
-  assert.ok(labels.includes("Sign in GitHub CLI"));
-  assert.ok(labels.includes("Sign in GitLab CLI"));
+  assert.ok(labels.includes("Sign in to GitHub CLI"));
+  assert.ok(labels.includes("Sign in to GitLab CLI"));
   assert.ok(M.searchPalette(M.paletteItems(s, null, ui(), NOW), "gitlab").some((i) => i.label === "Uninstall GitLab CLI…"));
 });
 
@@ -1230,8 +1286,8 @@ test('auto-update view summarizes policy, checks and activity', () => {
   assert.equal(off.t3Line, 'Off');
   assert.equal(off.providerCheck, 'No automatic check yet');
   assert.equal(off.toolchainCheck, 'No automatic check yet');
-  assert.equal(off.lastActivityText, 'No activity seen yet');
-  assert.equal(M.autoUpdateView({ autoUpdate: { lastActivityAt: NOW - 10_000 } }, NOW).lastActivityText, 'Active just now');
+  assert.equal(off.lastActivityText, 'Not used since the setup service started');
+  assert.equal(M.autoUpdateView({ autoUpdate: { lastActivityAt: NOW - 10_000 } }, NOW).lastActivityText, 'Last used just now');
   const on = M.autoUpdateView({ autoUpdate: {
     policy: { providers: { enabled: false, checkMinutes: 180, idleMinutes: 30 }, toolchains: { enabled: true, checkMinutes: 45, idleMinutes: 15 }, t3: { enabled: false, checkMinutes: 45, idleMinutes: 15 } },
     state: { lastProviderCheckAt: NOW - 6 * MIN, lastToolchainCheckAt: NOW - 12 * MIN, lastResult: 'Queued 2 tool updates' },
@@ -1243,7 +1299,7 @@ test('auto-update view summarizes policy, checks and activity', () => {
   assert.equal(on.t3Line, 'Off');
   assert.match(on.providerCheck, /Last automatic check 6 min ago/);
   assert.match(on.toolchainCheck, /Last automatic check 12 min ago/);
-  assert.match(on.lastActivityText, /Last activity 2 hours ago/);
+  assert.match(on.lastActivityText, /Last used 2 hours ago/);
   assert.equal(on.busy, 'An install or update is already running');
   assert.equal(on.lastResult, 'Queued 2 tool updates');
 });
@@ -1263,7 +1319,38 @@ test("runtime freshness requires a successful check for the selected channel", (
 
 test("tool rows do not call a failed update check up to date", () => {
   const s = { toolchains: [{ id: 'go', installed: true, version: '1.27.1', latestVersion: '1.27.1' }], updates: { errors: { 'toolchain:go': 'offline' } } };
-  assert.match(M.toolchainRows(s, ui(), NOW)[0].status.text, /Update check failed/);
+  assert.match(M.toolchainRows(s, ui(), NOW)[0].status.text, /couldn’t check for updates/);
   s.toolchains[0].latestVersion = '1.27.2';
   assert.equal(M.toolchainRows(s, ui(), NOW)[0].updateAvailable, true);
+});
+
+// ------------------------------------------------------------------- routes --
+
+test("every page is named once, in the table the shell, router and palette read", () => {
+  const routes = plain(R.PAGES.map((p) => p.route));
+  assert.equal(new Set(routes).size, routes.length, "no route twice");
+  assert.equal(new Set(R.PAGES.filter((p) => p.key).map((p) => p.key)).size, R.PAGES.filter((p) => p.key).length, "no shortcut twice");
+  for (const page of R.PAGES) {
+    assert.match(page.route, /^[a-z]+$/, page.route);
+    assert.ok(page.title && page.icon && page.summary, page.route + " has a title, an icon and a summary");
+    assert.ok(R.GROUPS.some((g) => g.id === page.group), page.route + " is in a sidebar group");
+    assert.ok(!page.summary.endsWith(" "), page.route);
+  }
+  const goTo = plain(M.paletteItems(statusWith(), null, ui(), NOW)).filter((i) => i.group === "Go to");
+  assert.deepEqual(goTo.map((i) => i.cmd.route), routes, "the palette reaches every page, in the sidebar's order");
+  assert.ok(goTo.every((i) => /^G [A-Z]$/.test(i.shortcut)));
+  // Tabs: the rest of the pages are under More.
+  for (const tab of R.TABS) assert.equal(R.tabOf(tab.route), tab.route);
+  assert.equal(R.tabOf("environment"), "more");
+  // An address a page used to have still lands on it; one that names nothing does not.
+  for (const [from, to] of Object.entries(R.ALIASES)) assert.equal(R.resolve(from), to);
+  assert.equal(R.resolve("overview"), "overview");
+  assert.equal(R.resolve("nowhere"), null);
+});
+
+test("a guide is linked at the release the image was built from", () => {
+  assert.equal(R.docUrl("agents.md", "v0.19.0"), "https://github.com/dizys/t3code-docker/blob/v0.19.0/docs/agents.md");
+  assert.equal(R.docUrl("agents.md", "0.19.0"), "https://github.com/dizys/t3code-docker/blob/v0.19.0/docs/agents.md");
+  assert.equal(R.docUrl("agents.md", "main@0123456789abcdef0123"), "https://github.com/dizys/t3code-docker/blob/main/docs/agents.md", "a branch build reads main");
+  assert.equal(R.docUrl("agents.md", null), "https://github.com/dizys/t3code-docker/blob/main/docs/agents.md");
 });

@@ -11,8 +11,7 @@ if (!base.pathname.endsWith('/')) base.pathname += '/';
 const key = process.argv[3] || 'dev';
 const draft = '  Desk <draft> & "iPhone"  ';
 const selection = [5, 12, 'backward'];
-// Refresh notices precede the page sections; Devices also has a permanent
-// session-retention notice after them.
+// Refresh notices sit between the page's head and its sections.
 const pageNotices = '.tc-page:not([hidden]) > .tc-notice:has(~ .tc-section)';
 const runs = [
   { width: 1440, embedded: false, fallback: false },
@@ -32,7 +31,8 @@ const runs = [
       page.setDefaultTimeout(20000);
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
-      let stale = true, unavailable = false, failPairing = true;
+      // A device list that could not be read puts up a notice; a fresh one takes it down.
+      let readFailed = true, unavailable = false, failPairing = true;
       const submitted = [];
       const status = {
         ...fixture, publicUrl: 'https://t3.example.test', publicUrlSource: 'saved', degraded: [],
@@ -43,7 +43,7 @@ const runs = [
         const request = route.request(), url = new URL(request.url());
         if (url.pathname === new URL('status', base).pathname) {
           return route.fulfill({ status: unavailable ? 503 : 200, json: unavailable ? { error: 'Temporary status failure' } : {
-            ...status, authLists: Object.fromEntries(['pairing', 'session'].map(name => [name, { at: Date.now(), available: true, stale, refreshing: false, error: null }])),
+            ...status, authLists: Object.fromEntries(['pairing', 'session'].map(name => [name, { at: Date.now(), available: true, stale: readFailed, refreshing: false, error: readFailed ? 'T3 Code did not answer' : null }])),
           } });
         }
         if (url.pathname === new URL('pair', base).pathname && request.method() === 'POST') {
@@ -106,10 +106,10 @@ const runs = [
         window.draftInput = document.querySelector('#pair-label');
         window.draftInput.setSelectionRange(...range);
       }, selection);
-      stale = false; await refresh(0); await checkDraft(true);
-      stale = true; await refresh(1); await checkDraft(true);
+      readFailed = false; await refresh(0); await checkDraft(true);
+      readFailed = true; await refresh(1); await checkDraft(true);
       await ui.locator('[data-cmd="pair.ttl"][data-value="7d"]').click();
-      stale = false; await refresh(0); await checkDraft(false);
+      readFailed = false; await refresh(0); await checkDraft(false);
       assert.equal(await ui.evaluate(() => document.activeElement.dataset.value), '7d', 'a refresh must retain focus on an unkeyed button too');
       unavailable = true; await refresh(1); await checkDraft(false);
       unavailable = false; await refresh(0); await checkDraft(false);

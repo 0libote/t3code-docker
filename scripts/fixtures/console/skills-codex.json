@@ -1,0 +1,228 @@
+{
+ "ok": true,
+ "provider": "codex",
+ "canCreate": true,
+ "creationTargets": [
+  {
+   "id": "provider",
+   "name": "Provider folder",
+   "path": "/home/t3/.codex/skills"
+  },
+  {
+   "id": "shared",
+   "name": "Shared .agents folder",
+   "path": "/home/t3/.agents/skills"
+  }
+ ],
+ "providers": [
+  {
+   "id": "claude",
+   "name": "Claude Code"
+  },
+  {
+   "id": "codex",
+   "name": "Codex"
+  },
+  {
+   "id": "opencode",
+   "name": "OpenCode"
+  },
+  {
+   "id": "cursor",
+   "name": "Cursor"
+  },
+  {
+   "id": "grok",
+   "name": "Grok Build"
+  },
+  {
+   "id": "muse",
+   "name": "Muse Code"
+  }
+ ],
+ "skills": [
+  {
+   "id": "1d0fbfe61047cb5978fa9e07b280f9a7",
+   "path": "/home/t3/.codex/skills/.system/imagegen/SKILL.md",
+   "resolvedPath": "/home/t3/.t3/agents/.codex/skills/.system/imagegen/SKILL.md",
+   "name": "imagegen",
+   "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
+   "source": "System",
+   "scope": "system",
+   "state": "unknown",
+   "native": false,
+   "bytes": 19201,
+   "error": null,
+   "metadataError": null,
+   "invocation": null,
+   "canEdit": false,
+   "canRemove": false,
+   "readOnlyReason": "Manage this installation through its source provider or package manager.",
+   "canToggle": false,
+   "stateReadOnlyReason": "Codex has not verified this skill's availability.",
+   "stateRevision": null
+  },
+  {
+   "id": "1b4d0d6cecd852717b92e48856f7e12d",
+   "path": "/home/t3/.t3/agents/.codex/skills/.system/imagegen/SKILL.md",
+   "resolvedPath": "/home/t3/.t3/agents/.codex/skills/.system/imagegen/SKILL.md",
+   "name": "imagegen",
+   "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
+   "scope": "system",
+   "source": "System",
+   "state": "enabled",
+   "native": true,
+   "error": null,
+   "canEdit": false,
+   "canRemove": false,
+   "readOnlyReason": "Manage this installation through its source provider or package manager.",
+   "canToggle": false,
+   "stateReadOnlyReason": "System, admin and plugin availability is managed through its source.",
+   "stateRevision": null
+  },
+  {
+   "id": "7c3e06ad4a4961368e04e6e265db0b3b",
+   "path": "/home/t3/.codex/skills/.system/openai-docs/SKILL.md",
+   "resolvedPath": "/home/t3/.t3/agents/.codex/skills/.system/openai-docs/SKILL.md",
+   "name": "openai-docs",
+   "description": "Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and Chat/Work/Codex comparisons. Do not use for generic app/software tasks that merely mention Codex.",
+   "source": "System",
+   "scope": "system",
+   "state": "unknown",
+   "native": false,
+   "bytes": 5437,
+   "error": null,
+   "metadataError": null,
+   "invocation": null,
+   "canEdit": false,
+   "canRemove": false,
+   "readOnlyReason": "Manage this installation through its source provider or package manager.",
+   "canToggle": false,
+   "stateReadOnlyReason": "Codex has not verified this skill's availability.",
+   "stateRevision": null
+  },
+  {
+   "id": "9b05c4ea3c6d4ee1eb5e2838946f8a5e",
+   "path": "/home/t3/.t3/agents/.codex/skills/.system/openai-docs/SKILL.md",
+   "resolvedPath": "/home/t3/.t3/agents/.codex/skills/.system/openai-docs/SKILL.md",
+   "name": "openai-docs",
+   "description": "Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and Chat/Work/Codex comparisons. Do not use for generic app/software tasks that merely mention Codex.",
+   "scope": "system",
+   "source": "System",
+   "state": "enabled",
+   "native": true,
+   "error": null,
+   "canEdit": false,
+   "canRemove": false,
+   "readOnlyReason": "Manage this installation through its source provider or package manager.",
+   "canToggle": false,
+   "stateReadOnlyReason": "System, admin and plugin availability is managed through its source.",
+   "stateRevision": null
+  },
+  {
+   "id": "09e9f2478b894580d0a155ae7a6433df",
+   "path": "/home/t3/.codex/skills/.system/review-agent/SKILL.md",
+   "resolvedPath": "/home/t3/.t3/agents/.codex/skills/.system/review-agent/SKILL.md",
+   "name": "review-agent",
+   "description": "Perform a read-only, defect-first review of a specified code change and return every actionable finding. Use when another agent delegates review of uncommitted changes, a base-branch diff, a commit, or custom review instructions.",
+   "source": "System",
+   "scope": "system",
+   "state": "unknown",
+   "native": false,
+   "bytes": 2661,
+   "error": null,
+   "metadataError": null,
+   "invocation": null,
+   "canEdit": false,
+   "canRemove": false,
+   "readOnlyReason": "Manage this installation through its source provider or package manager.",
+   "canToggle": false,
+   "stateReadOnlyReason": "Codex has not verified this skill's availability.",
+   "stateRevision": null
+  },
+  {
+   "id": "5bd43479f27db92815faaf944618cee4",
+   "path": "/home/t3/.t3/agents/.codex/skills/.system/review-agent/SKILL.md",
+   "resolvedPath": "/home/t3/.t3/agents/.codex/skills/.system/review-agent/SKILL.md",
+   "name": "review-agent",
+   "description": "Perform a read-only, defect-first review of a specified code change and return every actionable finding. Use when another agent delegates review of uncommitted changes, a base-branch diff, a commit, or custom review instructions.",
+   "scope": "system",
+   "source": "System",
+   "state": "enabled",
+   "native": true,
+   "error": null,
+   "canEdit": false,
+   "canRemove": false,
+   "readOnlyReason": "Manage this installation through its source provider or package manager.",
+   "canToggle": false,
+   "stateReadOnlyReason": "System, admin and plugin availability is managed through its source.",
+   "stateRevision": null
+  },
+  {
+   "id": "7679ab1e7c710ef316ad523853575d9a",
+   "path": "/home/t3/.codex/skills/.system/skill-creator/SKILL.md",
+   "resolvedPath": "/home/t3/.t3/agents/.codex/skills/.system/skill-creator/SKILL.md",
+   "name": "skill-creator",
+   "description": "Create or update a Codex skill with appropriately scoped instructions and any needed supporting resources.",
+   "source": "System",
+   "scope": "system",
+   "state": "unknown",
+   "native": false,
+   "bytes": 15311,
+   "error": null,
+   "metadataError": null,
+   "invocation": null,
+   "canEdit": false,
+   "canRemove": false,
+   "readOnlyReason": "Manage this installation through its source provider or package manager.",
+   "canToggle": false,
+   "stateReadOnlyReason": "Codex has not verified this skill's availability.",
+   "stateRevision": null
+  },
+  {
+   "id": "1caddc59d919bc52a7e48680c03b28d8",
+   "path": "/home/t3/.t3/agents/.codex/skills/.system/skill-creator/SKILL.md",
+   "resolvedPath": "/home/t3/.t3/agents/.codex/skills/.system/skill-creator/SKILL.md",
+   "name": "skill-creator",
+   "description": "Create or update a Codex skill with appropriately scoped instructions and any needed supporting resources.",
+   "scope": "system",
+   "source": "System",
+   "state": "enabled",
+   "native": true,
+   "error": null,
+   "canEdit": false,
+   "canRemove": false,
+   "readOnlyReason": "Manage this installation through its source provider or package manager.",
+   "canToggle": false,
+   "stateReadOnlyReason": "System, admin and plugin availability is managed through its source.",
+   "stateRevision": null
+  }
+ ],
+ "roots": [
+  {
+   "path": "/home/t3/.codex/skills",
+   "source": "Provider",
+   "scope": "user"
+  },
+  {
+   "path": "/home/t3/.agents/skills",
+   "source": "Shared .agents",
+   "scope": "user"
+  },
+  {
+   "path": "/home/t3/.codex/skills/.system",
+   "source": "System",
+   "scope": "system"
+  },
+  {
+   "path": "/etc/codex/skills",
+   "source": "Admin",
+   "scope": "admin"
+  }
+ ],
+ "coverage": "native",
+ "nativeError": null,
+ "warnings": [],
+ "scannedAt": 1792384052562,
+ "coverageText": "Managed Codex inventory in the setup environment, with known local folders included. Project skills are excluded."
+}

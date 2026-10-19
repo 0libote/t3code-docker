@@ -11,17 +11,20 @@
 // way out (`/\s+/` once reached the browser as `/s+/`). The smoke test holds
 // each inlined script byte-for-byte to its file.
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 
 // Order matters: tokens, then components, then the page's own composition.
 export const STYLES = ["design/tokens.css", "design/components.css", "console.css"];
 
 // Classic scripts that share one global scope, run in this order. base.js
 // resolves where the API lives; ui.js is the design system's behaviour layer
-// (window.T3C); model.js is the console's pure view model (window.T3Model);
-// kit.js the DOM layer (overlays, toasts, keyboard); app.js the console itself.
+// (window.T3C); routes.js the table of pages (window.T3Routes); model.js the
+// console's pure view model (window.T3Model); kit.js the DOM layer (overlays,
+// toasts, keyboard); app.js the console itself.
 export const CONSOLE_SCRIPTS = [
   "client/base.js",
   "design/ui.js",
+  "client/routes.js",
   "client/model.js",
   "client/kit.js",
   "client/storage.js",
@@ -32,6 +35,19 @@ export const CONSOLE_SCRIPTS = [
 export const UNLOCK_SCRIPTS = ["client/base.js", "design/ui.js", "client/unlock.js"];
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+
+/**
+ * Run classic scripts (no DOM) in one fresh context and return the globals
+ * they define: the server reads the console's own route table and view model
+ * this way, so the shell it draws and the counts it reports are the page's.
+ */
+export const runClassic = (paths, names) => {
+  const context = vm.createContext({ URL });
+  for (const path of paths) vm.runInContext(read(path), context, { filename: path });
+  return Object.fromEntries(names.map((name) => [name, vm.runInContext(name, context)]));
+};
+
+const { T3Routes: ROUTES } = runClassic(["client/routes.js"], ["T3Routes"]);
 
 /**
  * Read every asset once. Throws at startup if one could not be inlined safely,
@@ -103,24 +119,6 @@ const head = ({ nonce, css, mount, embed }) => `<!doctype html>
 const scripts = (list, nonce) =>
   list.map(({ path, code }) => `<script nonce="${nonce}" data-src="${path}">${code}</script>`).join("\n");
 
-const NAV = [
-  ["overview", "Overview", "layout-dashboard", "O"],
-  ["devices", "Devices", "smartphone", "D"],
-  ["agents", "Agents", "bot", "A"],
-  ["context", "Context", "book-open", "C"],
-  ["toolchains", "Toolchains", "wrench", "T"],
-  ["sourcecontrol", "Source control", "git-pull-request", "S"],
-  ["ports", "Ports", "ethernet-port", "P"],
-  ["environment", "Environment", "settings-2", "E"],
-];
-const TABS = [
-  ["overview", "Overview", "layout-dashboard"],
-  ["devices", "Devices", "smartphone"],
-  ["agents", "Agents", "bot"],
-  ["ports", "Ports", "ethernet-port"],
-  ["more", "More", "ellipsis"],
-];
-
 const skeleton = (rows) => `<div class="tc-group" aria-hidden="true">${
   Array.from({ length: rows }, (_, i) =>
     `<div class="tc-skel-row"><span class="tc-skel tc-skel--tile"></span><span class="tc-skel" style="width:${[38, 52, 30, 44][i % 4]}%"></span></div>`).join("")
@@ -131,16 +129,26 @@ const skeleton = (rows) => `<div class="tc-group" aria-hidden="true">${
 const CLOSE = `<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm tc-embed-close" type="button" data-cmd="embed.close" aria-label="Close" title="Close (Esc)"><i data-icon="x"></i></button>`;
 
 /**
+ * "G A": a page's two-key shortcut, as its sidebar tooltip says it. Not
+ * aria-keyshortcuts, which lists alternatives and has no way to say "then".
+ */
+const shortcut = (page) => (page.key ? `G ${page.key.toUpperCase()}` : "");
+
+const navItem = (page) => `<a class="tc-nav-item" href="#${page.route}" data-nav="${page.route}"${page.key ? ` title="${escapeHtml(page.title)} · ${shortcut(page)}"` : ""}><i data-icon="${page.icon}"></i><span class="tc-nav-text">${escapeHtml(page.title)}</span><span class="tc-nav-badge" id="nav-${page.route}" hidden></span></a>`;
+
+/** The sidebar's pages in their groups; a group without a label draws no heading. */
+const sidebarNav = () => ROUTES.grouped().filter((group) => group.pages.length).map((group) =>
+  `<div class="tc-nav-group"${group.label ? ` role="group" aria-labelledby="nav-group-${group.id}"` : ""}>${group.label ? `<div class="tc-nav-label" id="nav-group-${group.id}">${escapeHtml(group.label)}</div>` : ""}${group.pages.map(navItem).join("")}</div>`).join("");
+
+/**
  * The console once unlocked: the shell, with every page awaiting its first
  * status. `embed` is the variant T3 Code's settings open in a dialog.
  */
 export function renderConsole({ assets, nonce, mount, embed = false }) {
-  const nav = NAV.map(([route, label, icon, key]) =>
-    `<a class="tc-nav-item" href="#${route}" data-nav="${route}" aria-keyshortcuts="G ${key}"><i data-icon="${icon}"></i>${label}<span class="tc-nav-count" id="nav-${route}" aria-live="off"></span></a>`).join("");
-  const tabs = TABS.map(([route, label, icon]) =>
-    `<a class="tc-tab" href="#${route}" data-nav="${route}"><span class="tc-tab-ico"><i data-icon="${icon}"></i><span class="tc-tab-badge" id="tab-${route}" hidden></span></span>${label}</a>`).join("");
-  const pages = [...NAV.map(([route]) => route), "more"].map((route) =>
-    `<section class="tc-page" id="page-${route}" data-route="${route}" aria-label="${route[0].toUpperCase()}${route.slice(1)}" hidden>${skeleton(route === "more" ? 2 : 3)}</section>`).join("\n");
+  const tabs = ROUTES.TABS.map((tab) =>
+    `<a class="tc-tab" href="#${tab.route}" data-nav="${tab.route}"><span class="tc-tab-ico"><i data-icon="${tab.icon}"></i><span class="tc-tab-badge" id="tab-${tab.route}" hidden></span></span>${escapeHtml(tab.title)}</a>`).join("");
+  const pages = [...ROUTES.PAGES, ROUTES.page("more")].map((page) =>
+    `<section class="tc-page" id="page-${page.route}" data-route="${page.route}" aria-label="${escapeHtml(page.title)}" hidden>${skeleton(page.route === "more" ? 2 : 3)}</section>`).join("\n");
   const foot = embed
     ? `<a class="tc-nav-item" id="open-tab" href="${escapeHtml(mount)}/" target="_blank" rel="noopener" data-open-tab><i data-icon="external-link"></i>Open in a new tab</a>`
     : `<a class="tc-nav-item" id="open-t3" href="/" target="_blank" rel="noopener" data-open-t3><i data-icon="external-link"></i>Open T3 Code</a>
@@ -152,7 +160,7 @@ export function renderConsole({ assets, nonce, mount, embed = false }) {
   <nav class="tc-sidebar" aria-label="Console">
     <div class="tc-brand"><span class="tc-wordmark" aria-label="T3 Code"><span>Code</span></span><span class="tc-badge tc-badge--outline tc-badge--sm">Setup</span></div>
     <button class="tc-search" type="button" data-cmd="palette" aria-keyshortcuts="Meta+K Control+K"><i data-icon="search"></i>Search<span class="tc-kbd" data-mod-key>⌘K</span></button>
-    <div class="tc-nav">${nav}</div>
+    <div class="tc-nav">${sidebarNav()}</div>
     <div class="tc-sidebar-foot">
       <div class="tc-server" id="server-card"><div class="tc-server-row"><span class="tc-skel tc-skel--line"></span></div></div>
       <div class="tc-sidebar-row">
@@ -161,19 +169,13 @@ export function renderConsole({ assets, nonce, mount, embed = false }) {
     </div>
   </nav>
   <main class="tc-main" id="main" tabindex="-1">
-    <header class="tc-topbar">
-      <ol class="tc-crumbs"><li>Setup</li><li aria-current="page" id="crumb">Overview</li></ol>
-      <span class="tc-small tc-muted tc-truncate tc-topbar-summary" id="summary"></span>
-      <span class="tc-spacer"></span>
-      <div class="tc-topbar-actions" id="page-actions"></div>${embed ? `<span class="tc-topbar-sep" aria-hidden="true"></span>${CLOSE}` : ""}
-    </header>
+${embed ? `    <div class="tc-embed-corner">${CLOSE}</div>` : ""}
     <header class="tc-phonebar">
       <span class="tc-wordmark" aria-label="T3 Code"><span>Code</span></span><span class="tc-badge tc-badge--outline tc-badge--sm">Setup</span>
       <span class="tc-spacer"></span>
       <span class="tc-phone-status" id="phone-status"></span>
       <button class="tc-btn tc-btn--ghost tc-btn--icon" type="button" data-cmd="palette" aria-label="Search"><i data-icon="search"></i></button>${embed ? CLOSE.replace(" tc-btn--sm", "") : ""}
     </header>
-    <div class="tc-banner" id="banner" role="status" hidden></div>
 ${pages}
   </main>
   <nav class="tc-tabbar" aria-label="Console">${tabs}</nav>

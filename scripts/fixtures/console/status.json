@@ -1,0 +1,1224 @@
+{
+ "storage": {
+  "at": 1792383796204,
+  "refreshing": false,
+  "disk": {
+   "totalBytes": 206900281344,
+   "availableBytes": 44172308480,
+   "usedBytes": 162711195648,
+   "usedPercent": 79,
+   "severity": "ok"
+  },
+  "categories": [
+   {
+    "id": "go",
+    "label": "Go build cache",
+    "path": "/home/t3/.cache/go-build",
+    "bytes": 741322752,
+    "description": "Compiled packages. Builds recreate these when needed.",
+    "kind": "cache",
+    "cleanable": true,
+    "unavailable": null
+   },
+   {
+    "id": "npm",
+    "label": "npm downloads",
+    "path": "/home/t3/.npm/_cacache",
+    "bytes": 440291328,
+    "description": "Downloaded packages. Installs fetch them again when needed.",
+    "kind": "cache",
+    "cleanable": true,
+    "unavailable": null
+   },
+   {
+    "id": "tools",
+    "label": "Agents & toolchains",
+    "path": "/home/t3/.local/share/mise/installs",
+    "bytes": 3981758464,
+    "description": "Installed agents, language runtimes, and added tools.",
+    "kind": "data"
+   },
+   {
+    "id": "history",
+    "label": "Threads & agent data",
+    "path": "/home/t3/.t3/userdata",
+    "bytes": 7535259648,
+    "description": "Conversation history, attachments, and server data.",
+    "kind": "data"
+   },
+   {
+    "id": "agents",
+    "label": "Agent profiles",
+    "path": "/home/t3/.t3/agents",
+    "bytes": 4246343680,
+    "description": "Agent conversations, sign-ins, and provider settings.",
+    "kind": "data"
+   },
+   {
+    "id": "backups",
+    "label": "Upgrade backups",
+    "path": "/home/t3/.t3/backups",
+    "bytes": 21104525312,
+    "description": "Retained database copies. Archive older backups when no longer needed.",
+    "kind": "data"
+   },
+   {
+    "id": "runtime",
+    "label": "T3 Code runtimes",
+    "path": "/home/t3/.t3/container-runtime",
+    "bytes": 605921280,
+    "description": "Current, previous, and cached channel releases.",
+    "kind": "data"
+   },
+   {
+    "id": "other-caches",
+    "label": "Other caches",
+    "bytes": 10588028928,
+    "path": "/home/t3/.cache · /home/t3/.npm",
+    "kind": "data",
+    "description": "Browser, package manager, model, and npx caches."
+   },
+   {
+    "id": "other-home",
+    "label": "Other home data",
+    "bytes": 7098888192,
+    "path": "/home/t3",
+    "kind": "data",
+    "description": "Other files in the persistent home."
+   },
+   {
+    "id": "workspace",
+    "label": "Projects",
+    "path": "/workspace",
+    "bytes": 50455228416,
+    "description": "Source code, dependencies, and local application data.",
+    "kind": "data"
+   },
+   {
+    "id": "temporary",
+    "label": "Temporary files",
+    "path": "/tmp",
+    "bytes": 8826970112,
+    "description": "Files created by tools and tests. Projects own their cleanup.",
+    "kind": "data"
+   }
+  ],
+  "cleanableBytes": 1181614080,
+  "volumeKind": "anonymous",
+  "workspaceKind": "durable",
+  "volumeBytes": 56342339584,
+  "workspaceProjects": 7,
+  "policy": {
+   "schema": 1,
+   "automatic": false,
+   "retainManagedVersions": true,
+   "goBudgetBytes": 10000000000,
+   "npmBudgetBytes": 2000000000
+  },
+  "policyError": null,
+  "error": null,
+  "partial": false,
+  "operation": {
+   "id": "3305e63c-b3f7-4196-8100-9fa1e703fd23",
+   "ids": [
+    "versions"
+   ],
+   "state": "succeeded",
+   "phase": "versions",
+   "pid": 401,
+   "startTime": "1315533835",
+   "startedAt": 1792037105978,
+   "finishedAt": 1792037111229,
+   "error": null,
+   "recent": [
+    {
+     "id": "bc22ef7a-62e3-4e52-8d4c-23645cb1e361",
+     "ids": [
+      "go",
+      "npm"
+     ],
+     "state": "succeeded",
+     "phase": "done",
+     "automatic": false,
+     "pid": 401,
+     "startTime": "1315533835",
+     "startedAt": 1792037070019,
+     "finishedAt": 1792037071985,
+     "estimatedBytes": 6934155264,
+     "reclaimedBytes": 6934142976,
+     "error": null,
+     "cacheResults": {
+      "go": 12288,
+      "npm": 0
+     }
+    },
+    {
+     "id": "39aac352-d8c2-4b66-a93d-212dc5d4e982",
+     "ids": [
+      "go"
+     ],
+     "state": "succeeded",
+     "phase": "done",
+     "automatic": false,
+     "pid": 401,
+     "startTime": "1315533835",
+     "startedAt": 1792037048806,
+     "finishedAt": 1792037057837,
+     "estimatedBytes": 41247174656,
+     "reclaimedBytes": 41247162368,
+     "error": null,
+     "cacheResults": {
+      "go": 12288
+     }
+    }
+   ],
+   "removedCount": 16
+  },
+  "stateKind": "durable",
+  "statePath": "/home/t3/.t3"
+ },
+ "server": {
+  "ok": true,
+  "version": "0.1.1-nightly.20261016.3190",
+  "label": "a1b2c3d4e5f6",
+  "environmentId": "6513270e-269e-0d37-f2a7-4de452e6b438",
+  "uptimeSeconds": 86022
+ },
+ "image": {
+  "version": "v0.20.0",
+  "variant": "browser"
+ },
+ "platform": "linux/arm64",
+ "publicUrl": "https://t3.example.com",
+ "publicUrlSource": "saved",
+ "publicUrlPlatform": null,
+ "t3": {
+  "runtime": {
+   "schema": 1,
+   "channel": "nightly",
+   "version": "0.1.1-nightly.20261016.3190",
+   "updateId": "3f9c0419-dbc4-405a-8a43-3187f6eb34d4",
+   "bundled": false,
+   "separateHistory": true,
+   "releases": {
+    "stable": {
+     "version": "0.1.0",
+     "name": "@t3code/t3-linux-arm64",
+     "url": "https://registry.npmjs.org/@t3code/t3-linux-arm64/-/t3-linux-arm64-0.1.0.tgz",
+     "integrity": "sha512-Cm2b6QolZYr3Rz1k194AUrsv3PCX9gIkEsw7AylbDN7gIY6JVCJc7rkmycCI+VAWrfB47eDJ1JVTI45nQ2mO0g==",
+     "bytes": 289976277
+    },
+    "nightly": {
+     "version": "0.1.1-nightly.20261016.3190",
+     "name": "@t3code/t3-linux-arm64",
+     "url": "https://registry.npmjs.org/@t3code/t3-linux-arm64/-/t3-linux-arm64-0.1.1-nightly.20261016.3190.tgz",
+     "integrity": "sha512-gbCIlZXgiCsr2975Vwtm6DnUUHq9pOnY/GJHO5XJnKCmdqABEwBXVdOlzE4wLiA4PhVhQCCDqIJCW/KVgcXDLw==",
+     "bytes": 290365387
+    }
+   },
+   "checkedAt": 1792380785876,
+   "checking": false,
+   "checkError": null,
+   "operation": {
+    "id": "3f9c0419-dbc4-405a-8a43-3187f6eb34d4",
+    "phase": "succeeded",
+    "channel": "nightly",
+    "version": "0.1.1-nightly.20261016.3190",
+    "fromVersion": "0.0.46-nightly.20261014.3132",
+    "startedAt": 1792299325505,
+    "fromDatabase": "statev2.sqlite",
+    "targetDatabase": "statev2.sqlite",
+    "fromScopes": [
+     "orchestration:read",
+     "orchestration:operate",
+     "settings:write",
+     "providers:manage",
+     "environment:maintain",
+     "preview:operate",
+     "diagnostics:read",
+     "terminal:read",
+     "terminal:operate",
+     "source-control:write",
+     "filesystem:read",
+     "filesystem:write",
+     "relay:read",
+     "access:read",
+     "access:write",
+     "relay:write"
+    ],
+    "targetScopes": [
+     "orchestration:read",
+     "orchestration:operate",
+     "settings:write",
+     "providers:manage",
+     "environment:maintain",
+     "preview:operate",
+     "diagnostics:read",
+     "terminal:read",
+     "terminal:operate",
+     "source-control:write",
+     "filesystem:read",
+     "filesystem:write",
+     "relay:read",
+     "access:read",
+     "access:write",
+     "relay:write"
+    ],
+    "finishedAt": 1792299448578
+   },
+   "supported": true
+  },
+  "port": 3773,
+  "bind": "0.0.0.0:3773",
+  "pid": 3961
+ },
+ "connect": {
+  "state": "off",
+  "desired": false,
+  "authenticated": false,
+  "linked": false,
+  "relayHost": null,
+  "publishAgentActivity": false,
+  "relayClient": {
+   "status": "available",
+   "version": "2026.5.2"
+  },
+  "startedSinceLink": null
+ },
+ "setupPort": 3774,
+ "singlePort": null,
+ "setupKeySource": "env",
+ "legacyEnv": [],
+ "paths": {
+  "volume": "/home/t3",
+  "state": "/home/t3/.t3",
+  "workspace": "/workspace",
+  "agents": "/home/t3/.t3/agents",
+  "pairTtl": "30d",
+  "volumeKind": "anonymous",
+  "stateKind": "durable",
+  "workspaceKind": "durable",
+  "volumeBytes": 56342339584,
+  "workspaceProjects": 7
+ },
+ "browser": {
+  "chromium": true,
+  "playwrightMcp": "0.0.83",
+  "devtoolsMcp": "1.11.0"
+ },
+ "harnesses": [
+  {
+   "id": "claude",
+   "name": "Claude Code",
+   "installed": true,
+   "runnable": true,
+   "signedIn": true,
+   "version": "2.1.302",
+   "installedVersion": "2.1.302",
+   "recordedVersion": "2.1.302",
+   "verifiedVersion": "2.1.302",
+   "configuredVersion": "2.1.302",
+   "executable": "/home/t3/.local/share/mise/installs/claude/2.1.302/claude",
+   "configured": true,
+   "minimumVersion": null,
+   "minimumSatisfied": true,
+   "supported": true,
+   "failed": false,
+   "failure": null,
+   "operation": "update",
+   "operationState": "ok",
+   "inProgress": false,
+   "managedVersions": [
+    "2.1.301",
+    "2.1.302"
+   ],
+   "credentialsPresent": true,
+   "canSignIn": true,
+   "canSetKey": false,
+   "keyKind": null,
+   "authMethod": null,
+   "latestVersion": "2.1.303",
+   "latestCheckedAt": 1792380787082,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "codex",
+   "name": "Codex",
+   "installed": true,
+   "runnable": true,
+   "signedIn": true,
+   "version": "0.163.0",
+   "installedVersion": "0.163.0",
+   "recordedVersion": "0.163.0",
+   "verifiedVersion": "0.163.0",
+   "configuredVersion": "0.163.0",
+   "executable": "/home/t3/.local/share/mise/installs/codex/0.163.0/bin/codex",
+   "configured": true,
+   "minimumVersion": null,
+   "minimumSatisfied": true,
+   "supported": true,
+   "failed": false,
+   "failure": null,
+   "operation": "update",
+   "operationState": "ok",
+   "inProgress": false,
+   "managedVersions": [
+    "0.162.1",
+    "0.163.0"
+   ],
+   "credentialsPresent": true,
+   "canSignIn": true,
+   "canSetKey": true,
+   "keyKind": "stdin",
+   "authMethod": "oauth",
+   "latestVersion": "0.163.0",
+   "latestCheckedAt": 1792380787249,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "opencode",
+   "name": "OpenCode",
+   "installed": true,
+   "runnable": true,
+   "signedIn": true,
+   "version": "2.0.32",
+   "installedVersion": "2.0.32",
+   "recordedVersion": "2.0.32",
+   "verifiedVersion": "2.0.32",
+   "configuredVersion": "2.0.32",
+   "executable": "/home/t3/.local/share/mise/installs/npm-opencode-cli/2.0.32/node_modules/.bin/opencode",
+   "configured": true,
+   "minimumVersion": "2.0.18",
+   "minimumSatisfied": true,
+   "supported": true,
+   "failed": false,
+   "failure": null,
+   "operation": "update",
+   "operationState": "ok",
+   "inProgress": false,
+   "managedVersions": [
+    "2.0.31",
+    "2.0.32"
+   ],
+   "credentialsPresent": true,
+   "canSignIn": false,
+   "canSetKey": true,
+   "keyKind": "opencode",
+   "authMethod": null,
+   "latestVersion": "2.0.32",
+   "latestCheckedAt": 1792380787722,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "grok",
+   "name": "Grok Build",
+   "installed": false,
+   "runnable": false,
+   "signedIn": null,
+   "version": null,
+   "installedVersion": null,
+   "recordedVersion": null,
+   "verifiedVersion": null,
+   "configuredVersion": null,
+   "executable": null,
+   "configured": false,
+   "minimumVersion": null,
+   "minimumSatisfied": null,
+   "supported": true,
+   "failed": false,
+   "failure": null,
+   "operation": "uninstall",
+   "operationState": "ok",
+   "inProgress": false,
+   "managedVersions": [],
+   "credentialsPresent": true,
+   "canSignIn": true,
+   "canSetKey": false,
+   "keyKind": null,
+   "authMethod": null,
+   "latestVersion": "1.0.62",
+   "latestCheckedAt": 1792380788043,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "cursor",
+   "name": "Cursor",
+   "installed": false,
+   "runnable": false,
+   "signedIn": null,
+   "version": null,
+   "installedVersion": null,
+   "recordedVersion": null,
+   "verifiedVersion": null,
+   "configuredVersion": null,
+   "executable": null,
+   "configured": false,
+   "minimumVersion": null,
+   "minimumSatisfied": null,
+   "supported": true,
+   "failed": false,
+   "failure": null,
+   "operation": "uninstall",
+   "operationState": "ok",
+   "inProgress": false,
+   "managedVersions": [],
+   "credentialsPresent": true,
+   "canSignIn": true,
+   "canSetKey": false,
+   "keyKind": null,
+   "authMethod": null,
+   "latestVersion": "2026.10.16-e3cb207",
+   "latestCheckedAt": 1792380788368,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "muse",
+   "name": "Muse Code",
+   "installed": true,
+   "runnable": true,
+   "signedIn": null,
+   "version": "1.4.10-R6427.1",
+   "installedVersion": "1.4.10-R6427.1",
+   "recordedVersion": "1.4.10-R6427.1",
+   "verifiedVersion": "1.4.10-R6427.1",
+   "configuredVersion": "1.4.10-R6427.1",
+   "executable": "/home/t3/.local/share/mise/installs/muse/1.4.10-R6427.1/muse",
+   "configured": true,
+   "minimumVersion": null,
+   "minimumSatisfied": true,
+   "supported": true,
+   "failed": false,
+   "failure": null,
+   "operation": "update",
+   "operationState": "ok",
+   "inProgress": false,
+   "managedVersions": [
+    "1.4.9-R6297.1",
+    "1.4.10-R6427.1"
+   ],
+   "credentialsPresent": true,
+   "canSignIn": true,
+   "canSetKey": true,
+   "keyKind": "stdin",
+   "authMethod": null,
+   "latestVersion": "1.4.10-R6427.1",
+   "latestCheckedAt": 1792380788866,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "antigravity",
+   "name": "Antigravity",
+   "managedBy": "t3",
+   "available": true,
+   "reachable": true,
+   "error": null,
+   "installed": false,
+   "runnable": false,
+   "version": null,
+   "installedVersion": null,
+   "recordedVersion": null,
+   "latestVersion": "1.3.0",
+   "enabled": false,
+   "t3Status": "disabled",
+   "t3Message": "Antigravity is disabled in T3 Code settings.",
+   "signedIn": null,
+   "account": null,
+   "inProgress": false,
+   "operation": null,
+   "operationState": "idle",
+   "progress": null,
+   "failed": false,
+   "failure": null,
+   "downloadBytes": 321690363,
+   "managedVersions": [],
+   "supported": true,
+   "configured": false,
+   "canSignIn": false,
+   "canSetKey": false,
+   "keyKind": null,
+   "authMethod": null,
+   "credentialsPresent": false
+  }
+ ],
+ "harnessCache": {
+  "at": 1792384006683,
+  "stale": false,
+  "source": "live",
+  "refreshing": false
+ },
+ "toolchains": [
+  {
+   "id": "go",
+   "name": "Go",
+   "miseTool": "go",
+   "installed": true,
+   "version": "1.27.2",
+   "inProgress": false,
+   "operation": "update",
+   "operationState": "ok",
+   "managedVersions": [
+    "1.27.1",
+    "1.27.2"
+   ],
+   "failed": false,
+   "failure": null,
+   "latestVersion": "1.27.2",
+   "latestCheckedAt": 1792380789059,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "rust",
+   "name": "Rust",
+   "miseTool": "rust",
+   "installed": true,
+   "version": "1.99.1",
+   "inProgress": false,
+   "operation": "update",
+   "operationState": "ok",
+   "managedVersions": [
+    "1.99.0",
+    "1.99.1"
+   ],
+   "failed": false,
+   "failure": null,
+   "latestVersion": "1.99.1",
+   "latestCheckedAt": 1792380789247,
+   "newestVersion": "stable",
+   "newestReleasedAt": "2025-12-18T00:38:26.709Z"
+  },
+  {
+   "id": "bun",
+   "name": "Bun",
+   "miseTool": "bun",
+   "installed": true,
+   "version": "1.4.3",
+   "inProgress": false,
+   "operation": "update",
+   "operationState": "ok",
+   "managedVersions": [
+    "1.4.2",
+    "1.4.3"
+   ],
+   "failed": false,
+   "failure": null,
+   "latestVersion": "1.4.3",
+   "latestCheckedAt": 1792380789432,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "deno",
+   "name": "Deno",
+   "miseTool": "deno",
+   "installed": true,
+   "version": "2.9.7",
+   "inProgress": false,
+   "operation": "install",
+   "operationState": "ok",
+   "managedVersions": [
+    "2.9.7"
+   ],
+   "failed": false,
+   "failure": null,
+   "latestVersion": "2.9.7",
+   "latestCheckedAt": 1792380789609,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "uv",
+   "name": "uv",
+   "miseTool": "uv",
+   "installed": true,
+   "version": "0.13.1",
+   "inProgress": false,
+   "operation": "update",
+   "operationState": "ok",
+   "managedVersions": [
+    "0.13.0",
+    "0.13.1"
+   ],
+   "failed": false,
+   "failure": null,
+   "latestVersion": "0.13.1",
+   "latestCheckedAt": 1792380790030,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  }
+ ],
+ "sourceControl": [
+  {
+   "id": "gh",
+   "name": "GitHub CLI",
+   "installed": true,
+   "version": "2.102.0",
+   "inProgress": false,
+   "operation": null,
+   "operationState": null,
+   "managedVersions": [],
+   "failed": false,
+   "failure": null,
+   "provider": "GitHub",
+   "bin": "gh",
+   "inImage": true,
+   "providedBy": null,
+   "executable": "gh",
+   "missingExtensions": [],
+   "auth": {
+    "status": "authenticated",
+    "account": "ada",
+    "host": "github.com",
+    "detail": null
+   },
+   "latestVersion": null,
+   "latestCheckedAt": null,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "glab",
+   "name": "GitLab CLI",
+   "miseTool": "glab",
+   "installed": false,
+   "version": null,
+   "inProgress": false,
+   "operation": null,
+   "operationState": null,
+   "managedVersions": [],
+   "failed": false,
+   "failure": null,
+   "provider": "GitLab",
+   "bin": "glab",
+   "inImage": false,
+   "providedBy": null,
+   "executable": null,
+   "missingExtensions": [],
+   "auth": null,
+   "latestVersion": null,
+   "latestCheckedAt": null,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "fj",
+   "name": "Forgejo CLI",
+   "miseTool": "forgejo:forgejo-contrib/forgejo-cli",
+   "installed": false,
+   "version": null,
+   "inProgress": false,
+   "operation": null,
+   "operationState": null,
+   "managedVersions": [],
+   "failed": false,
+   "failure": null,
+   "provider": "Forgejo",
+   "bin": "fj",
+   "inImage": false,
+   "providedBy": null,
+   "executable": null,
+   "missingExtensions": [],
+   "auth": null,
+   "latestVersion": null,
+   "latestCheckedAt": null,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "tea",
+   "name": "Gitea CLI",
+   "miseTool": "forgejo:gitea/tea",
+   "installed": false,
+   "version": null,
+   "inProgress": false,
+   "operation": null,
+   "operationState": null,
+   "managedVersions": [],
+   "failed": false,
+   "failure": null,
+   "provider": "Gitea",
+   "bin": "tea",
+   "inImage": false,
+   "providedBy": null,
+   "executable": null,
+   "missingExtensions": [],
+   "auth": null,
+   "latestVersion": null,
+   "latestCheckedAt": null,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "az",
+   "name": "Azure CLI",
+   "miseTool": "pipx:azure-cli",
+   "installed": false,
+   "version": null,
+   "inProgress": false,
+   "operation": null,
+   "operationState": null,
+   "managedVersions": [],
+   "failed": false,
+   "failure": null,
+   "provider": "Azure DevOps",
+   "bin": "az",
+   "inImage": false,
+   "providedBy": null,
+   "executable": null,
+   "missingExtensions": [],
+   "auth": null,
+   "latestVersion": null,
+   "latestCheckedAt": null,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  }
+ ],
+ "sourceControlCache": {
+  "at": 1792384006869,
+  "stale": false,
+  "source": "live"
+ },
+ "releaseAgeMs": 86400000,
+ "packages": [
+  {
+   "id": "node",
+   "name": "node",
+   "configured": true,
+   "installed": true,
+   "version": "26.12.0",
+   "requestedVersion": "26.12.0",
+   "inProgress": false,
+   "operation": "update",
+   "operationState": "ok",
+   "managedVersions": [
+    "26.11.1",
+    "26.12.0"
+   ],
+   "adopted": false,
+   "failed": false,
+   "failure": null,
+   "description": "Node.js® is a free, open-source, cross-platform JavaScript runtime environment that lets developers create servers, web apps, command line tools and scripts (Builtin plugin)",
+   "bins": [
+    "node",
+    "npm",
+    "npx"
+   ],
+   "latestVersion": "26.12.0",
+   "latestCheckedAt": 1792380790228,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  },
+  {
+   "id": "yt-dlp",
+   "name": "yt-dlp",
+   "configured": true,
+   "installed": true,
+   "version": "2026.08.19",
+   "requestedVersion": "2026.08.19",
+   "inProgress": false,
+   "operation": "install",
+   "operationState": "ok",
+   "managedVersions": [
+    "2026.08.19"
+   ],
+   "adopted": false,
+   "failed": false,
+   "failure": null,
+   "description": "A feature-rich command-line audio/video downloader",
+   "bins": [
+    "yt-dlp"
+   ],
+   "latestVersion": "2026.08.19",
+   "latestCheckedAt": 1792380790813,
+   "newestVersion": null,
+   "newestReleasedAt": null
+  }
+ ],
+ "context": {
+  "agentsMd": {
+   "present": false,
+   "bytes": 0,
+   "error": null
+  },
+  "providers": [
+   {
+    "provider": "claude",
+    "path": "/home/t3/.claude/CLAUDE.md",
+    "mode": null,
+    "sourceRevision": "af962f0cf74768247779a9ae3190e67205fd9122fc1f134b2bf7ef2e3f106380",
+    "error": null
+   },
+   {
+    "provider": "codex",
+    "path": "/home/t3/.codex/AGENTS.md",
+    "mode": null,
+    "sourceRevision": "d3c29693da897ec0851221f0a2cecc020e5f3ce5b2b58f49957946c638decee6",
+    "error": null
+   },
+   {
+    "provider": "opencode",
+    "path": "/home/t3/.config/opencode/AGENTS.md",
+    "mode": null,
+    "sourceRevision": "e004dd803b93b033d2f905853a8c7adb09b7fbc31c9e6e216564107c16a0bbf6",
+    "error": null
+   }
+  ]
+ },
+ "setup": {
+  "state": "finished",
+  "startedAt": 1792297985210,
+  "finishedAt": 1792297985212,
+  "current": null,
+  "items": [
+   {
+    "kind": "agent",
+    "id": "claude",
+    "name": "Claude Code",
+    "state": "done",
+    "version": "2.1.286",
+    "error": null
+   },
+   {
+    "kind": "agent",
+    "id": "codex",
+    "name": "Codex",
+    "state": "done",
+    "version": "0.159.3",
+    "error": null
+   },
+   {
+    "kind": "agent",
+    "id": "opencode",
+    "name": "OpenCode",
+    "state": "done",
+    "version": "1.18.34",
+    "error": null
+   },
+   {
+    "kind": "toolchain",
+    "id": "go",
+    "name": "Go",
+    "state": "done",
+    "version": "1.27.1",
+    "error": null
+   },
+   {
+    "kind": "toolchain",
+    "id": "rust",
+    "name": "Rust",
+    "state": "done",
+    "version": "1.99.0",
+    "error": null
+   },
+   {
+    "kind": "toolchain",
+    "id": "bun",
+    "name": "Bun",
+    "state": "done",
+    "version": "1.4.2",
+    "error": null
+   },
+   {
+    "kind": "toolchain",
+    "id": "deno",
+    "name": "Deno",
+    "state": "done",
+    "version": "2.9.7",
+    "error": null
+   },
+   {
+    "kind": "toolchain",
+    "id": "uv",
+    "name": "uv",
+    "state": "done",
+    "version": "0.12.21",
+    "error": null
+   }
+  ]
+ },
+ "operations": {
+  "toolchain:rust": {
+   "state": "ok",
+   "error": null,
+   "warning": null,
+   "progress": null,
+   "startedAt": 1792299241686,
+   "finishedAt": 1792299250419,
+   "kind": "update",
+   "changed": true,
+   "message": null
+  }
+ },
+ "pairings": [],
+ "sessions": [
+  {
+   "sessionId": "d23f0824-128b-2f33-0c5c-7fd0a6a3a450",
+   "method": "browser-session-cookie",
+   "scopes": [
+    "orchestration:read",
+    "orchestration:operate",
+    "settings:write",
+    "providers:manage",
+    "environment:maintain",
+    "preview:operate",
+    "diagnostics:read",
+    "terminal:read",
+    "terminal:operate",
+    "source-control:write",
+    "filesystem:read",
+    "filesystem:write",
+    "relay:read"
+   ],
+   "subject": "one-time-token",
+   "client": {
+    "label": "Ada’s iPhone",
+    "ipAddress": "192.0.2.10",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0.1 Safari/605.1.15",
+    "deviceType": "mobile",
+    "os": "iOS",
+    "browser": "Safari"
+   },
+   "connected": true,
+   "issuedAt": "2026-10-15T06:56:01.275Z",
+   "expiresAt": "2026-11-14T06:56:01.275Z",
+   "lastConnectedAt": "2026-10-15T08:54:28.204Z"
+  },
+  {
+   "sessionId": "9531985d-5d9d-c9f8-1818-e811892f902b",
+   "method": "bearer-access-token",
+   "scopes": [
+    "orchestration:read",
+    "orchestration:operate",
+    "settings:write",
+    "providers:manage",
+    "environment:maintain",
+    "preview:operate",
+    "diagnostics:read",
+    "terminal:read",
+    "terminal:operate",
+    "source-control:write",
+    "filesystem:read",
+    "filesystem:write",
+    "relay:read"
+   ],
+   "subject": "one-time-token",
+   "client": {
+    "label": "Work laptop",
+    "ipAddress": "192.0.2.11",
+    "userAgent": "T3Code/122 CFNetwork/3860.600.12 Darwin/25.5.0",
+    "deviceType": "desktop",
+    "os": "macOS",
+    "browser": "Chrome"
+   },
+   "connected": true,
+   "issuedAt": "2026-10-14T03:57:22.320Z",
+   "expiresAt": "2026-11-13T03:57:22.320Z",
+   "lastConnectedAt": "2026-10-15T07:07:58.100Z"
+  },
+  {
+   "sessionId": "36f675cc-81e7-4ef5-e8e2-5d940ed90475",
+   "method": "browser-session-cookie",
+   "scopes": [
+    "orchestration:read",
+    "orchestration:operate",
+    "settings:write",
+    "providers:manage",
+    "environment:maintain",
+    "preview:operate",
+    "diagnostics:read",
+    "terminal:read",
+    "terminal:operate",
+    "source-control:write",
+    "filesystem:read",
+    "filesystem:write",
+    "relay:read"
+   ],
+   "subject": "one-time-token",
+   "client": {
+    "label": "Studio iPad",
+    "ipAddress": "192.0.2.12",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:157.0) Gecko/20100101 Firefox/157.0",
+    "deviceType": "tablet",
+    "os": "iPadOS",
+    "browser": "Safari"
+   },
+   "connected": false,
+   "issuedAt": "2026-10-13T18:07:21.134Z",
+   "expiresAt": "2026-11-12T18:07:21.134Z",
+   "lastConnectedAt": "2026-10-18T22:56:17.338Z"
+  },
+  {
+   "sessionId": "6b0d549b-6f03-675a-1600-a35a099950d8",
+   "method": "bearer-access-token",
+   "scopes": [
+    "orchestration:read",
+    "orchestration:operate",
+    "settings:write",
+    "providers:manage",
+    "environment:maintain",
+    "preview:operate",
+    "diagnostics:read",
+    "terminal:read",
+    "terminal:operate",
+    "source-control:write",
+    "filesystem:read",
+    "filesystem:write",
+    "relay:read"
+   ],
+   "subject": "one-time-token",
+   "client": {
+    "label": null,
+    "ipAddress": "192.0.2.13",
+    "userAgent": "T3Code/122 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+    "deviceType": "desktop",
+    "os": "macOS",
+    "browser": null
+   },
+   "connected": false,
+   "issuedAt": "2026-10-13T18:05:24.330Z",
+   "expiresAt": "2026-11-12T18:05:24.330Z",
+   "lastConnectedAt": "2026-10-18T04:50:53.646Z"
+  },
+  {
+   "sessionId": "8d116ece-1738-f7d9-3d9c-172411e20b8f",
+   "method": "bearer-access-token",
+   "scopes": [
+    "orchestration:read",
+    "orchestration:operate",
+    "settings:write",
+    "providers:manage",
+    "environment:maintain",
+    "preview:operate",
+    "diagnostics:read",
+    "terminal:read",
+    "terminal:operate",
+    "source-control:write",
+    "filesystem:read",
+    "filesystem:write",
+    "relay:read"
+   ],
+   "subject": "one-time-token",
+   "client": {
+    "label": "Home desktop",
+    "ipAddress": "192.0.2.14",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) T3CodeNightly/0.0.46-nightly.20261013.3053 Chrome/152.0.7977.130 Electron/44.4.5 Safari/537.36",
+    "deviceType": "desktop",
+    "os": "Windows",
+    "browser": "Edge"
+   },
+   "connected": false,
+   "issuedAt": "2026-10-13T10:07:35.788Z",
+   "expiresAt": "2026-11-12T10:07:35.788Z",
+   "lastConnectedAt": "2026-10-18T21:29:51.756Z"
+  },
+  {
+   "sessionId": "90c192cf-d3ac-94af-0f21-ddb66cad4a26",
+   "method": "browser-session-cookie",
+   "scopes": [
+    "orchestration:read",
+    "orchestration:operate",
+    "settings:write",
+    "providers:manage",
+    "environment:maintain",
+    "preview:operate",
+    "diagnostics:read",
+    "terminal:read",
+    "terminal:operate",
+    "source-control:write",
+    "filesystem:read",
+    "filesystem:write",
+    "relay:read"
+   ],
+   "subject": "one-time-token",
+   "client": {
+    "label": null,
+    "ipAddress": "192.0.2.15",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "deviceType": "mobile",
+    "os": "Android",
+    "browser": "Chrome"
+   },
+   "connected": false,
+   "issuedAt": "2026-10-13T10:01:48.774Z",
+   "expiresAt": "2026-11-12T10:01:48.774Z",
+   "lastConnectedAt": "2026-10-18T17:26:58.865Z"
+  }
+ ],
+ "authLists": {
+  "pairing": {
+   "at": 1792365445618,
+   "stale": true,
+   "refreshing": true,
+   "error": null,
+   "available": true
+  },
+  "session": {
+   "at": 1792365445876,
+   "stale": true,
+   "refreshing": true,
+   "error": null,
+   "available": true
+  }
+ },
+ "events": [
+  {
+   "at": 1792299337350,
+   "kind": "t3.updating",
+   "text": "Updating T3 Code to 0.1.1-nightly.20261016.3190"
+  },
+  {
+   "at": 1792299337350,
+   "kind": "t3.restarted",
+   "text": "Restarted T3 Code",
+   "detail": "to apply a T3 Code update"
+  },
+  {
+   "at": 1792299250419,
+   "kind": "toolchain.updated",
+   "text": "Updated Rust to",
+   "detail": "1.99.1"
+  }
+ ],
+ "degraded": [],
+ "autoUpdate": {
+  "policy": {
+   "version": 2,
+   "providers": {
+    "enabled": false,
+    "checkMinutes": 180,
+    "idleMinutes": 30
+   },
+   "toolchains": {
+    "enabled": false,
+    "checkMinutes": 180,
+    "idleMinutes": 30
+   },
+   "t3": {
+    "enabled": false,
+    "checkMinutes": 180,
+    "idleMinutes": 30,
+    "stayOnChannel": true
+   }
+  },
+  "state": {
+   "lastProviderCheckAt": null,
+   "lastToolchainCheckAt": null,
+   "lastT3CheckAt": null,
+   "lastProviderRunAt": null,
+   "lastToolchainRunAt": null,
+   "lastT3RunAt": null,
+   "lastResult": null
+  },
+  "lastActivityAt": 1792384006255,
+  "busy": null
+ },
+ "viewer": {
+  "via": "key"
+ }
+}

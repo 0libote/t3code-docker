@@ -287,15 +287,9 @@ const T3Model = (() => {
     notice && !(status && status.text && String(status.text).includes(notice.text)) ? notice : undefined;
 
   // ---------------------------------------------------------------- agents --
-  const methodText = (h) => {
-    const meta = AGENTS[h.id] || {};
-    switch (h.authMethod) {
-      case 'env': return 'key in the environment';
-      case 'apikey': return 'stored API key';
-      case 'oauth': return meta.how || 'browser sign-in';
-      default: return meta.how || 'browser sign-in';
-    }
-  };
+  /** "Signed in", or how, when it is not the usual sign-in: an API key. */
+  const signedInAs = (h) => (h.authMethod === 'env' ? 'Signed in with a key from the environment'
+    : h.authMethod === 'apikey' ? 'Signed in with an API key' : 'Signed in');
 
   /**
    * One agent row. `ui` carries the page's own bookkeeping (operations it is
@@ -409,25 +403,21 @@ const T3Model = (() => {
     } else if (h.signedIn === false) {
       row.state = 'signin';
       row.attention = true;
-      row.status = { dot: 'warn', text: 'Not signed in · ' + (meta.how || 'sign-in') };
+      row.status = { dot: 'warn', text: isKey ? 'No provider key yet' : 'Not signed in' };
       row.action = isKey
         ? { cmd: 'harness.apikey', label: 'Add key', icon: 'key-round', variant: 'primary' }
         : { cmd: 'harness.signin', label: 'Sign in', icon: 'log-in', variant: 'primary' };
     } else if (h.signedIn !== true) {
       row.state = 'unknown';
       row.status.text = h.id === 'muse' && h.credentialsPresent
-        ? 'Credentials saved · sign-in checked on the first message' : 'Sign-in state not readable';
+        ? 'Credentials saved, checked when you first use it' : 'Couldn’t check its sign-in';
       if (h.id === 'muse' && updateAvailable) row.action = { cmd: 'harness.update', label: 'Update' };
     } else {
       row.state = updateAvailable ? 'update' : 'ok';
-      if (isKey) {
-        const names = (ui && ui.providerNames) || [];
-        row.status.text = names.length
-          ? plural(names.length, 'saved provider') + ' · ' + names.join(', ')
-          : 'Signed in · ' + methodText(h);
-      } else {
-        row.status.text = 'Signed in · ' + (updateAvailable ? latest + ' is available' : methodText(h));
-      }
+      // The version beside the name says when there is a newer one; the
+      // status says only how it is signed in.
+      const names = (ui && ui.providerNames) || [];
+      row.status.text = isKey && names.length ? (names.length === 1 ? 'Key saved for ' : 'Keys saved for ') + listOf(names) : signedInAs(h);
       if (updateAvailable) row.action = { cmd: 'harness.update', label: 'Update' };
       else if (isKey) row.action = { cmd: 'harness.apikey', label: 'Add key', icon: 'key-round' };
     }
@@ -464,7 +454,7 @@ const T3Model = (() => {
         row.action = { cmd: 'harness.install', label: 'Retry', icon: 'refresh-cw', variant: 'warning' };
       } else {
         row.state = 'missing';
-        row.status.text = 'Not installed · ' + (h.downloadBytes ? formatBytes(h.downloadBytes) + ', ' : '') + 'installed by T3 Code';
+        row.status.text = 'Not installed' + (h.downloadBytes ? ' · a ' + formatBytes(h.downloadBytes) + ' download, through T3 Code' : ' · T3 Code installs it');
         row.action = { cmd: 'harness.install', label: 'Install', icon: 'download' };
       }
       row.notice = distinctNotice(notice, row.status);
@@ -483,15 +473,15 @@ const T3Model = (() => {
     } else if (h.signedIn === false) {
       row.state = 'signin';
       row.attention = true;
-      row.status = { dot: 'warn', text: 'Not signed in · ' + meta.how };
+      row.status = { dot: 'warn', text: 'Not signed in' };
       row.action = Object.assign({ variant: 'primary' }, signIn);
     } else if (updateAvailable) {
       row.state = 'update';
-      row.status.text = (h.signedIn ? 'Signed in' : 'Installed') + ' · ' + latest + ' is available';
+      row.status.text = h.signedIn ? (h.account ? 'Signed in as ' + h.account : 'Signed in') : 'Installed';
       row.action = { cmd: 'harness.update', label: 'Update' };
     } else if (h.signedIn === true) {
       row.state = 'ok';
-      row.status.text = 'Signed in · ' + (h.account || 'Google account');
+      row.status.text = h.account ? 'Signed in as ' + h.account : 'Signed in';
     } else {
       // T3 checks the Google account when Antigravity is used, so "not
       // checked" is not "signed out": offer the sign-in, do not ask for it.
@@ -574,6 +564,8 @@ const T3Model = (() => {
       dim: false,
       description: isPackage ? t.description || null : null,
       bins: isPackage ? t.bins || [] : [],
+      // An added tool has no mark of its own; one icon reads better than "No" or "Yt".
+      icon: isPackage ? 'terminal' : null,
     };
 
     if (runningKind) {
@@ -627,10 +619,12 @@ const T3Model = (() => {
       row.action = { cmd: cmd(t.operation === 'uninstall' ? 'uninstall' : 'update'), label: 'Retry', icon: 'refresh-cw', variant: 'warning' };
     } else if (updateAvailable) {
       row.state = 'update';
-      row.status.text = (meta.detail ? meta.detail + ' · ' : 'Installed · ') + latest + ' is available';
+      row.status.text = meta.detail || 'Installed';
       row.action = { cmd: cmd('update'), label: 'Update' };
     } else {
-      row.status.text = [meta.detail || 'Installed', follows ? 'follows ' + follows : held ? held.text : status.updates?.errors?.[target + ':' + t.id] ? 'Update check failed' : latest ? 'up to date' : null].filter(Boolean).join(' · ');
+      const plain = follows ? 'follows ' + follows : held ? held.text : status.updates?.errors?.[target + ':' + t.id] ? 'couldn’t check for updates' : latest ? 'up to date' : null;
+      row.status.text = meta.detail ? [meta.detail, plain].filter(Boolean).join(' · ')
+        : plain === 'up to date' ? 'Up to date' : ['Installed', plain].filter(Boolean).join(' · ');
     }
     row.held = held;
     if (updateAvailable) row.menu.push({ cmd: cmd('update'), label: 'Update to ' + latest, icon: 'circle-arrow-up' });
@@ -713,7 +707,7 @@ const T3Model = (() => {
         row.status = { dot: 'warn', text: 'Missing the ' + listOf(missing) + ' extension' };
         row.action = { cmd: 'toolchain.update', label: 'Repair', icon: 'wrench', variant: 'warning' };
       } else if (settled && auth && auth.status === 'authenticated') {
-        row.status = { dot: null, text: [signedInText(auth), row.updateAvailable ? row.latest + ' is available' : null].filter(Boolean).join(' · ') };
+        row.status = { dot: null, text: signedInText(auth) };
       } else if (settled && auth && auth.status === 'unauthenticated') {
         row.state = 'signin';
         row.attention = true;
@@ -723,7 +717,7 @@ const T3Model = (() => {
       } else if (settled && auth && auth.status === 'unknown') {
         // What T3 Code cannot be sure of comes first; an update after it, as
         // for a signed-in row.
-        row.status = { dot: null, text: [capital(uncheckedText(auth)), row.updateAvailable ? row.latest + ' is available' : null].filter(Boolean).join(' · ') };
+        row.status = { dot: null, text: capital(uncheckedText(auth)) };
       }
     }
     const usable = Boolean(c.installed || added) && !c.inProgress && row.state !== 'running' && row.state !== 'queued';
@@ -902,7 +896,9 @@ const T3Model = (() => {
    */
   const heldRelease = (t, version, status, now) => {
     const newest = t && t.newestVersion;
-    if (!newest || !version || !isNewer(newest, version)) return null;
+    // mise can name a channel ("stable" for Rust) where a release would be;
+    // a word is no release to wait for.
+    if (!newest || !version || !parseVersion(newest).numeric || !isNewer(newest, version)) return null;
     if (t.latestVersion && !isNewer(newest, t.latestVersion)) return null;
     const releasedAt = toMs(t.newestReleasedAt);
     const age = status && Number.isFinite(status.releaseAgeMs) ? status.releaseAgeMs : null;
@@ -911,7 +907,8 @@ const T3Model = (() => {
       version: newest,
       releasedAt,
       availableAt,
-      text: newest + ' is out · ' + (availableAt !== null && availableAt > now ? 'mise offers it ' + relTime(availableAt, now) : 'mise offers it once it has been out a day'),
+      // mise waits a day before it offers a release; say when, not why.
+      text: newest + ' available ' + (availableAt !== null && availableAt > now ? relTime(availableAt, now) : 'once it’s a day old'),
     };
   };
 
@@ -1070,13 +1067,15 @@ const T3Model = (() => {
   const connectView = (s) => {
     const c = s && s.connect;
     const restartable = Boolean(s && s.t3 && s.t3.pid);
-    if (!c) return { state: 'unknown', badge: null, text: 'Its state could not be read just now.', action: null };
+    if (!c) return { state: 'unknown', badge: null, text: 'Couldn’t read its state just now.', action: null };
     if (c.state === 'on') {
       return {
         state: 'on',
         badge: { tone: 'ok', text: 'On' },
         text: 'Devices signed in to your T3 account reach this server through ' + (c.relayHost || 'T3’s relay') + '.',
-        action: { cmd: 'connect.off', label: 'Turn off' },
+        action: null,
+        // Turning it off cuts devices off: a menu item and a confirmation away.
+        menu: [{ cmd: 'connect.off', label: 'Turn off T3 Connect…', icon: 'log-out', danger: true }],
       };
     }
     if (c.state === 'pending' && c.startedSinceLink === true) {
@@ -1145,8 +1144,13 @@ const T3Model = (() => {
   const readiness = (status, ui) => {
     const s = status || {};
     const agents = agentRows(s, ui, 0);
-    const installed = agents.filter((a) => !['missing', 'queued', 'unsupported'].includes(a.state) && a.state !== 'running');
     const notSigned = agents.filter((a) => a.state === 'signin');
+    // Installed and able to work: signed in, or as far as this page can tell
+    // (credentials saved that the agent checks on first use, or a Google
+    // sign-in T3 Code checks when Antigravity runs).
+    const saved = new Set((s.harnesses || []).filter((h) => h.credentialsPresent).map((h) => h.id));
+    const ready = agents.filter((a) => ['ok', 'update', 'unchecked'].includes(a.state) || (a.state === 'unknown' && saved.has(a.id)));
+    const unreadable = agents.filter((a) => a.state === 'unknown' && !saved.has(a.id));
     const anyAgent = (s.harnesses || []).some((h) => h.installed);
     const setupRunning = Boolean(s.setup && s.setup.state === 'running');
     const server = s.server || {};
@@ -1154,7 +1158,7 @@ const T3Model = (() => {
     const urlStep = () => {
       const here = hereOffer(s, ui);
       if (s.publicUrl) return { id: 'url', title: 'Public URL set', done: true, aside: publicUrlSource(s) };
-      const step = { id: 'url', title: 'Public URL set', done: false };
+      const step = { id: 'url', title: 'Set the public URL', done: false };
       if (here && !here.local) {
         step.desc = 'Pairing links point at it. This page is open at ' + hostOf(here.url) + ', and T3 Code answers there too.';
         step.action = { cmd: 'url.use', label: 'Use ' + hostOf(here.url), icon: 'check' };
@@ -1171,7 +1175,7 @@ const T3Model = (() => {
     const steps = [
       {
         id: 'server',
-        title: 'Server running',
+        title: server.ok ? 'Server running' : 'Start the server',
         done: Boolean(server.ok),
         aside: server.ok ? [server.version, s.t3 && s.t3.port ? 'port ' + s.t3.port : null].filter(Boolean).join(' · ') : null,
         desc: server.ok ? null : 'T3 Code is not answering yet' + (server.detail ? ' (' + server.detail + ')' : '') + '. It usually takes a few seconds after a start.',
@@ -1180,22 +1184,30 @@ const T3Model = (() => {
       urlStep(s, ui),
       {
         id: 'pair',
-        title: s.authLists?.session.available === false ? 'Reading paired devices' : 'Pair a device',
+        title: s.authLists?.session.available === false ? 'Reading paired devices' : (s.sessions || []).length ? 'Device paired' : 'Pair a device',
         done: (s.sessions || []).length > 0,
-        desc: s.authLists?.session.available === false ? 'The device list is loading in the background. This page updates automatically.' : 'Scan the QR with the T3 Code app, or open the link in a browser.',
-        action: s.authLists?.session.available === false ? null : { cmd: 'pair.start', label: 'Create pairing link', icon: 'link' },
+        desc: s.authLists?.session.available === false ? 'The device list is loading in the background. This page updates automatically.'
+          : !s.publicUrl ? 'A pairing link points at the public URL, so this comes after it.'
+            : 'Scan the QR with the T3 Code app, or open the link in a browser.',
+        // Before there is an address there is nothing for a link to point at.
+        action: s.authLists?.session.available === false || !s.publicUrl ? null : { cmd: 'pair.start', label: 'Create pairing link', icon: 'link' },
       },
       {
         id: 'agents',
-        title: 'Sign in your agents',
-        done: anyAgent && notSigned.length === 0 && installed.length > 0 && !agents.some((a) => a.state === 'unknown'),
+        title: notSigned.length === 0 && ready.length > 0 ? 'Agents signed in' : 'Sign in your agents',
+        // Done once an agent can work and none waits for a sign-in. One whose
+        // sign-in cannot be checked from here (Muse checks on first use) is
+        // not waiting on anyone, so it never holds the step open.
+        done: notSigned.length === 0 && ready.length > 0,
         desc: notSigned.length
           ? listOf(notSigned.map((a) => a.name)) + (notSigned.length === 1 ? ' is' : ' are') + ' installed but not signed in.'
-          : setupRunning ? 'They are still installing; each one can sign in as soon as it lands.'
-            : !anyAgent ? 'No agent is installed yet.' : 'Every installed agent reports its sign-in.',
+          : setupRunning && !ready.length ? 'They are still installing. Each one can sign in as soon as it lands.'
+            : !anyAgent ? 'No agent is installed yet.'
+              : unreadable.length ? 'Couldn’t check whether ' + listOf(unreadable.map((a) => a.name)) + (unreadable.length === 1 ? ' is' : ' are') + ' signed in.'
+                : 'Install an agent that can sign in from here.',
         action: notSigned.length
-          ? { cmd: 'goto', route: 'agents', label: 'Review ' + notSigned.length }
-          : !anyAgent && !setupRunning ? { cmd: 'goto', route: 'agents', label: 'Open agents' } : null,
+          ? { cmd: 'goto', route: 'agents', label: 'Sign in' }
+          : setupRunning && !anyAgent ? null : { cmd: 'goto', route: 'agents', label: 'Open agents' },
       },
     ];
     let todo = -1;
@@ -1334,16 +1346,17 @@ const T3Model = (() => {
       done,
       total: items.length,
       pct: items.length ? Math.round((done / items.length) * 100) : 0,
-      text: left.length ? 'installing ' + listOf(left.slice(0, 3)) + (left.length > 3 ? ' and ' + (left.length - 3) + ' more' : '') + ' in the background. Everything else is ready.'
+      text: left.length ? 'installing ' + (left.length > 3 ? left.slice(0, 3).join(', ') + ' and ' + (left.length - 3) + ' more' : listOf(left)) + ' in the background. Everything else is ready.'
         : 'finishing up.',
     };
   };
 
   // ------------------------------------------------------------ navigation --
   /**
-   * Counts and badges for the sidebar and the tab bar. A count is mono and
-   * quiet; when items need the user it becomes a warn badge, and when some are
-   * live, an info badge.
+   * What the sidebar and the tab bar mark beside a page. Only what needs the
+   * person is counted (`warn`); work in progress and a port open to the
+   * internet get a quiet mark of their own (`running`, `live`) with no number.
+   * How many of something a page holds is the page's to say.
    */
   const navBadges = (status, ports, ui) => {
     const s = status || {};
@@ -1351,45 +1364,56 @@ const T3Model = (() => {
     const tools = [...toolchainRows(s, ui, 0), ...packageRows(s, ui, 0)];
     const scm = sourceControlRows(s, ui, 0);
     const portList = ports ? portRows(ports, ui, 0) : [];
-    const agentAttention = agents.filter((a) => a.attention).length;
-    const toolsRunning = tools.filter((t) => t.state === 'running').length;
-    const toolsFailed = tools.filter((t) => t.state === 'failed').length;
-    // A source control CLI someone installed and has not signed in is as
-    // unusable to T3 Code as a failed one. The image's gh never counts.
-    const scmAttention = scm.filter((c) => c.attention).length;
-    const scmRunning = scm.filter((c) => c.state === 'running' || c.state === 'signing').length;
-    const published = portList.filter((p) => p.state === 'open').length;
-    const portsFailed = portList.filter((p) => p.state === 'failed').length;
-    return {
+    const warn = (count) => (count ? { tone: 'warn', count } : null);
+    const running = (count) => (count ? { tone: 'info', kind: 'running', count } : null);
+    const live = (count) => (count ? { tone: 'info', kind: 'live', count } : null);
+    const busy = (rows) => rows.filter((r) => r.state === 'running' || r.state === 'signing').length;
+    const badges = {
       overview: null,
-      devices: { count: (s.sessions || []).length },
-      agents: agentAttention ? { tone: 'warn', count: agentAttention } : { count: agents.filter((a) => a.version && a.state !== 'missing').length },
+      devices: null,
+      agents: warn(agents.filter((a) => a.attention).length) || running(busy(agents)),
       context: null,
-      toolchains: toolsFailed ? { tone: 'warn', count: toolsFailed }
-        : toolsRunning ? { tone: 'info', count: toolsRunning } : { count: tools.filter((t) => t.version).length },
-      sourcecontrol: scmAttention ? { tone: 'warn', count: scmAttention }
-        : scmRunning ? { tone: 'info', count: scmRunning } : { count: scm.filter((c) => c.version && c.state !== 'missing').length },
-      ports: portsFailed ? { tone: 'warn', count: portsFailed }
-        : published ? { tone: 'info', count: published } : ports ? { count: portList.length } : null,
-      // Settings an older image left in the container's environment.
-      environment: ((s.legacyEnv || []).length ? 1 : 0) + (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? 1 : 0)
-        ? { tone: 'warn', count: ((s.legacyEnv || []).length ? 1 : 0) + (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? 1 : 0) } : null,
-      more: toolsFailed + scmAttention + ((s.legacyEnv || []).length ? 1 : 0) + (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? 1 : 0)
-        ? { tone: 'warn', count: toolsFailed + scmAttention + ((s.legacyEnv || []).length ? 1 : 0) + (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? 1 : 0) } : null,
+      toolchains: warn(tools.filter((t) => t.state === 'failed').length) || running(busy(tools)),
+      // A source control CLI someone installed and has not signed in is as
+      // unusable to T3 Code as a failed one. The image's gh never counts.
+      sourcecontrol: warn(scm.filter((c) => c.attention).length) || running(busy(scm)),
+      ports: warn(portList.filter((p) => p.state === 'failed').length) || live(portList.filter((p) => p.state === 'open').length),
+      environment: warn(serverWarnings(s).length),
     };
+    // The phone's More tab carries what needs the person on the pages under it.
+    const tabOf = typeof T3Routes === 'object' ? T3Routes.tabOf : () => null;
+    badges.more = warn(Object.entries(badges).filter(([route, b]) => tabOf(route) === 'more' && b && b.tone === 'warn')
+      .reduce((n, [, b]) => n + b.count, 0));
+    return badges;
+  };
+
+  /**
+   * What about the container itself needs the person: a home or state folder
+   * that the next recreate would leave behind, a disk filling up, and
+   * settings an older image left in its environment.
+   */
+  const serverWarnings = (status) => {
+    const s = status || {};
+    const paths = s.paths || {};
+    const out = [];
+    if (paths.volumeKind === 'anonymous' || paths.volumeKind === 'none') out.push('home');
+    if (paths.stateKind === 'anonymous' || paths.stateKind === 'none') out.push('state');
+    if (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80) out.push('disk');
+    if ((s.legacyEnv || []).length) out.push('legacy');
+    return out;
   };
 
   /**
    * How many things need the person, counted as the sidebar's warn badges
    * count them: agents signed out or failing, tools that failed, ports that
-   * would not publish, settings an older image left behind. Updates are not
+   * would not publish, and what is wrong with the container. Updates are not
    * counted; they are offered, not owed, and some agent has one most days.
    * T3 Code's settings show this beside Setup.
    */
   const attentionCount = (status, ports, ui) => {
     const badges = navBadges(status, ports, ui);
-    return ['agents', 'toolchains', 'sourcecontrol', 'ports', 'environment']
-      .reduce((n, route) => n + (badges[route] && badges[route].tone === 'warn' ? badges[route].count : 0), 0);
+    return Object.entries(badges).filter(([route]) => route !== 'more')
+      .reduce((n, [, b]) => n + (b && b.tone === 'warn' ? b.count : 0), 0);
   };
 
   // -------------------------------------------------------------- summary --
@@ -1443,6 +1467,10 @@ const T3Model = (() => {
       diagnostics: 'debug support report bug', 'updates.check': 'refresh latest new version', 'open.t3': 'launch app',
       goto: 'go to open page show',
     };
+    // What a failed row's Retry does: install it again, or finish its update.
+    const retryLabel = (row) => (row.action && /\.update$/.test(row.action.cmd) ? 'Retry the ' + row.name + ' update' : 'Retry installing ' + row.name);
+    // An update says the version it starts from; the label says where it goes.
+    const from = (version) => (version ? { text: 'from ' + version, mono: true } : null);
     const add = (group, label, icon, cmd, extra) => items.push(Object.assign(
       { group, label, icon, cmd, id: group + ':' + label, keywords: (KEYWORDS[cmd.cmd] || '') + (cmd.cmd === 'goto' ? ' ' + label : '') },
       extra || {}));
@@ -1455,9 +1483,9 @@ const T3Model = (() => {
           : a.updateAvailable ? { text: a.latest, mono: true } : a.version ? { text: a.version, mono: true } : null;
       const attention = a.attention || a.updateAvailable;
       if (a.state === 'missing') add('Agents', 'Install ' + a.name, 'download', { cmd: 'harness.install', id: a.id }, { meta: null });
-      if (a.state === 'signin') add('Agents', (a.action && a.action.label === 'Add key' ? 'Add a provider key for ' : 'Sign in ') + a.name, a.action && a.action.icon || 'log-in', { cmd: a.action.cmd, id: a.id }, { meta: hint, attention: true });
-      if (a.state === 'failed' && a.action) add('Agents', 'Retry ' + a.name, 'refresh-cw', { cmd: a.action.cmd, id: a.id }, { meta: hint, attention: true });
-      if (a.updateAvailable) add('Agents', 'Update ' + a.name + ' to ' + a.latest, 'circle-arrow-up', { cmd: 'harness.update', id: a.id }, { meta: { text: a.version, mono: true }, attention });
+      if (a.state === 'signin') add('Agents', (a.action && a.action.label === 'Add key' ? 'Add a provider key for ' : 'Sign in to ') + a.name, a.action && a.action.icon || 'log-in', { cmd: a.action.cmd, id: a.id }, { meta: hint, attention: true });
+      if (a.state === 'failed' && a.action) add('Agents', retryLabel(a), 'refresh-cw', { cmd: a.action.cmd, id: a.id }, { meta: hint, attention: true });
+      if (a.updateAvailable) add('Agents', 'Update ' + a.name + ' to ' + a.latest, 'circle-arrow-up', { cmd: 'harness.update', id: a.id }, { meta: from(a.version) });
       for (const m of a.menu) {
         if (m.sep || m.cmd === 'harness.update') continue;
         const label = m.cmd === 'harness.signin' ? 'Sign in ' + a.name + ' again'
@@ -1470,8 +1498,8 @@ const T3Model = (() => {
     }
     for (const t of toolchainRows(s, ui, now)) {
       if (t.state === 'missing') add('Toolchains', 'Install ' + t.name, 'download', { cmd: 'toolchain.install', id: t.id });
-      if (t.updateAvailable) add('Toolchains', 'Update ' + t.name + ' to ' + t.latest, 'circle-arrow-up', { cmd: 'toolchain.update', id: t.id }, { meta: { text: t.version, mono: true }, attention: true });
-      if (t.state === 'failed') add('Toolchains', 'Retry ' + t.name, 'refresh-cw', { cmd: t.action.cmd, id: t.id }, { meta: { text: 'failed', dot: 'danger' }, attention: true });
+      if (t.updateAvailable) add('Toolchains', 'Update ' + t.name + ' to ' + t.latest, 'circle-arrow-up', { cmd: 'toolchain.update', id: t.id }, { meta: from(t.version) });
+      if (t.state === 'failed') add('Toolchains', retryLabel(t), 'refresh-cw', { cmd: t.action.cmd, id: t.id }, { meta: { text: 'failed', dot: 'danger' }, attention: true });
       if (t.version && t.state !== 'running') add('Toolchains', 'Uninstall ' + t.name + '…', 'trash-2', { cmd: 'toolchain.uninstall', id: t.id });
     }
     add('Toolchains', 'Add a tool…', 'plus', { cmd: 'package.add' }, { shortcut: 'N' });
@@ -1479,8 +1507,8 @@ const T3Model = (() => {
     for (const t of packageRows(s, ui, now)) {
       installed.add(t.id);
       const version = t.version ? { text: t.version, mono: true } : null;
-      if (t.updateAvailable) add('Toolchains', 'Update ' + t.name + ' to ' + t.latest, 'circle-arrow-up', { cmd: 'package.update', id: t.id }, { meta: version, attention: true });
-      if (t.state === 'failed') add('Toolchains', 'Retry ' + t.name, 'refresh-cw', { cmd: t.action.cmd, id: t.id }, { meta: { text: 'failed', dot: 'danger' }, attention: true });
+      if (t.updateAvailable) add('Toolchains', 'Update ' + t.name + ' to ' + t.latest, 'circle-arrow-up', { cmd: 'package.update', id: t.id }, { meta: from(t.version) });
+      if (t.state === 'failed') add('Toolchains', retryLabel(t), 'refresh-cw', { cmd: t.action.cmd, id: t.id }, { meta: { text: 'failed', dot: 'danger' }, attention: true });
       if (t.version && t.state !== 'running') {
         add('Toolchains', 'Install a specific version of ' + t.name + '…', 'history', { cmd: 'package.version', id: t.id }, { meta: version });
         add('Toolchains', 'Uninstall ' + t.name + '…', 'trash-2', { cmd: 'package.uninstall', id: t.id });
@@ -1489,10 +1517,10 @@ const T3Model = (() => {
     for (const c of managedSourceControlRows(s, ui, now)) {
       const keywords = 'source control git ' + c.provider + ' ' + c.id + ' ' + (KEYWORDS[c.action ? c.action.cmd : ''] || '');
       if (c.state === 'missing') add('Source control', 'Install ' + c.name, 'download', { cmd: 'toolchain.install', id: c.id }, { meta: { text: c.provider }, keywords: keywords + ' add download' });
-      if (c.updateAvailable) add('Source control', 'Update ' + c.name + ' to ' + c.latest, 'circle-arrow-up', { cmd: 'toolchain.update', id: c.id }, { meta: { text: c.version, mono: true }, attention: true, keywords: keywords + ' upgrade' });
+      if (c.updateAvailable) add('Source control', 'Update ' + c.name + ' to ' + c.latest, 'circle-arrow-up', { cmd: 'toolchain.update', id: c.id }, { meta: from(c.version), keywords: keywords + ' upgrade' });
       if (c.state === 'failed' && c.action) {
         const repair = c.action.label === 'Repair';
-        add('Source control', (repair ? 'Repair ' : 'Retry ') + c.name, c.action.icon || 'refresh-cw', { cmd: c.action.cmd, id: c.id },
+        add('Source control', repair ? 'Repair ' + c.name : retryLabel(c), c.action.icon || 'refresh-cw', { cmd: c.action.cmd, id: c.id },
           { meta: repair ? { text: 'needs repair', dot: 'warn' } : { text: 'failed', dot: 'danger' }, attention: true, keywords });
       }
       if (c.version && c.state !== 'running') add('Source control', 'Uninstall ' + c.name + '…', 'trash-2', { cmd: 'toolchain.uninstall', id: c.id }, { keywords: keywords + ' remove delete' });
@@ -1502,7 +1530,7 @@ const T3Model = (() => {
       // Signed out, with sign-in on the row's button or, behind a Retry, in its menu.
       const signsIn = (c.action && c.action.cmd === 'scm.signin') || c.menu.some((m) => m.cmd === 'scm.signin' && m.label === 'Sign in…');
       if (signsIn && c.auth && c.auth.status === 'unauthenticated') {
-        add('Source control', 'Sign in ' + c.name, 'log-in', { cmd: 'scm.signin', id: c.id }, { meta: { text: 'not signed in', dot: c.inImage ? null : 'warn' }, attention: !c.inImage, keywords });
+        add('Source control', 'Sign in to ' + c.name, 'log-in', { cmd: 'scm.signin', id: c.id }, { meta: { text: 'not signed in', dot: c.inImage ? null : 'warn' }, attention: !c.inImage, keywords });
       }
       for (const m of c.menu) {
         if (m.cmd === 'scm.signout') add('Source control', m.label.replace('Sign out', 'Sign ' + c.name + ' out'), 'log-out', { cmd: 'scm.signout', id: c.id }, { keywords: keywords + ' log out logout' });
@@ -1568,9 +1596,9 @@ const T3Model = (() => {
     if (s.setupKeySource && s.setupKeySource !== 'env') add('Environment', 'Replace setup key', 'refresh-cw', { cmd: 'key.replace' });
     add('Environment', 'Copy diagnostics', 'copy', { cmd: 'diagnostics' });
 
-    const pages = [['Overview', 'overview', 'layout-dashboard', 'O'], ['Devices', 'devices', 'smartphone', 'D'], ['Agents', 'agents', 'bot', 'A'],
-      ['Context', 'context', 'book-open', 'C'], ['Toolchains', 'toolchains', 'wrench', 'T'], ['Source control', 'sourcecontrol', 'git-pull-request', 'S'], ['Ports', 'ports', 'ethernet-port', 'P'], ['Environment', 'environment', 'settings-2', 'E']];
-    for (const [label, route, icon, key] of pages) add('Go to', label, icon, { cmd: 'goto', route }, { shortcut: 'G ' + key });
+    for (const page of typeof T3Routes === 'object' ? T3Routes.PAGES : []) {
+      add('Go to', page.title, page.icon, { cmd: 'goto', route: page.route }, { shortcut: page.key ? 'G ' + page.key.toUpperCase() : null });
+    }
     return items;
   };
 
@@ -1739,9 +1767,9 @@ const T3Model = (() => {
     const idleMs = (at) => (Number.isFinite(at) && at > 0 ? Math.max(0, now - at) : null);
     const fmtIdle = (at) => {
       const ms = idleMs(at);
-      if (ms === null) return "No activity seen yet";
-      if (ms < 60_000) return "Active just now";
-      return "Last activity " + relTime(at, now);
+      if (ms === null) return "Not used since the setup service started";
+      if (ms < 60_000) return "Last used just now";
+      return "Last used " + relTime(at, now);
     };
     const kindLine = (kind) => (!kind?.enabled ? "Off"
       : `On · check every ${kind.checkMinutes >= 60 && kind.checkMinutes % 60 === 0 ? (kind.checkMinutes / 60) + "h" : kind.checkMinutes + "m"} · update after ${kind.idleMinutes}m idle`);
@@ -1772,7 +1800,7 @@ const T3Model = (() => {
     readiness, readySummary, needsYou, activity, setupBanner, setupFailures,
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
-    navBadges, attentionCount, summaries, runtimeView, autoUpdateView,
+    navBadges, serverWarnings, attentionCount, summaries, runtimeView, autoUpdateView,
     paletteItems, searchPalette,
     redactedDiagnostics, storageView,
   };

@@ -46,8 +46,8 @@ test("the page asks for nothing from anywhere else", () => {
   assert.match(csp, /frame-ancestors 'self'/);
 });
 
-// The document's own markup, without the inlined scripts (which name the same selectors).
-const markup = (page) => page.replace(/<script[\s\S]*?<\/script>/g, "");
+// The document's own markup, without the inlined scripts and styles (which name the same selectors).
+const markup = (page) => page.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, "");
 
 test("inside T3 Code the console closes instead of linking to T3, and leaves the theme to it", () => {
   const embedded = markup(renderConsole({ assets, nonce: "n", mount: "/__setup", embed: true }));

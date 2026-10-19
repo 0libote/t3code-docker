@@ -122,7 +122,7 @@ const geometry = () => {
       const tag = `${width}-${theme}${embedded ? '-embedded' : ''}`;
       const check = async (name) => { assert.deepEqual(await page.evaluate(geometry), [], `${tag} ${name}`); };
 
-      const startupWarning = page.locator('#page-agents > .tc-notice').filter({ hasText: 'First start could not install OpenCode' });
+      const startupWarning = page.locator('#page-agents > .tc-notice').filter({ hasText: 'First start couldn’t install OpenCode' });
       await startupWarning.waitFor();
       assert.equal((await startupWarning.textContent()).includes('sha512-'), false, 'the warning keeps raw diagnostics in Details');
       await check('finished startup failure');
@@ -304,7 +304,7 @@ const geometry = () => {
       ] };
       await refreshStatus();
       url.hash = 'toolchains'; await page.goto(url.href);
-      await page.locator('#banner:not([hidden])').waitFor();
+      await page.locator('#page-toolchains .tc-notice--progress').waitFor();
       await page.getByRole('button', { name: 'Review update checks', exact: true }).filter({ visible: true }).waitFor();
       await control().click();
       await checks.waitFor();
