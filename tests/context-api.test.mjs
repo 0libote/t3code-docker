@@ -25,12 +25,16 @@ test("global instruction API discovers existing files and changes them only on e
     MISE_CONFIG_DIR: path.join(config, "mise"), T3_SETUP_PORT: String(port), T3_SETUP_KEY: "fixture-key",
     T3_SETUP_KEY_SOURCE: "env", T3_INFRA_LAUNCHER: "/bin/false", T3CODE_PORT: "1",
   }, stdio: ["ignore", "pipe", "pipe"] });
+  const closed = once(child, "close");
   let logs = "";
   child.stdout.on("data", (chunk) => { logs += chunk; });
   child.stderr.on("data", (chunk) => { logs += chunk; });
   t.after(async () => {
-    if (child.exitCode === null) { const exit = once(child, "exit"); child.kill(); await exit; }
-    await fs.rm(root, { recursive: true, force: true });
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await closed;
+    // Native status probes can finish filesystem work during shutdown. Drain
+    // their stdio and allow bounded cleanup retries, as other API fixtures do.
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const base = `http://127.0.0.1:${port}`;
   let ready = false;

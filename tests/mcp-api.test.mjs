@@ -24,12 +24,16 @@ test("shared MCP API creates, links and removes servers without leaking secrets"
     MISE_CONFIG_DIR: path.join(home, ".config/mise"), T3_SETUP_PORT: String(port), T3_SETUP_KEY: "mcp-fixture-key",
     T3_SETUP_KEY_SOURCE: "env", T3_INFRA_LAUNCHER: "/bin/false", T3CODE_PORT: "1",
   }, stdio: ["ignore", "pipe", "pipe"] });
+  const closed = once(child, "close");
   let logs = "";
   child.stdout.on("data", (chunk) => { logs += chunk; });
   child.stderr.on("data", (chunk) => { logs += chunk; });
   t.after(async () => {
-    if (child.exitCode === null) { const exit = once(child, "exit"); child.kill(); await exit; }
-    await fs.rm(root, { recursive: true, force: true });
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await closed;
+    // Match the other API fixtures: native probes may be draining work after
+    // the setup process exits, so cleanup retries are bounded.
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const base = `http://127.0.0.1:${port}/__setup`;
   let ready = false;
