@@ -21,12 +21,12 @@ YELLOW=$'\033[33m'; RESET=$'\033[0m'
 drift=0
 changed=0
 
-# ARG name : npm package. The Dockerfile holds each as `ARG <name>=<version>`.
+# ARG name : release source. T3 uses GitHub; the other pins use npm.
 # Agent harnesses are deliberately absent: they are installed at runtime
 # through mise, which resolves and records an exact version on explicit install
 # rather than baking one into the image.
 PINS="
-T3_VERSION:t3
+T3_VERSION:github-t3
 CHROME_DEVTOOLS_MCP_VERSION:chrome-devtools-mcp
 PLAYWRIGHT_MCP_VERSION:@playwright/mcp
 "
@@ -36,6 +36,14 @@ npm_latest() {
     | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])'
 }
 
+latest_version() {
+  if [ "$1" = github-t3 ]; then
+    node --input-type=module -e 'import { packageRelease } from "./docker/runtime/releases.mjs"; console.log((await packageRelease("stable")).version);'
+  else
+    npm_latest "$1"
+  fi
+}
+
 printf '%s%-28s %-12s %-12s%s\n' "$BOLD" "PIN" "CURRENT" "LATEST" "$RESET"
 
 for entry in $PINS; do
@@ -43,8 +51,8 @@ for entry in $PINS; do
   current="$(grep -m1 "^ARG ${arg}=" Dockerfile | cut -d= -f2)"
   [ -n "$current" ] || { echo "${RED}no ARG ${arg} in Dockerfile${RESET}" >&2; exit 1; }
 
-  if ! latest="$(npm_latest "$pkg")"; then
-    echo "${RED}could not reach the registry for ${pkg}${RESET}" >&2
+  if ! latest="$(latest_version "$pkg")"; then
+    echo "${RED}could not check published releases for ${pkg}${RESET}" >&2
     exit 1
   fi
 

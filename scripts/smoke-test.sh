@@ -466,6 +466,14 @@ t3_update_access_is_gated() {
 }
 check "T3 Code upgrades require sign-in, same-site access and a public channel" t3_update_access_is_gated
 
+# Catch a frozen release source or a changed upstream archive layout on each
+# native architecture. This only stages a nightly in /tmp; the live server,
+# selected release and its database are never changed.
+t3_github_archive_stages() {
+  docker exec -i --user t3 "$NAME" node --input-type=module < "$SCRIPT_DIR/t3-runtime-smoke.mjs" >>"$UI_AUDIT_LOG" 2>&1
+}
+check "a real GitHub nightly stages with Setup and supervisor compatibility" t3_github_archive_stages
+
 # This container carries an older image's settings (see LEGACY_ENV). They are
 # reported, the image still names itself correctly, and nothing it started runs
 # with them.
