@@ -97,6 +97,30 @@ html.tc-locked { overflow: hidden; }
   .tc-notice--progress > .tc-progress { grid-column: 2; width: auto; }
 }
 
+/* Overview, once set up: Updates and Recent side by side where there is room. */
+.tc-overview-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--_gap) var(--space-6); align-items: start; }
+/* A problem's icon carries its tone. */
+.tc-tile--icon[data-tone="danger"] { color: var(--danger); }
+.tc-tile--icon[data-tone="warn"] { color: var(--warn); }
+/* "2 more updates", at the foot of a short list. */
+.tc-group-more { display: flex; align-items: center; justify-content: center; gap: var(--space-1); min-height: 40px; padding: 0 var(--space-4);
+  font-size: 12px; color: var(--fg-muted); text-decoration: none !important; border-radius: 0 0 calc(var(--radius-xl) - 1px) calc(var(--radius-xl) - 1px); }
+.tc-group-more:hover { color: var(--fg); background: var(--hover); }
+.tc-group-more .tc-icon { width: 14px; height: 14px; }
+/* A version moving to the next one, under a row's name. */
+.tc-row-main > .tc-version { min-width: 0; overflow-wrap: anywhere; }
+.tc-empty--compact > .tc-icon { align-self: center; }
+
+/* A name and its version share a baseline, whatever their sizes. */
+.tc-row-title { align-items: baseline; }
+.tc-row-title > .tc-dot { align-self: center; }
+/* A row with work in it grows; its tile stays by the name. */
+.tc-row--expanded > .tc-tile, .tc-row--expanded > .tc-row-lead { align-self: start; margin-top: 2px; }
+/* The release an update goes to. */
+.tc-version-to { color: var(--accent-text); }
+/* Names and values that must not part at a hyphen. */
+.tc-nowrap { white-space: nowrap; }
+
 /* A row without a menu keeps the menu's place, so actions line up down a list. */
 .tc-row-menu-slot { display: block; width: var(--control-sm); height: 1px; flex: none; }
 .tc-root[data-density="touch"] .tc-row-menu-slot { width: 32px; }
@@ -133,11 +157,16 @@ html.tc-locked { overflow: hidden; }
 @media (max-width: 639.98px) {
   .tc-row:has(> .tc-row-actions--wrap) { grid-template-columns: auto minmax(0, 1fr); }
   .tc-row > .tc-row-actions--wrap { grid-column: 2 / -1; justify-content: flex-start; }
+  .tc-row-actions--wrap > .tc-row-menu-slot { display: none; }
   /* Only rows without a leading tile put actions under the whole main block.
      A stale plain modifier must not move an icon row into a single column. */
   .tc-row--plain:not(:has(> .tc-tile, > .tc-row-lead)):has(> .tc-row-actions--wrap) { grid-template-columns: minmax(0, 1fr); }
   .tc-row--plain:not(:has(> .tc-tile, > .tc-row-lead)) > .tc-row-actions--wrap { grid-column: 1 / -1; }
 }
+/* Touch density raises every button to 16px text; an extra-small one (a
+   section's link, a card's Refresh) stays a step below the page's text. */
+.tc-root[data-density="touch"] .tc-btn--xs { --_h: 30px; font-size: 13px; padding: 0 9px; }
+.tc-root[data-density="touch"] .tc-btn--xs .tc-icon { width: 15px; height: 15px; }
 /* A 28px input, for inline values beside small buttons. */
 .tc-input--sm { height: var(--control-sm); font-size: 13px; }
 

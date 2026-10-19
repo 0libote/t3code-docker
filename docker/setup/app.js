@@ -557,7 +557,8 @@
   const actionButton = (row, opts) => {
     const a = row.action;
     if (!a) return '';
-    const variant = a.variant === 'primary' && opts.primary === false ? null : a.variant;
+    // A list of calls to action (Needs you) keeps every button alike.
+    const variant = opts.plain ? null : a.variant === 'primary' && opts.primary === false ? null : a.variant;
     return html`<button class="${btnClass(variant)}" type="button" data-cmd="${a.cmd}" data-target="${row.target}" data-id="${row.id}" data-key="act-${row.key}">${a.icon ? icon(a.icon) : ''}${a.label}</button>`;
   };
   // A row without a menu keeps its place, so every row's one action lines up.
@@ -580,7 +581,7 @@
         ${noticeError ? html`<span class="tc-status" role="alert">${dot('danger')}<span class="tc-status-text">${noticeError.text}${detail('notice')}</span></span>` : noticeLine(row.notice)}
         ${row.state === 'running' ? opLine(row) : ''}
       </div>
-      <div class="tc-row-actions">${actionButton(row, opts)}${opts.menu === false ? '' : menuButton(row)}</div>
+      <div class="${cx('tc-row-actions', opts.wrap && 'tc-row-actions--wrap')}">${actionButton(row, opts)}${opts.menu === false ? menuSlot() : menuButton(row)}</div>
     </div>`;
   };
 
@@ -721,19 +722,29 @@
       </section>`;
   };
 
+  /** Setup is done: a line that says so, and what is set up. */
   const readyLine = (s) => html`
     <section class="tc-group tc-group--brand" aria-labelledby="ready-title" data-key="ready">
       <div class="tc-ready-line">
         <span class="tc-check-mark" aria-hidden="true">${icon('check')}</span>
-        <div class="tc-row-main"><h2 class="tc-ready-line-title" id="ready-title">Ready</h2><span class="tc-status">${M.readySummary(s, ui)}</span></div>
-        ${EMBED ? '' : html`<a class="tc-btn tc-btn--sm" href="${t3Url()}" target="_blank" rel="noopener">Open T3 Code${icon('arrow-right')}</a>`}
+        <div class="tc-row-main"><h2 class="tc-ready-line-title" id="ready-title">Ready</h2><span class="tc-status">${M.readySummary(s, ui, state.ports)}</span></div>
       </div>
     </section>`;
 
-  const attentionRow = (item) => {
-    if (item.target === 'port') return portRow(item.port);
-    return resourceRow(item, { primary: false, menu: false });
-  };
+  /** A button for an item's one action: a command, or a page to go to. */
+  const itemAction = (a, primary) => !a ? ''
+    : a.cmd === 'goto' ? html`<a class="${cx('tc-btn tc-btn--sm', primary && 'tc-btn--primary')}" href="#${a.route}">${a.label}</a>`
+      : html`<button class="${cx('tc-btn tc-btn--sm', primary && 'tc-btn--primary')}" type="button" data-cmd="${a.cmd}"${a.id ? raw(' data-id="' + Kit.esc(a.id) + '"') : ''}>${a.icon ? icon(a.icon) : ''}${a.label}</button>`;
+
+  /** A Needs you item that is not a row of its own page: the container's problems, a port. */
+  const itemRow = (item) => html`
+    <div class="tc-row tc-row--compact" data-key="needs-${item.key}">
+      <span class="tc-tile tc-tile--icon" data-tone="${item.tone}" aria-hidden="true">${icon(item.icon)}</span>
+      <div class="tc-row-main"><span class="tc-row-name">${item.name}</span><span class="tc-status"><span class="tc-status-text">${item.text}</span></span></div>
+      <div class="tc-row-actions tc-row-actions--wrap">${itemAction(item.action)}${menuSlot()}</div>
+    </div>`;
+  // On a phone each item's one action goes under its words, so they read whole.
+  const attentionRow = (item) => (item.icon ? itemRow(item) : resourceRow(item, { plain: true, menu: false, wrap: true }));
 
   const activitySection = (act, n) => {
     const lines = [];
@@ -742,7 +753,7 @@
       lines.push(html`<div class="tc-op" data-key="op-${row.key}"><span class="tc-op-line">${tile(row)}<span class="tc-truncate">${row.badge.text} ${row.name}${row.versionTo ? ' ' + row.versionTo : ''}</span></span><span class="tc-op-pct">${p && p.pct !== null ? p.pct + '%' : p && p.phase ? p.phase : ''}</span>${progressBar(p)}</div>`);
     }
     act.queued.forEach((row, i) => {
-      lines.push(html`<div class="tc-op" data-key="op-${row.key}"><span class="tc-op-line">${tile(row)}<span class="tc-truncate tc-muted">${row.name} · queued</span></span><span class="tc-op-pct">${i === 0 && !act.running.length ? 'next' : i === 0 ? 'next' : 'queued'}</span></div>`);
+      lines.push(html`<div class="tc-op" data-key="op-${row.key}"><span class="tc-op-line">${tile(row)}<span class="tc-truncate tc-muted">${row.name}</span></span><span class="tc-op-pct">${i === 0 ? 'next' : 'queued'}</span></div>`);
     });
     for (const f of act.finished) {
       lines.push(html`<div class="tc-op" data-key="op-done-${f.key}"><span class="tc-op-line">${icon(f.ok ? 'circle-check' : 'circle-alert', f.ok ? 'tc-ok' : 'tc-danger')}<span class="tc-truncate">${f.text}</span></span><span class="tc-op-pct" title="${M.absTime(f.at)}">${M.relTime(f.at, n)}</span></div>`);
@@ -751,23 +762,50 @@
     return section('act-title', 'Activity', html`<div class="tc-group"><div class="tc-card-body tc-op-list">${lines}</div></div>`);
   };
 
-  const glanceSection = (s, ports, n) => {
-    const sessions = s.sessions || [];
-    const lastSeen = sessions.some((c) => c.connected) ? 'active now'
-      : sessions.map((c) => M.toMs(c.lastConnectedAt)).filter(Boolean).sort((a, b) => b - a).map((t) => 'last seen ' + M.relTime(t, n))[0] || 'none connected yet';
-    const agents = M.agentRows(s, ui, n);
-    const installed = agents.filter((a) => a.version);
-    const signed = agents.filter((a) => a.state === 'ok' || a.state === 'update').length;
-    const updates = agents.filter((a) => a.updateAvailable).length;
-    const published = ports ? M.portRows(ports, ui, n).filter((p) => p.state === 'open') : [];
-    const readout = (label, value, sub) => html`<div class="tc-readout"><span class="tc-readout-label">${label}</span><span class="tc-readout-value">${value}</span>${sub ? html`<span class="tc-small tc-muted">${sub}</span>` : ''}</div>`;
-    const paths = s.paths || {};
-    return section('glance-title', 'At a glance', html`<div class="tc-group"><div class="tc-readouts">
-      ${readout('Devices', s.authLists?.session.available === false ? 'Not available yet' : sessions.length + ' paired', s.authLists?.session.available === false ? 'Reading in the background' : lastSeen)}
-      ${readout('Agents', signed + ' of ' + installed.length + ' signed in', updates ? M.plural(updates, 'update') + ' available' : 'all current')}
-      ${readout('Ports', published.length ? html`${dot('info')}${published.length} published` : 'None published', published.length ? published.map((p) => p.port + (p.startedAt ? ' · ' + M.duration((n - p.startedAt) / 1000) : '')).join(', ') : ports ? M.plural(M.portRows(ports, ui, n).length, 'port') + ' listening' : '')}
-      ${Number.isFinite(paths.volumeBytes) ? readout('Volume', M.formatBytes(paths.volumeBytes), paths.volume) : ''}
-    </div></div>`);
+  /**
+   * One release on the Overview: what is installed, what it goes to, and
+   * Update. T3 Code's own restarts it, so its button asks first.
+   */
+  const updateRow = (row) => html`
+    <div class="tc-row tc-row--compact" data-key="ov-up-${row.key}">
+      ${row.runtime ? html`<span class="tc-row-lead tc-mark tc-runtime-mark" aria-hidden="true"></span>` : tile(row)}
+      <div class="tc-row-main"><span class="tc-row-name">${row.name}</span><span class="tc-version">${row.version}${row.latest ? html` <span class="tc-version-arrow" aria-label="to">→</span> ${row.latest}` : ''}</span></div>
+      <div class="tc-row-actions">${row.state === 'running'
+        ? html`<span class="tc-badge tc-badge--info"><span class="tc-spinner" aria-hidden="true"></span>Updating</span>`
+        : row.runtime ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="t3.update" data-key="ov-up-t3">Update…</button>`
+          : html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="${row.target}.update" data-target="${row.target}" data-id="${row.id}" data-key="ov-act-${row.key}">Update</button>`}</div>
+    </div>`;
+
+  const overviewUpdates = (s, n) => {
+    const view = M.updatesView(s, ui, n);
+    const rt = view.runtime;
+    const rows = [
+      ...(rt && (rt.available || rt.busy) ? [{ runtime: true, key: 't3', name: 'T3 Code', version: rt.version, latest: rt.busy ? rt.operation.version : rt.latest, state: rt.busy ? 'running' : 'update' }] : []),
+      ...view.available,
+    ];
+    const shown = rows.slice(0, 4);
+    const checked = s.updates && s.updates.checkedAt ? 'Checked ' + M.relTime(s.updates.checkedAt, n) + '.' : 'Checked every hour.';
+    return section('ov-updates', 'Updates', html`<div class="tc-group">
+      ${shown.length ? html`<div class="tc-list">${shown.map(updateRow)}</div>`
+        : html`<div class="tc-empty tc-empty--compact" role="status">${icon('circle-check', 'tc-ok')}<span class="tc-empty-desc">Everything is up to date. ${checked}</span></div>`}
+      ${rows.length > shown.length ? html`<a class="tc-group-more" href="#updates">${M.plural(rows.length - shown.length, 'more update')}${icon('arrow-right')}</a>` : ''}
+    </div>`, { actions: view.due.length > 1 ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="updates.all">Update all · ${view.due.length}</button>` : linkButton('#updates', 'All updates') });
+  };
+
+  const RECENT_ICONS = {
+    'device.paired': 'smartphone', 'device.renamed': 'pencil', 'port.published': 'globe', 'port.stopped': 'circle-stop', 'harness.updated': 'circle-arrow-up',
+    'harness.installed': 'download', 'harness.uninstalled': 'trash-2', 'harness.failed': 'circle-alert', 'harness.enabled': 'circle-check', 'signin.ok': 'log-in', 'signin.out': 'log-out', 'setup.finished': 'download',
+    'toolchain.installed': 'download', 'toolchain.updated': 'circle-arrow-up', 'toolchain.uninstalled': 'trash-2', 'toolchain.failed': 'circle-alert',
+    'package.installed': 'download', 'package.updated': 'circle-arrow-up', 'package.uninstalled': 'trash-2', 'package.failed': 'circle-alert',
+    'url.set': 'globe', 'url.cleared': 'globe', 'key.replaced': 'key-round',
+    'connect.linked': 'globe', 'connect.unlinked': 'globe', 't3.restarted': 'refresh-cw', 't3.updating': 'circle-arrow-up',
+  };
+  const recentSection = (s, n) => {
+    const events = (s.events || []).slice(0, 6);
+    return section('recent-title', 'Recent', html`<div class="tc-group">${events.length
+      ? html`<ol class="tc-log">${events.map((e) => html`
+        <li data-key="ev-${e.at}-${e.kind}">${icon(RECENT_ICONS[e.kind] || 'activity')}<span class="tc-truncate">${e.text}${e.detail ? html` <span class="${cx(!/\s/.test(e.detail) && 'tc-mono')}">${e.detail}</span>` : ''}</span><time datetime="${new Date(e.at).toISOString()}" title="${M.absTime(e.at)}">${M.relTime(e.at, n)}</time></li>`)}</ol>`
+      : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Nothing yet since the setup service started.</span></div>`}</div>`);
   };
 
   /** A paired device: what it is, when it was last here, and (on Access) its menu. */
@@ -778,54 +816,37 @@
       ${manage ? html`<div class="tc-row-actions"><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for ${d.name}" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-dev-' + d.id))}" data-cmd="device.menu" data-id="${d.id}" data-key="menu-dev-${d.id}">${icon('ellipsis')}</button></div>` : ''}
     </div>`;
 
-  const recentSection = (s, n) => {
-    const events = s.events || [];
-    if (!events.length) return '';
-    const ICONS = {
-      'device.paired': 'smartphone', 'device.renamed': 'pencil', 'port.published': 'globe', 'port.stopped': 'circle-stop', 'harness.updated': 'circle-arrow-up',
-      'harness.installed': 'download', 'harness.uninstalled': 'trash-2', 'harness.failed': 'circle-alert', 'harness.enabled': 'circle-check', 'signin.ok': 'log-in', 'signin.out': 'log-out', 'setup.finished': 'download',
-      'toolchain.installed': 'download', 'toolchain.updated': 'circle-arrow-up', 'toolchain.uninstalled': 'trash-2', 'toolchain.failed': 'circle-alert',
-      'package.installed': 'download', 'package.updated': 'circle-arrow-up', 'package.uninstalled': 'trash-2', 'package.failed': 'circle-alert',
-      'url.set': 'globe', 'url.cleared': 'globe', 'key.replaced': 'key-round',
-      'connect.linked': 'globe', 'connect.unlinked': 'globe', 't3.restarted': 'refresh-cw',
-    };
-    return section('recent-title', 'Recent', html`<div class="tc-group"><ol class="tc-log">${events.slice(0, 8).map((e) => html`
-      <li data-key="ev-${e.at}-${e.kind}">${icon(ICONS[e.kind] || 'activity')}<span class="tc-truncate">${e.text}${e.detail ? html` <span class="tc-mono">${e.detail}</span>` : ''}</span><time datetime="${new Date(e.at).toISOString()}" title="${M.absTime(e.at)}">${M.relTime(e.at, n)}</time></li>`)}</ol></div>`,
-    { actions: muted('Since the setup service started') });
-  };
-
-  /** The page a "Needs you" item lives on, and that page's link. */
-  const NEEDS_PAGES = { agents: 'All agents', toolchains: 'All toolchains', sourcecontrol: 'Source control', ports: 'All ports' };
+  /** The page a "Needs you" item lives on, and that page's link when they all share one. */
+  const NEEDS_PAGES = { agents: 'All agents', toolchains: 'All toolchains', sourcecontrol: 'Source control', ports: 'All ports', server: 'Server', storage: 'Storage', updates: 'Updates' };
   const needsPage = (x) => x.target === 'port' ? 'ports' : x.target === 'harness' ? 'agents'
-    : x.target === 'toolchain' && M.SOURCE_CONTROL[x.id] ? 'sourcecontrol' : 'toolchains';
+    : x.target === 'server' ? (x.action && x.action.route) || 'server'
+      : x.target === 'toolchain' && M.SOURCE_CONTROL[x.id] ? 'sourcecontrol' : 'toolchains';
 
+  /**
+   * Overview: which server this is, then setup until it is done, and after
+   * that a health check: what needs you, what can update, what happened.
+   */
   const overviewPage = (s, n) => {
     const r = M.readiness(s, ui);
     // Until setup is done, signing agents in is its last step: said there, not twice.
     const needs = M.needsYou(s, state.ports, ui).filter((item) => r.ready || item.state !== 'signin');
-    const devices = M.deviceRows(s.sessions, n);
-    // A link to the one page they all live on; from several, each row's own
-    // action is the way in.
     const pages = new Set(needs.map(needsPage));
     const [page] = pages;
-    const actions = r.ready
-      ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="pair.start">${icon('plus')}Pair a device</button>`
-      : EMBED ? '' : html`<a class="tc-btn tc-btn--sm" href="${t3Url()}" target="_blank" rel="noopener">${icon('external-link')}Open T3 Code</a>`;
+    const server = s.server || {};
+    const host = M.hostOf(s.publicUrl);
+    const keep = (text) => text.replace(/ /g, '\u00a0');
+    const sub = html`${host ? html`<span class="tc-nowrap">${host}</span> · ` : ''}${server.ok
+      ? ['T3 Code is running', Number.isFinite(server.uptimeSeconds) ? keep('up ' + M.duration(server.uptimeSeconds)) : null].filter(Boolean).join(', ') + '.'
+      : 'T3 Code isn’t answering yet.'}`;
+    const actions = EMBED ? '' : html`<a class="tc-btn tc-btn--sm" href="${t3Url()}" target="_blank" rel="noopener">${icon('external-link')}Open T3 Code</a>`;
     return html`
-      ${pageHead('overview', { actions })}
+      ${pageHead('overview', { sub, actions })}
       ${pageNotices('overview')}
-      ${s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80 ? notice(s.storage.disk.usedPercent >= 90 ? 'danger' : 'warn', 'server',
-        s.storage.disk.usedPercent >= 90 ? 'Disk space is nearly full' : 'Disk space is running low',
-        M.formatBytes(s.storage.disk.availableBytes) + ' available on the home filesystem. Review storage before it fills up.',
-        html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="storage.goto">Manage storage</button>`) : ''}
       ${r.ready ? readyLine(s) : readinessGroup(r)}
       ${needs.length ? section('needs-title', 'Needs you', html`<div class="tc-group"><div class="tc-list">${needs.map(attentionRow)}</div></div>`,
-        pages.size === 1 ? { actions: linkButton('#' + page, NEEDS_PAGES[page]) } : undefined) : ''}
+        pages.size === 1 && NEEDS_PAGES[page] ? { actions: linkButton('#' + page, NEEDS_PAGES[page]) } : undefined) : ''}
       ${activitySection(M.activity(s, ui, n), n)}
-      ${r.ready ? html`
-        ${glanceSection(s, state.ports, n)}
-        ${devices.length ? section('devs-title', 'Paired devices', html`<div class="tc-group"><div class="tc-list">${devices.map((d) => deviceRow(d))}</div></div>`, { actions: linkButton('#access', 'Manage') }) : ''}
-        ${recentSection(s, n)}` : ''}`;
+      ${r.ready ? html`<div class="tc-overview-split">${overviewUpdates(s, n)}${recentSection(s, n)}</div>` : ''}`;
   };
 
   // -------------------------------------------------------------- devices --

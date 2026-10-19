@@ -29,7 +29,11 @@ signed in. A key set with `T3_SETUP_KEY` can only be changed there.
 **Overview** lists what's left before a phone can use the server: the server
 running, a [public URL](remote-access.md#the-public-url) set, a device paired, and the agents signed in, with a
 button for the next step. When all four are done, the list collapses to a
-single **Ready** line and recent activity is shown instead. On a desktop the
+single **Ready** line and the page becomes a health check: **Needs you** lists
+anything failed or signed out, and problems with the container itself (a home
+or state folder that a recreate would lose, a disk over 80% full, settings an
+older image left behind), each with the one thing to do; **Updates** shows what
+can update, with **Update all**; and **Recent** what happened lately. On a desktop the
 pages are in a sidebar: Overview and Access, then **Agents** (Agents,
 Instructions & skills), **Tools** (Toolchains, Source control, Ports) and
 **System** (Updates, Storage, Server). On a phone the most used are in a tab

@@ -535,14 +535,17 @@ test("a later step that needs the user is a warning, not a second todo", () => {
 
 test("the ready summary counts what is set up and what still wants a look", () => {
   const s = statusWith({ sessions: [{ sessionId: "a" }, { sessionId: "b" }] });
-  assert.equal(M.readySummary(s, ui()), "2 devices paired · 5 agents signed in · 5 toolchains · nothing needs you");
+  // A count keeps its noun on the same line.
+  assert.equal(M.readySummary(s, ui()), "2\u00a0devices paired · 5\u00a0agents signed in · 5\u00a0toolchains · nothing needs you");
+  const signedOut = statusWith({ harnesses: [harness("claude", { signedIn: false })] });
+  assert.match(M.readySummary(signedOut, ui()), /1\u00a0thing needs you$/);
   const update = statusWith({ harnesses: [harness("claude", { latestVersion: "2.0.0" })] });
-  assert.match(M.readySummary(update, ui()), /1 thing to look at$/);
+  assert.match(M.readySummary(update, ui()), /nothing needs you$/, "an update is offered, not owed");
 });
 
 // ------------------------------------------------------ attention and badges --
 
-test("needs-you lists failures before sign-ins before updates", () => {
+test("needs-you lists failures before sign-ins, and leaves updates to the Updates page", () => {
   const s = statusWith({
     harnesses: [
       harness("claude", { latestVersion: "2.0.0" }),
@@ -552,7 +555,33 @@ test("needs-you lists failures before sign-ins before updates", () => {
       harness("cursor"),
     ],
   });
-  assert.deepEqual(plain(M.needsYou(s, null, ui()).map((r) => r.id)), ["opencode", "codex", "claude"]);
+  assert.deepEqual(plain(M.needsYou(s, null, ui()).map((r) => r.id)), ["opencode", "codex"]);
+});
+
+test("needs-you names the container's own problems, each with the one thing to do", () => {
+  const s = statusWith({
+    paths: { volumeKind: "anonymous", stateKind: "durable" },
+    storage: { disk: { usedPercent: 91, availableBytes: 9e9 } },
+    legacyEnv: ["GOROOT", "PATH"],
+    harnesses: [harness("codex", { signedIn: false })],
+    t3: { port: 3773, pid: 7, runtime: { channel: "stable", version: "0.1.0", releases: {}, operation: { phase: "rolled-back", error: "The new version did not start.\nlog: …" } } },
+    connect: { state: "pending" },
+  });
+  const items = plain(M.needsYou(s, null, ui()));
+  assert.deepEqual(items.map((i) => i.id), ["home", "disk", "codex", "legacy", "runtime", "connect"], "anything lost or nearly full first, then the rest in page order");
+  const by = Object.fromEntries(items.map((i) => [i.id, i]));
+  assert.deepEqual(by.home.action, { cmd: "volume.fix", id: "home", label: "How to fix" });
+  assert.match(by.home.text, /anonymous volume/);
+  assert.equal(by.disk.tone, "danger");
+  assert.equal(by.disk.name, "The disk is 91% full");
+  assert.deepEqual(by.disk.action, { cmd: "goto", route: "storage", label: "Free up space" });
+  assert.match(by.legacy.text, /^GOROOT is still set/);
+  assert.equal(by.runtime.text, "The new version did not start.", "only the first line of a long error");
+  assert.equal(by.connect.action.cmd, "connect.restart");
+  const failedPort = { available: true, listening: [8080], tunnels: [{ port: 8080, state: "failed", error: "edge" }] };
+  const port = plain(M.needsYou(statusWith(), failedPort, ui()))[0];
+  assert.deepEqual([port.name, port.text, port.action.cmd, port.action.id], ["Port 8080 couldn’t be published", "edge", "port.publish", "8080"]);
+  assert.deepEqual(plain(M.needsYou(statusWith(), null, ui())), [], "nothing wrong, nothing listed");
 });
 
 test("navigation badges count what needs the user, and only mark what is running or live", () => {
@@ -586,7 +615,7 @@ test("the count T3 Code shows beside Setup is what needs the user, not what coul
   // codex signed out, opencode failed, go failed, an old image's setting:
   // four. Claude's and Rust's updates are offered, not owed.
   assert.equal(M.attentionCount(s, null, ui()), 4);
-  assert.equal(M.needsYou(s, null, ui()).length, 5, "the Overview still lists updates");
+  assert.equal(M.needsYou(s, null, ui()).length, 4, "the Overview lists the same four");
   const failedPort = { available: true, listening: [8080], tunnels: [{ port: 8080, state: "failed", error: "edge" }] };
   assert.equal(M.attentionCount(s, failedPort, ui()), 5, "a port that would not publish counts when ports are known");
   assert.equal(M.attentionCount(statusWith(), null, ui()), 0);
@@ -1216,7 +1245,7 @@ test("source control counts with the toolchains: needs-you, badges, update all, 
       scm("tea", { installed: false, version: null, auth: null }),
     ],
   });
-  assert.deepEqual(plain(M.needsYou(s, null, ui()).map((i) => i.id)), ["glab", "fj"], "gh signed out is not owed anything");
+  assert.deepEqual(plain(M.needsYou(s, null, ui()).map((i) => i.id)), ["glab"], "gh signed out is not owed anything, and fj's update is offered");
   // Its own page, with its own badge; the Toolchains page is not blamed for it.
   const badges = M.navBadges(s, null, ui());
   assert.deepEqual(plain(badges.sourcecontrol), { tone: "warn", count: 1 });
