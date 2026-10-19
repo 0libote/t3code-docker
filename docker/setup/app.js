@@ -132,6 +132,7 @@
   const storageUI = T3StorageUI.create({ api, getStatus: () => state.status, reload: () => loadStatus(), render: () => render() });
   const skillsUI = T3SkillsUI.create({ api, getStatus: () => state.status, render: () => render(),
     readMarkdown: (file) => readMarkdownFile(file, 64 * 1024), downloadMarkdown: (...args) => downloadMarkdown(...args) });
+  const mcpUI = T3McpUI.create({ api, getStatus: () => state.status, render: () => render() });
 
   /** Whether this browser came in on its T3 Code session rather than the key, so Lock would end nothing. */
   const viaT3 = (s) => Boolean(s && s.viewer && s.viewer.via === 't3');
@@ -207,6 +208,7 @@
         tellAttention();
         checkHere();
         if (state.route === 'instructions' && state.contextTab === 'skills') skillsUI.activate();
+        if (state.route === 'instructions' && state.contextTab === 'mcp') mcpUI.activate();
       } else if (!locked) {
         // Name the URL and the reason. "Could not read status" sent someone
         // hunting a migration bug when the page was calling the wrong path.
@@ -1589,14 +1591,16 @@
     </div>`;
   };
 
-  const CONTEXT_TABS = [['instructions', 'Instructions'], ['skills', 'Skills']];
-  /** Instructions and skills: two tabs on one page, each at an address of its own. */
+  const CONTEXT_TABS = [['instructions', 'Instructions'], ['skills', 'Skills'], ['mcp', 'MCP servers']];
+  /** Instructions, skills and MCP servers: three tabs on one page, each at an address of its own. */
   const instructionsPage = (s) => {
     const tab = state.contextTab;
     const rows = M.contextProviderRows(s);
     const view = M.contextView(s);
     const panel = tab === 'skills'
       ? skillsUI.content()
+      : tab === 'mcp'
+        ? mcpUI.content()
       : html`
         ${view.error ? notice('danger', 'circle-alert', 'Couldn’t read the instructions', view.error) : ''}
         ${section('cx-agentsmd', 'Shared instructions', html`<div class="tc-group"><div class="tc-list">${resourceRow(M.contextAgentsMdRow(s))}</div></div>`)}
@@ -1607,7 +1611,7 @@
         </div>`)}`;
     return html`
       ${pageHead('instructions')}
-      <div class="tc-tabs" role="tablist" aria-label="Instructions and skills" data-key="cx-tabs">${CONTEXT_TABS.map(([value, label]) => html`<button class="tc-tab-button" type="button" role="tab" id="cx-tab-${value}" aria-controls="cx-panel" aria-selected="${String(tab === value)}" tabindex="${tab === value ? '0' : '-1'}" data-cmd="context.tab" data-value="${value}">${label}</button>`)}</div>
+      <div class="tc-tabs" role="tablist" aria-label="Instructions, skills and MCP servers" data-key="cx-tabs">${CONTEXT_TABS.map(([value, label]) => html`<button class="tc-tab-button" type="button" role="tab" id="cx-tab-${value}" aria-controls="cx-panel" aria-selected="${String(tab === value)}" tabindex="${tab === value ? '0' : '-1'}" data-cmd="context.tab" data-value="${value}">${label}</button>`)}</div>
       ${pageNotices('instructions')}
       <div class="tc-tabpanel" role="tabpanel" id="cx-panel" aria-labelledby="cx-tab-${tab}" data-key="cx-panel-${tab}">${panel}</div>`;
   };
@@ -1805,7 +1809,7 @@
     const [name, sub] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
     const route = T3Routes.resolve(name);
     if (route && route !== name) history.replaceState(null, '', '#' + route + (sub ? '/' + sub : ''));
-    if (route === 'instructions') state.contextTab = sub === 'skills' ? 'skills' : 'instructions';
+    if (route === 'instructions') state.contextTab = sub === 'skills' ? 'skills' : sub === 'mcp' ? 'mcp' : 'instructions';
     return route && PAGES[route] ? route : 'overview';
   };
   const go = (route) => {
@@ -1833,6 +1837,7 @@
     first = false;
     if (route === 'ports' && !state.ports) loadPorts();
     if (route === 'instructions' && state.contextTab === 'skills' && state.status) skillsUI.activate();
+    if (route === 'instructions' && state.contextTab === 'mcp' && state.status) mcpUI.activate();
   };
   window.addEventListener('hashchange', () => show(routeFromHash(), keyboardNav));
   let keyboardNav = false;
@@ -3411,6 +3416,10 @@
     'skills.import': () => skillsUI.install(),
     'skills.edit': (a) => skillsUI.view(a.id, true),
     'skills.state': (a) => skillsUI.setState(a.id),
+    'mcp.refresh': () => mcpUI.refresh(),
+    'mcp.view': (a) => mcpUI.view(a.id),
+    'mcp.add': () => mcpUI.add(),
+    'mcp.link': (a) => mcpUI.toggle(a.provider, a.id),
     'storage.goto': () => go('storage'),
     refresh: () => { loadStatus(); loadPorts(); },
     goto: (a) => go(a.route),
@@ -3634,7 +3643,7 @@
     'link.revoke': (a) => confirmRevoke('pairing', a.id),
 
     'context.tab': (a) => {
-      const hash = '#instructions' + (a.value === 'skills' ? '/skills' : '');
+      const hash = '#instructions' + (a.value === 'skills' ? '/skills' : a.value === 'mcp' ? '/mcp' : '');
       if (location.hash !== hash) location.hash = hash;
     },
     'context.edit': (a, el) => openContextEditor(el),

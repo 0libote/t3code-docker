@@ -2,7 +2,8 @@
 
 **Setup → Instructions & skills** edits the shared AGENTS.md and each agent's
 own instruction file, on its **Instructions** tab; skills are on its **Skills**
-tab (`#instructions/skills`). The editor is centered
+tab and shared MCP servers on its **MCP servers** tab (`#instructions/skills`,
+`#instructions/mcp`). The editor is centered
 on desktop and opens as a bottom sheet on phones. Uploading a Markdown file
 replaces the draft; only **Save** applies it. Downloads include unsaved edits.
 
@@ -353,6 +354,40 @@ settings. A failed verification reports that the policy may already be saved;
 it does not roll back over a possible external change. External applications can
 still race the final check. Start a new conversation to load policy changes.
 
+### Shared MCP servers
+
+The **MCP servers** tab holds one canonical list of Model Context Protocol
+servers at `$T3CODE_HOME/setup/mcp/servers.json` (mode `0600`, at most 128
+entries) and links each entry into the providers that should use it. A local
+server runs a command (`playwright-mcp --headless …`); a remote server points
+at an `http(s)` URL. Environment variables (local) and headers (remote) are
+stored with the entry and written into linked provider configs; they never
+appear in `/status` polling, which carries redacted summaries only
+(`envKeys`, `secretCount`). The full entry loads on demand in the editor.
+
+Linking a provider merges the translated entry into its own config file and
+leaves every other server and setting in place. Unlinking removes only the
+shared entry. A provider-side edit shows as diverged: relink to apply the
+shared entry again. Provider-only servers are never touched. Start a new
+session after changing links: agents read MCP configuration at startup.
+
+How well each provider is supported:
+
+| Provider | Config file | Local | Remote | Notes |
+| --- | --- | --- | --- | --- |
+| Claude Code | `~/.claude.json` (`mcpServers`) | ✅ command/args/env | ✅ `type: http` + url/headers | File-based; project `.mcp.json` is out of scope |
+| Codex | `~/.codex/config.toml` (`[mcp_servers.*]`) | ✅ command/args/env | ✅ url/`http_headers` | Only `mcp_servers` sections are parsed; the rest of the file is preserved byte-for-byte |
+| OpenCode | `opencode.json[c]` (`.mcp`) | ✅ `type: local`, command array | ✅ `type: remote` + url/headers | JSONC wins when both exist; comments preserved |
+| Cursor | `~/.cursor/mcp.json` (`mcpServers`) | ✅ command/args/env | ✅ url/headers | Same shape as Claude user scope |
+| Antigravity | `~/.gemini/settings.json` (`mcpServers`) | ✅ command/args/env | ✅ `httpUrl`/headers | Gemini CLI shape; Antigravity divergence from it is unverified |
+| Grok Build | — | — | — | MCP layout unverified against the pinned CLI; not managed here yet |
+| Muse Code | — | — | — | MCP layout unverified against the pinned CLI; not managed here yet |
+
+Only Codex and OpenCode have a native enabled flag, so a disabled shared
+server links there and stays unlinked elsewhere (unlink represents disabled).
+`t3-browser-mcp` remains the quick CLI path for the two bundled browser
+servers; the console manages the shared list above it.
+
 ## Validation
 
 `node --test tests/*.test.mjs` checks file writes, existing-file discovery and
@@ -390,6 +425,11 @@ confirmation, native state failures, busy controls and late provider responses. 
 also cover catalog selection, raw Markdown previews, provider selection,
 replacement consent/conflicts, failed backup moves/restoration, supporting-file
 edits with restored mtimes, shared-root retargeting and partial results.
+Unit/HTTP checks for shared MCP servers (`tests/mcp.test.mjs`,
+`tests/mcp-api.test.mjs`) cover store validation and revisions, TOML section
+preservation, provider translation round-trips, link/diverged detection,
+comment-preserving JSONC writes, unsupported providers and the authenticated
+boundary including secret redaction in polling responses.
 
 The adapters were also checked with Codex 0.163.0 in a disposable home. Native
 enable/disable, stale-request rejection, settings persistence across fresh

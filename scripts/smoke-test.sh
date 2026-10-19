@@ -647,6 +647,21 @@ context_instructions_work() {
 }
 check "Context authenticates saves and reports provider links" context_instructions_work
 
+mcp_servers_list_without_secrets() {
+  docker exec "$NAME" curl -fsS --max-time 25 -H "x-t3-setup-key: $SETUP_KEY" \
+    http://127.0.0.1:3774/__setup/context/mcp | python3 -c "
+import json, sys
+body = json.load(sys.stdin)
+shared = body['shared']
+assert isinstance(shared.get('servers'), list), shared
+for server in shared['servers']:
+    assert 'env' not in server and 'headers' not in server, server
+providers = {row['provider'] for row in body['providers']}
+assert {'claude', 'codex', 'opencode'} <= providers, providers
+"
+}
+check "shared MCP servers list without secrets" mcp_servers_list_without_secrets
+
 hello_says_only_what_it_may() {
   local stranger member
   stranger="$(docker exec "$NAME" curl -fsS --max-time 25 http://127.0.0.1:3774/__setup/hello)" || return 1

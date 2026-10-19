@@ -30,6 +30,7 @@ export const CONSOLE_SCRIPTS = [
   "client/storage.js",
   "client/skill-import.js",
   "client/skills.js",
+  "client/mcp.js",
   "app.js",
 ];
 export const UNLOCK_SCRIPTS = ["client/base.js", "design/ui.js", "client/unlock.js"];

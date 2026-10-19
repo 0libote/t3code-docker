@@ -128,4 +128,8 @@ skills. Claude exposes its four native visibility states; OpenCode exposes
 allow/ask/deny user policies and reports the Build agent's effective rule.
 Unmanaged shared skills can be added, edited and removed from Codex/OpenCode.
 Other providers show known files with unverified availability.
+The **MCP servers** tab holds one shared list of local and remote servers and
+links each entry into the providers that should use it (Claude Code, Codex,
+OpenCode, Cursor and Antigravity; Grok Build and Muse Code layouts are
+unverified and not managed). Provider-only servers stay in place.
 See [Context management](context-management.md) for paths and verification.

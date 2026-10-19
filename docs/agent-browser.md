@@ -31,7 +31,10 @@ docker compose exec t3code t3-browser-mcp --remove
 
 This registers headless Chromium as an MCP server with the installed Claude
 Code, Codex and OpenCode, so agents can navigate, take screenshots, click and
-read the browser console, whichever client you use. Run it after the first
+read the browser console, whichever client you use. The console's
+**Instructions & skills → MCP servers** tab manages the same servers as shared
+entries (linked per provider) with the same restart rule; `t3-browser-mcp`
+remains the quick CLI equivalent. Run either after the first
 start has installed those agents (the setup page shows when), then start a new
 thread, because agents read their MCP configuration when a session starts.
 

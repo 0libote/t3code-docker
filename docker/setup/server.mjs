@@ -33,6 +33,7 @@ import { createDeviceLabels } from "./device-labels.mjs";
 import * as Context from "./context.mjs";
 import { createOpenCodeAuth } from "./opencode-auth.mjs";
 import { createSkillsService } from "./skills.mjs";
+import { createMcpService } from "./mcp.mjs";
 import { clientAddress } from "./client-address.mjs";
 import { newKey, readKeyFile, writeKeyFile } from "./setup-key.mjs";
 import { connectState, jsonFrom, parseLinkOutput } from "./connect.mjs";
@@ -519,6 +520,9 @@ const contextFs = async () => (await import("node:fs/promises"));
 const skillsService = createSkillsService({ home: CONTEXT_HOME, env: process.env,
   getHarness: async (provider) => (await harnessCache.snapshotCheap()).harnesses?.find((row) => row.id === provider),
 });
+const mcpService = createMcpService({ home: CONTEXT_HOME, env: process.env, baseDir: STATE_DIR,
+  io: await contextFs(),
+});
 
 // The browser image's agent browser, as built: the versions are build args the
 // Dockerfile bakes into the environment. Absent on the core image.
@@ -912,7 +916,14 @@ const status = async () => {
     // Every other tool in the global mise config, added here or with `mise use -g`.
     packages: withLatest("package", packageRows),
     // Global instruction metadata; the editor fetches contents on demand.
-    context: await attempt("context", async () => Context.contextStatus(await contextFs(), { baseDir: STATE_DIR, home: CONTEXT_HOME, env: process.env }), {
+    // Shared MCP metadata rides alongside; server entries stay server-side.
+    context: await attempt("context", async () => {
+      const [instructions, mcp] = await Promise.all([
+        Context.contextStatus(await contextFs(), { baseDir: STATE_DIR, home: CONTEXT_HOME, env: process.env }),
+        mcpService.status().catch((error) => ({ ok: false, error: String(error?.message ?? error) })),
+      ]);
+      return { ...instructions, mcp };
+    }, {
       agentsMd: { present: false, bytes: 0, error: "unavailable" },
     }),
     // The background install of everything T3_PREINSTALL names, on a first
@@ -2153,7 +2164,8 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/providers", "/updates/check",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info",
-  "/context/agents-md", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard", "/context/skills"];
+  "/context/agents-md", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard", "/context/skills",
+  "/context/mcp", "/context/mcp/read", "/context/mcp/create", "/context/mcp/save", "/context/mcp/remove", "/context/mcp/link"];
 
 // One background pass for the opt-in auto-updater. Checks are cheap and
 // always safe; installs run only when enabled, an update is known, and
@@ -2667,6 +2679,42 @@ const server = createServer(async (req, res) => {
       } catch (error) {
         const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, EEXIST: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || (error instanceof SyntaxError ? 400 : 500);
         return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "The skill operation failed.").slice(0, 500) });
+      }
+    }
+
+    // --- shared MCP servers ---------------------------------------------
+    // Inventory per provider is on demand, never part of /status polling;
+    // /status carries only redacted shared metadata and link states.
+    if (req.method === "GET" && (route === "/context/mcp" || route === "/context/mcp/read")) {
+      try {
+        const params = raw.searchParams;
+        if (route === "/context/mcp/read") {
+          if (!params.get("name")) return sendJson(res, 400, { ok: false, code: "invalid", error: "Expected an MCP server name." });
+          return sendJson(res, 200, await mcpService.read(params.get("name")));
+        }
+        if (params.get("provider")) return sendJson(res, 200, await mcpService.list(params.get("provider")));
+        return sendJson(res, 200, await mcpService.status({ refresh: params.get("refresh") === "1" }));
+      } catch (error) {
+        const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || 500;
+        return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "MCP discovery is unavailable.").slice(0, 300) });
+      }
+    }
+
+    if (req.method === "POST" && ["/context/mcp/create", "/context/mcp/save", "/context/mcp/remove", "/context/mcp/link"].includes(route)) {
+      try {
+        const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
+        if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Expected an MCP operation object." });
+        const result = route === "/context/mcp/link" ? await mcpService.setLink(input.provider, input.name, input.linked, input.sharedRevision)
+          : route === "/context/mcp/create" ? await mcpService.create(input.server)
+          : route === "/context/mcp/save" ? await mcpService.save(input.name, input.revision, input.server)
+            : await mcpService.remove(input.name, input.revision);
+        recordEvent("context.saved", route === "/context/mcp/link"
+          ? `${input.provider} ${input.linked ? "uses" : "stopped using"} shared MCP server ${input.name}`
+          : route === "/context/mcp/remove" ? "Removed a shared MCP server" : "Saved a shared MCP server");
+        return sendJson(res, 200, result);
+      } catch (error) {
+        const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, EEXIST: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || (error instanceof SyntaxError ? 400 : 500);
+        return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "The MCP operation failed.").slice(0, 500) });
       }
     }
 

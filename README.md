@@ -171,7 +171,7 @@ instead. Details: [Reaching the server from a phone](docs/remote-access.md).
 | [Source control](docs/source-control.md) | gh, glab, fj, tea and az sign-in |
 | [Publishing a port](docs/ports.md) | Public URLs for dev servers |
 | [Giving agents a browser](docs/agent-browser.md) | T3's server browser and the browser MCP servers |
-| [Context management](docs/context-management.md) | Global `AGENTS.md` and skills |
+| [Context management](docs/context-management.md) | Global `AGENTS.md`, skills and shared MCP servers |
 | [Storage management](docs/storage.md) | Disk usage, cache cleanup, version retention |
 | [Configuration](docs/configuration.md) | Every environment variable, volumes, building |
 | [Troubleshooting](docs/troubleshooting.md) | Pairing, providers, terminals, permissions |
