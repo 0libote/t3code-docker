@@ -72,7 +72,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   assert.equal((await fetch(base + "/context/skills/read?provider=claude&id=" + "a".repeat(32))).status, 401);
   assert.equal((await get("/context/skills?provider=__proto__")).status, 400);
   assert.equal((await get("/context/skills")).status, 400);
-  for (const operation of ["source", "plan", "install", "discard"]) {
+  for (const operation of ["source", "plan", "install", "discard", "check-update"]) {
     assert.equal((await fetch(base + "/context/skills/" + operation, { method: "POST" })).status, 401);
     assert.equal((await post("/context/skills/" + operation, {}, { "sec-fetch-site": "cross-site" })).status, 403);
     assert.equal((await post("/context/skills/" + operation, null)).status, 400);
@@ -95,6 +95,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   const result = await (await get("/context/skills?provider=claude")).json();
   assert.equal(result.coverage, "policy"); assert.equal(result.skills.length, 1);
   const row = result.skills[0]; assert.equal(row.name, "one"); assert.ok(!("content" in row));
+  assert.equal((await post("/context/skills/check-update", { provider: "claude", id: row.id })).status, 403);
   const readPath = "/context/skills/read?provider=claude&id=" + row.id;
   assert.equal((await (await get(readPath + "&path=" + encodeURIComponent(other))).json()).content, markdown);
   assert.equal((await get("/context/skills/read?provider=claude&id=" + encodeURIComponent(other))).status, 400);

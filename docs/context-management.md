@@ -228,10 +228,23 @@ Native path references: [Cursor skills](https://cursor.com/docs/skills),
 [Muse skills](https://meta-models.github.io/muse-code-sdk/next/guides/extend/skills/),
 and [Antigravity skills](https://antigravity.google/docs/skills).
 
-Re-importing the source is the update flow: review a fresh snapshot and explicitly
-replace each existing local folder, including removed/renamed supporting files.
-The console does not remember origins, schedule updates or maintain a source
-manifest. Use **View → Remove** to delete an imported local skill. Files tracked
+Repository installs remember their source and a fingerprint of the installed
+files in `.t3-skill-source.json` inside the skill folder. **Check for updates**
+on the Skills tab checks tracked repository installs on demand. It compares the
+skill's complete source contents and executable flags, so unrelated repository
+commits do not trigger an update. Ordinary inventory refreshes never fetch sources.
+Checks report **Up to date**, **Update available**, or **Update check failed**.
+These results last until the setup service restarts; source tracking survives restarts.
+
+Open a skill and choose **Review update** (or **Review source**) to preview its
+repository with that skill selected. Explicitly confirm replacing the existing
+folder, including local edits and removed/renamed supporting files. Checking alone
+never changes installed files, and local edits do not count as upstream updates.
+A ref pinned to a commit continues to check that commit. There are no scheduled
+checks or automatic replacements. Earlier installs and imports from local folders
+or direct Markdown links need a repository re-import to enable tracking.
+
+Use **View → Remove** to delete an imported local skill. Files tracked
 in the upstream skills CLI lock remain read-only here, including during import;
 manage those packages with their package manager. Unreadable locks, known plugin/system
 roots (including Grok/Antigravity plugin folders and Codex admin skills), linked

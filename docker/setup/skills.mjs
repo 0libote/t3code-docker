@@ -8,6 +8,8 @@ import { listCodexSkills, writeCodexSkillConfig } from "./skills/codex.mjs";
 import { codexConfigPath, configSnapshot, stateRevision, serializeState } from "./skills/state.mjs";
 import { createSkillFileManager, skillRevision } from "./skills/files.mjs";
 import { createSkillPolicies } from "./skills/policies.mjs";
+import { readSkillOrigin, skillFingerprint } from "./skills/origins.mjs";
+import { resolveSkillSource } from "./skills/sources.mjs";
 import { createSkillImporter } from "./skills/imports.mjs";
 
 const PROVIDERS = Object.freeze({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok Build", muse: "Muse Code", antigravity: "Antigravity" });
@@ -145,7 +147,7 @@ export async function scanSkillFiles(provider, options) {
 
 export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, inspectClaude, inspectOpenCode, getHarness = async () => null, ttlMs = 15000, limits, resolveSource } = {}) {
   home = path.resolve(home || env.HOME || "/home/t3");
-  const cache = new Map();
+  const cache = new Map(), updateStates = new Map(), updateChecks = new Map();
   const policies = createSkillPolicies({ home, env, io, getHarness, inspectClaude, inspectOpenCode, invalidate: () => cache.clear() });
   const load = async (provider) => {
     const scanned = await scanSkillFiles(provider, { home, env, io, limits });
@@ -194,6 +196,14 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
       } catch (error) { nativeError = summaryError(error); }
     }
     const policy = await fileManager.policyFor(provider);
+    for (const row of scanned.skills) {
+      const origin = await readSkillOrigin(io, row, home);
+      if (origin && policy.capabilities(row).canEdit) {
+        row.origin = origin;
+        const checked = updateStates.get(row.resolvedPath);
+        if (checked?.fingerprint === origin.fingerprint && checked.source === origin.source) row.update = checked;
+      }
+    }
     return { ok: true, provider, canCreate: policy.canCreate, creationTargets: policy.creationTargets, providers: skillProviders(), skills: scanned.skills.map((row) => {
       if (row.stateAuthority === "user-policy") return { ...row, ...policy.capabilities(row) };
       const reason = provider !== "codex" ? nativeError || "Native policy controls are currently supported for Claude Code and OpenCode; native availability controls for Codex."
@@ -268,5 +278,30 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
   };
   const fileManager = createSkillFileManager({ home, env, io, rootsFor: (provider) => skillRoots(provider, { home, env }), metadata: skillMetadata, read, invalidate: () => cache.clear() });
   const importer = createSkillImporter({ home, env, io, metadata: skillMetadata, policyFor: fileManager.policyFor, invalidate: () => cache.clear(), resolveSource });
-  return { list, read, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer };
+  const checkUpdate = async (provider, id) => {
+    const row = await read(provider, id);
+    if (!row.origin || !row.canEdit) throw problem("unsupported", "This skill has no tracked repository source. Re-import it from its repository to enable update checks.");
+    const key = row.resolvedPath;
+    if (updateChecks.has(key)) return updateChecks.get(key);
+    if (updateChecks.size >= 3) throw problem("conflict", "Other repository checks are still running. Try again when they finish.");
+    const pending = (async () => {
+      let update;
+      try {
+        const snapshot = await (resolveSource || resolveSkillSource)(row.origin.source, { home, env, metadata: skillMetadata });
+        const skill = snapshot.skills?.find((entry) => entry.name === row.origin.name);
+        if (!skill) throw new Error("The installed skill was not found in this source. It may have been renamed or removed.");
+        update = { ...row.origin, status: skillFingerprint(skill) === row.origin.fingerprint ? "current" : "available", checkedAt: Date.now() };
+      } catch (error) { update = { ...row.origin, status: "error", error: summaryError(error), checkedAt: Date.now() }; }
+      // A replaced or removed installation must not inherit a stale check result.
+      const current = await readSkillOrigin(io, row, home);
+      if (!current || current.source !== row.origin.source || current.fingerprint !== row.origin.fingerprint) throw problem("conflict", "The installation changed while checking. Refresh and check again.");
+      updateStates.delete(key); updateStates.set(key, update);
+      if (updateStates.size > 1024) updateStates.delete(updateStates.keys().next().value);
+      cache.clear();
+      return { ok: true, id, update };
+    })();
+    updateChecks.set(key, pending);
+    try { return await pending; } finally { updateChecks.delete(key); }
+  };
+  return { list, read, checkUpdate, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer };
 }

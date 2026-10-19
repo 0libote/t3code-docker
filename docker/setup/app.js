@@ -3405,6 +3405,7 @@
     'storage.preferences': () => storageUI.preferences(),
     'storage.versions': () => storageUI.reviewVersions(),
     'storage.details': () => storageUI.toggle(),
+    'skills.check-updates': () => skillsUI.checkUpdates(),
     'skills.refresh': () => skillsUI.refresh(),
     'skills.filter': () => skillsUI.toggleBundled(),
     'skills.view': (a) => skillsUI.view(a.id),

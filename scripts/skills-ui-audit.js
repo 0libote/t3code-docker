@@ -59,7 +59,7 @@ const checkSelect = async (page, select, theme) => {
   let gateRead = false, releaseRead, oldReadStarted, readError = false, inventoryError = false;
   let saveError = true, gateSave = false, releaseSave, saveStarted;
   let stateError = true, gateState = false, releaseState, stateStarted, firstEnabled = true;
-  let bundledFixture = false;
+  let bundledFixture = false, trackedFixture = false, updateStatus = 'available';
   let policies = false, importFailure = true, gateImport = false, releaseImport, importStarted;
   let gateSource = false, releaseSource, sourceStarted;
   let gatePlan = false, releasePlan, planStarted, importPlanning = false;
@@ -68,7 +68,8 @@ const checkSelect = async (page, select, theme) => {
   const importFocus = async (id) => assert.equal(await page.evaluate(() => document.activeElement.id), id);
   const policyValues = { claude: 'on', opencode: 'allow' };
   const mutations = [];
-  const skill = (provider, id, name) => ({ id, name, description: 'A description that is long enough to wrap comfortably on a phone. '.repeat(4),
+  const skill = (provider, id, name) => ({ id, name,
+   ...(trackedFixture && id === firstId ? { origin: { source: 'org/repo@review', name: 'review', fingerprint: 'a'.repeat(64) } } : {}), description: 'A description that is long enough to wrap comfortably on a phone. '.repeat(4),
    path: '/fixture/a-long-global-configuration-directory/skills/' + name + '/SKILL.md',
    resolvedPath: '/fixture/shared-source/skills/' + name + '/SKILL.md', source: 'Shared .agents',
    native: provider === 'codex', state: policies && provider !== 'codex' ? policyValues[provider] : id === firstId && firstEnabled ? 'enabled' : 'disabled', bytes: body.length,
@@ -84,7 +85,10 @@ const checkSelect = async (page, select, theme) => {
    const url = new URL(route.request().url()), provider = url.searchParams.get('provider');
    if (route.request().method() === 'POST') {
     const input = route.request().postDataJSON(); mutations.push({ path: url.pathname, input });
-    if (url.pathname.endsWith('/source')) {
+    if (url.pathname.endsWith('/check-update')) {
+     assert.equal(input.id, firstId);
+     await route.fulfill({ json: { ok: true, id: input.id, update: { status: updateStatus, error: updateStatus === 'error' ? 'Repository unavailable' : undefined } } });
+    } else if (url.pathname.endsWith('/source')) {
      if (gateSource) { gateSource = false; sourceStarted(); await new Promise((resolve) => { releaseSource = resolve; }); }
      if (input.source === 'bad-source') await route.fulfill({ status: 400, json: { ok: false, error: 'No skill found at this source.' } });
      else if (input.source === 'catalog') await route.fulfill({ json: { ok: true, skills: [], warnings: [], links: [{ label: 'Frontend skill', source: 'org/repo@review' }, { label: 'Other skill', source: 'org/other' }] } });
@@ -400,6 +404,26 @@ const checkSelect = async (page, select, theme) => {
   await importFocus('skill-import-title');
   await capture('results');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  trackedFixture = true; readError = false;
+  await page.getByRole('button', { name: 'Refresh skills', exact: true }).click();
+  const checkUpdates = page.getByRole('button', { name: 'Check for updates', exact: true });
+  await checkUpdates.waitFor();
+  await checkUpdates.click();
+  await page.getByText('Update available', { exact: true }).waitFor();
+  await capture('update-available');
+  await page.getByRole('button', { name: 'View review', exact: true }).click();
+  await page.locator('[data-skill-update]').waitFor();
+  await page.locator('[data-skill-update]').click();
+  await page.locator('[data-import-skill="review"]').waitFor();
+  assert.equal(await page.locator('#skill-source').inputValue(), 'org/repo@review');
+  assert.equal(await page.locator('[data-import-skill="review"]').isChecked(), true);
+  await capture('review-update');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click();
+  updateStatus = 'error'; await checkUpdates.click();
+  await page.getByText('Update check failed', { exact: true }).waitFor();
+  updateStatus = 'current'; await checkUpdates.click();
+  await page.getByText('Up to date', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
   console.log('PASS Skill inventory, native state, files and source installation:', theme, width + 'x' + height, embedded ? 'embedded-query fallback' : 'standalone');

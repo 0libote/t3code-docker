@@ -4,7 +4,7 @@ const T3SkillImport = (() => {
   const { html, raw, icon } = Kit;
   const create = ({ api, providers, refresh }) => {
     let active = null;
-    const open = (provider) => {
+    const open = (provider, initial = null) => {
       if (active) return;
       const view = { source: '', catalogSearch: '', preview: null, plan: null, result: null, skills: new Set(), providers: new Set([provider]), busy: null, error: null, replace: false, layer: null };
       active = view;
@@ -53,7 +53,7 @@ const T3SkillImport = (() => {
         const input = view.layer.panel.querySelector('#skill-source');
         if (input && input.value !== source) input.value = source;
         const result = await request('source', { source }, previous);
-        if (result) { view.preview = result; view.skills = new Set(result.skills.length === 1 ? result.skills.map((skill) => skill.name) : []); }
+        if (result) { view.preview = result; view.skills = new Set(initial?.name ? result.skills.filter((skill) => skill.name === initial.name).map((skill) => skill.name) : result.skills.length === 1 ? result.skills.map((skill) => skill.name) : []); }
         render(true);
       };
       view.layer = Kit.open({ kind: 'center', panel: { class: 'tc-sheet tc-context-sheet tc-skill-sheet tc-skill-import ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'skill-import-title' }, focus: '#skill-source', backdrop: 'ignore', onEscape: close,
@@ -73,7 +73,7 @@ const T3SkillImport = (() => {
             ${view.plan && !view.result ? html`<p class="tc-hint">${view.source}</p><div class="tc-import-options">${view.plan.destinations.map((entry) => html`<div class="tc-import-skill"><strong>${providers.find(([id]) => id === entry.provider)?.[1]} · ${entry.name}</strong><p class="tc-hint">${entry.action === 'blocked' ? entry.error : entry.action === 'replace' ? 'Replace existing local skill folder and supporting files' : 'Add skill folder'}</p>${entry.directory ? html`<code>${entry.directory}</code>` : ''}${entry.also?.length ? html`<p class="tc-hint">Same folder also used by ${entry.also.map((id) => providers.find(([key]) => key === id)?.[1]).join(', ')}</p>` : ''}</div>`)}</div>
               ${view.plan.destinations.some((entry) => entry.action === 'replace') ? html`<label class="tc-import-confirm"><input type="checkbox" data-import-replace${checked(view.replace)}${disabled(view.busy)}> Replace the listed existing folders, including local edits and supporting files.</label>` : ''}
               <p class="tc-hint">Installs the exact previewed contents. The source is not fetched again. Start a new conversation to load changes; provider policies may still restrict use.</p>` : ''}
-            ${view.result ? html`<div class="tc-import-options" role="status">${view.result.results.map((entry) => html`<div class="tc-import-skill"><strong>${entry.name} · ${providers.find(([id]) => id === entry.provider)?.[1]}</strong><p class="${entry.status === 'failed' ? 'tc-danger' : 'tc-hint'}">${entry.status === 'failed' ? entry.error : 'Installed'}${entry.warning ? ' · ' + entry.warning : ''}</p><code>${entry.directory}</code></div>`)}</div><p class="tc-hint">Start a new conversation to load installed skills. Availability is checked in the provider inventory where supported. To update, preview the source again and review its replacement destinations.</p>` : ''}
+            ${view.result ? html`<div class="tc-import-options" role="status">${view.result.results.map((entry) => html`<div class="tc-import-skill"><strong>${entry.name} · ${providers.find(([id]) => id === entry.provider)?.[1]}</strong><p class="${entry.status === 'failed' ? 'tc-danger' : 'tc-hint'}">${entry.status === 'failed' ? entry.error : 'Installed'}${entry.warning ? ' · ' + entry.warning : ''}</p><code>${entry.directory}</code></div>`)}</div><p class="tc-hint">Start a new conversation to load installed skills. Availability is checked in the provider inventory where supported. Repository installs remember their source. Use Check for updates in the skill list, then review the source before replacing an installation.</p>` : ''}
             ${view.busy ? html`<p class="tc-muted" role="status"><span class="tc-spinner" aria-hidden="true"></span>${view.busy === 'install' ? 'Installing…' : view.busy === 'plan' ? 'Checking destinations…' : 'Reading source… You can close this dialog while it finishes.'}</p>` : ''}
           </div><div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-import-close${disabled(view.busy === 'install')}>${view.result ? 'Done' : 'Close'}</button>${view.plan && !view.result ? html`<button class="tc-btn" type="button" data-import-back${disabled(view.busy)}>Back</button><button class="tc-btn tc-btn--primary" type="button" data-import-install${disabled(view.busy || !view.plan.canInstall || (view.plan.destinations.some((entry) => entry.action === 'replace') && !view.replace))}>${view.busy ? 'Installing…' : 'Install skills'}</button>` : !view.result ? html`<button class="tc-btn" type="button" data-import-preview${disabled(view.busy || !view.source.trim())}>Preview source</button>${view.preview?.skills?.length ? html`<button class="tc-btn tc-btn--primary" type="button" data-import-review${disabled(view.busy || !view.skills.size || !view.providers.size)}>Review destinations</button>` : ''}` : ''}</div>`,
       });
@@ -113,6 +113,7 @@ const T3SkillImport = (() => {
           render(true); if (view.result) await refresh();
         }
       });
+      if (initial?.source) void preview(initial.source);
     };
     return { open };
   };

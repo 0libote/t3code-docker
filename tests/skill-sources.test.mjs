@@ -81,6 +81,7 @@ test("Git discovery reads bounded blobs without checkout, shell execution, hooks
     assert.ok(args.includes("cat-file")); return { stdout: Buffer.from(args.at(-1) === "a".repeat(40) ? body : "check") };
   };
   const result = await f.resolve("https://github.com/org/repo/tree/main/skills/review", { run });
+  assert.equal(result.sourceType, "git");
   assert.equal(result.skills[0].files.length, 2); assert.equal(result.warnings.length, 2);
   assert.equal(calls.filter((args) => args.includes("cat-file")).length, 2);
   await assert.rejects(fs.stat(path.dirname(temporary)), { code: "ENOENT" });
