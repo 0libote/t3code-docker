@@ -222,9 +222,10 @@ const T3Model = (() => {
     return { text: reason || operation, title: row.name + ': ' + operation.toLowerCase(), detail };
   };
 
+  /** The update check for `harness` sources, the others (`toolchain`), or every source (no scope). */
   const updateCheckView = (status, scope, requesting = false) => {
     const updates = status?.updates || {};
-    const failures = Object.entries(updates.errors || {}).filter(([key]) => scope === 'harness' ? key.startsWith('harness:') : !key.startsWith('harness:'));
+    const failures = Object.entries(updates.errors || {}).filter(([key]) => !scope ? true : scope === 'harness' ? key.startsWith('harness:') : !key.startsWith('harness:'));
     const checking = requesting || updates.refreshing;
     return { failures, checking, manual: requesting || updates.manual,
       label: checking ? 'Checking for updates' : failures.length ? 'Review update checks' : 'Check for updates' };
@@ -1367,18 +1368,25 @@ const T3Model = (() => {
     const warn = (count) => (count ? { tone: 'warn', count } : null);
     const running = (count) => (count ? { tone: 'info', kind: 'running', count } : null);
     const live = (count) => (count ? { tone: 'info', kind: 'live', count } : null);
+    // Updates are offered, not owed: their count is blue, and T3 Code's Setup
+    // badge leaves it out.
+    const offered = (count) => (count ? { tone: 'info', kind: 'count', count } : null);
     const busy = (rows) => rows.filter((r) => r.state === 'running' || r.state === 'signing').length;
+    const updates = updatesView(s, ui, 0);
     const badges = {
       overview: null,
-      devices: null,
+      // No address and no T3 Connect: nothing can pair yet.
+      access: warn(!s.publicUrl && s.server && connectView(s).state !== 'on' && connectView(s).state !== 'linking' ? 1 : 0),
       agents: warn(agents.filter((a) => a.attention).length) || running(busy(agents)),
-      context: null,
+      instructions: null,
       toolchains: warn(tools.filter((t) => t.state === 'failed').length) || running(busy(tools)),
       // A source control CLI someone installed and has not signed in is as
       // unusable to T3 Code as a failed one. The image's gh never counts.
       sourcecontrol: warn(scm.filter((c) => c.attention).length) || running(busy(scm)),
       ports: warn(portList.filter((p) => p.state === 'failed').length) || live(portList.filter((p) => p.state === 'open').length),
-      environment: warn(serverWarnings(s).length),
+      updates: running(updates.running) || offered(updates.count),
+      storage: warn(diskWarning(s) ? 1 : 0),
+      server: warn(serverWarnings(s).length),
     };
     // The phone's More tab carries what needs the person on the pages under it.
     const tabOf = typeof T3Routes === 'object' ? T3Routes.tabOf : () => null;
@@ -1389,8 +1397,8 @@ const T3Model = (() => {
 
   /**
    * What about the container itself needs the person: a home or state folder
-   * that the next recreate would leave behind, a disk filling up, and
-   * settings an older image left in its environment.
+   * that the next recreate would leave behind, and settings an older image
+   * left in its environment.
    */
   const serverWarnings = (status) => {
     const s = status || {};
@@ -1398,9 +1406,13 @@ const T3Model = (() => {
     const out = [];
     if (paths.volumeKind === 'anonymous' || paths.volumeKind === 'none') out.push('home');
     if (paths.stateKind === 'anonymous' || paths.stateKind === 'none') out.push('state');
-    if (s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80) out.push('disk');
     if ((s.legacyEnv || []).length) out.push('legacy');
     return out;
+  };
+  /** The home filesystem at 80% or more: 'warn', or 'danger' from 90%. */
+  const diskWarning = (status) => {
+    const used = status && status.storage && status.storage.disk && status.storage.disk.usedPercent;
+    return used >= 90 ? 'danger' : used >= 80 ? 'warn' : null;
   };
 
   /**
@@ -1417,30 +1429,59 @@ const T3Model = (() => {
   };
 
   // -------------------------------------------------------------- summary --
-  const summaries = (status, ports, ui, now, host) => {
+  /**
+   * A few words on where each page stands, for the phone's More list:
+   * "3 of 4 signed in", "2 available", "79% used".
+   */
+  const summaries = (status, ports, ui, now) => {
     const s = status || {};
     const agents = agentRows(s, ui, now);
     const installed = agents.filter((a) => a.version && a.state !== 'missing');
     const signed = agents.filter((a) => ['ok', 'update'].includes(a.state)).length;
-    const tools = (s.toolchains || []);
+    const tools = (s.toolchains || []).filter((t) => t.installed).length;
     const added = (s.packages || []).filter((p) => p.configured).length;
     const portList = ports ? portRows(ports, ui, now) : [];
-    const sessions = (s.sessions || []).length;
-    const links = (s.pairings || []).length;
+    const scm = (s.sourceControl || []).filter((c) => c.installed || c.providedBy);
+    const scmSigned = scm.filter((c) => c.auth && c.auth.status === 'authenticated').length;
+    const updates = updatesView(s, ui, now);
+    const disk = s.storage && s.storage.disk;
+    const said = (text) => ({ text });
     return {
-      overview: { text: hostOf(s.publicUrl) || host || '', mono: true },
-      devices: { text: Object.values(s.authLists || {}).some((entry) => !entry.available) ? 'Reading device details' : sessions || links ? [sessions + ' paired', links ? plural(links, 'link') + ' waiting' : null].filter(Boolean).join(' · ') : 'No devices yet' },
-      agents: { text: installed.length ? signed + ' of ' + installed.length + ' signed in' : 'None installed yet' },
-      context: { text: contextView(s).present ? 'Global instructions set' : 'Not set yet' },
-      toolchains: { text: [tools.filter((t) => t.installed).length + ' of ' + tools.length + ' installed', added ? added + ' added' : null, 'through mise'].filter(Boolean).join(' · ') },
-      sourcecontrol: { text: (() => {
-        const scm = (s.sourceControl || []).filter((c) => c.installed || c.providedBy);
-        const signed = scm.filter((c) => c.auth && c.auth.status === 'authenticated').length;
-        return scm.length ? signed + ' of ' + plural(scm.length, 'CLI') + ' signed in' : 'Not readable yet';
-      })() },
-      ports: { text: ports ? (ports.available === false ? 'Publishing unavailable' : [portList.filter((p) => p.listening).length + ' listening', portList.filter((p) => p.state === 'open').length ? portList.filter((p) => p.state === 'open').length + ' published' : null].filter(Boolean).join(' · ')) : '' },
-      environment: { text: 'Versions, updates and container settings' },
-      more: { text: '' },
+      overview: said(hostOf(s.publicUrl)),
+      access: said(plural((s.sessions || []).length, 'device') + ' paired'),
+      agents: said(installed.length ? signed + ' of ' + installed.length + ' signed in' : 'None installed yet'),
+      instructions: said(contextView(s).present ? 'AGENTS.md written' : 'No AGENTS.md yet'),
+      toolchains: said(tools + ' installed' + (added ? ' · ' + added + ' added' : '')),
+      sourcecontrol: said(scm.length ? scmSigned + ' signed in' : 'None installed yet'),
+      ports: said(ports ? (ports.available === false ? 'Unavailable' : portList.filter((p) => p.state === 'open').length
+        ? plural(portList.filter((p) => p.state === 'open').length, 'port') + ' published' : plural(portList.filter((p) => p.listening).length, 'port') + ' listening') : ''),
+      updates: said(updates.count ? updates.count + ' available' : 'Up to date'),
+      storage: said(disk && Number.isFinite(disk.usedPercent) ? disk.usedPercent + '% used' : ''),
+      server: said(imageLabel(s.image).version || ''),
+    };
+  };
+
+  // ---------------------------------------------------------------- updates --
+  /**
+   * Everything that can be updated, in one place: T3 Code itself, then each
+   * agent, toolchain, added tool and source control CLI with a newer release,
+   * and the releases mise is still holding back a day. `count` is what Update
+   * all and the sidebar offer.
+   */
+  const updatesView = (status, ui, now) => {
+    const s = status || {};
+    const rows = [...agentRows(s, ui, now), ...toolchainRows(s, ui, now), ...packageRows(s, ui, now), ...managedSourceControlRows(s, ui, now)];
+    const updating = (r) => r.state === 'running' && r.kind === 'update';
+    // An update that failed stays here, with Retry, until it goes through.
+    const failedUpdate = (r) => r.state === 'failed' && r.action && /\.update$/.test(r.action.cmd);
+    const available = rows.filter((r) => (r.updateAvailable && r.state !== 'running') || updating(r) || failedUpdate(r));
+    const held = rows.filter((r) => !r.updateAvailable && r.held && r.state !== 'running');
+    const runtime = runtimeView(s);
+    const due = available.filter((r) => r.updateAvailable && !updating(r) && !failedUpdate(r) && r.state !== 'queued');
+    return {
+      available, held, runtime, due,
+      count: due.length + (runtime && runtime.available && !runtime.busy ? 1 : 0),
+      running: available.filter(updating).length + (runtime && runtime.busy ? 1 : 0),
     };
   };
 
@@ -1474,8 +1515,8 @@ const T3Model = (() => {
     const add = (group, label, icon, cmd, extra) => items.push(Object.assign(
       { group, label, icon, cmd, id: group + ':' + label, keywords: (KEYWORDS[cmd.cmd] || '') + (cmd.cmd === 'goto' ? ' ' + label : '') },
       extra || {}));
-    add('Environment', 'Manage storage', 'server', { cmd: 'storage.goto' }, { keywords: 'disk space caches cleanup folders usage', attention: Boolean(s.storage && s.storage.disk && s.storage.disk.usedPercent >= 80) });
-    add('Environment', 'Storage maintenance…', 'sliders-horizontal', { cmd: 'storage.preferences' }, { keywords: 'cache limits automatic cleanup retention preferences' });
+    add('Storage', 'Free up disk space', 'hard-drive', { cmd: 'storage.goto' }, { keywords: 'disk space caches cleanup folders usage manage storage', attention: Boolean(diskWarning(s)) });
+    add('Storage', 'Storage maintenance…', 'settings-2', { cmd: 'storage.preferences' }, { keywords: 'cache limits automatic cleanup retention preferences' });
 
     for (const a of agentRows(s, ui, now)) {
       const hint = a.state === 'signin' ? { text: 'not signed in', dot: 'warn' }
@@ -1559,50 +1600,63 @@ const T3Model = (() => {
         }
       }
     }
-    for (const d of deviceRows(s.sessions, now)) add('Devices', 'Revoke ' + d.name + '…', 'trash-2', { cmd: 'device.revoke', id: d.id }, { meta: { text: d.kind } });
-    for (const l of linkRows(s.pairings, null, now)) add('Devices', 'Revoke link ' + l.name + '…', 'trash-2', { cmd: 'link.revoke', id: l.id });
+    // Found by name, never listed unasked: there is one per device.
+    for (const d of deviceRows(s.sessions, now)) add('Access', 'Revoke ' + d.name + '…', 'trash-2', { cmd: 'device.revoke', id: d.id }, { meta: { text: d.kind }, quiet: true });
+    for (const l of linkRows(s.pairings, null, now)) add('Access', 'Revoke link ' + l.name + '…', 'trash-2', { cmd: 'link.revoke', id: l.id }, { quiet: true });
 
     if (!contextView(s).error) {
-      add('Context', 'Edit global AGENTS.md…', 'pencil', { cmd: 'context.edit' });
-      if (contextView(s).present) add('Context', 'Delete global AGENTS.md…', 'trash-2', { cmd: 'context.delete' });
+      add('Instructions & skills', 'Edit global AGENTS.md…', 'pencil', { cmd: 'context.edit' }, { keywords: 'context instructions' });
+      if (contextView(s).present) add('Instructions & skills', 'Delete global AGENTS.md…', 'trash-2', { cmd: 'context.delete' }, { keywords: 'context instructions' });
     }
-    for (const row of contextProviderRows(s).filter((row) => row.mode && !row.error)) add('Context', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id });
-    add('Actions', 'Create pairing link', 'link', { cmd: 'pair.start' }, { shortcut: 'P' });
+    for (const row of contextProviderRows(s).filter((row) => row.mode && !row.error)) add('Instructions & skills', 'Edit ' + row.name + '…', 'pencil', { cmd: 'context.provider.edit', id: row.id }, { keywords: 'context' });
+    add('Access', 'Create pairing link', 'link', { cmd: 'pair.start' }, { shortcut: 'P' });
+    const updates = updatesView(s, ui, now);
+    const runtime = updates.runtime;
+    if (runtime && runtime.available && !runtime.busy) {
+      add('Updates', 'Update T3 Code to ' + runtime.latest + '…', 'circle-arrow-up', { cmd: 't3.update' }, { meta: { text: runtime.version, mono: true }, keywords: 'upgrade t3 code runtime release' });
+    }
     const agentUpdates = agentRows(s, ui, now).filter((a) => a.updateAvailable).length;
-    if (agentUpdates) add('Actions', 'Update all agents', 'circle-arrow-up', { cmd: 'harness.updateAll' }, { meta: { text: plural(agentUpdates, 'update') }, attention: true });
+    if (agentUpdates) add('Updates', 'Update all agents', 'circle-arrow-up', { cmd: 'harness.updateAll' }, { meta: { text: plural(agentUpdates, 'update') }, attention: true });
     const toolUpdates = toolchainRows(s, ui, now).filter((t) => t.updateAvailable).length;
     const scmUpdates = managedSourceControlRows(s, ui, now).filter((c) => c.updateAvailable).length;
-    if (scmUpdates) add('Actions', 'Update all source control CLIs', 'circle-arrow-up', { cmd: 'scm.updateAll' }, { meta: { text: plural(scmUpdates, 'update') } });
+    if (scmUpdates) add('Updates', 'Update all source control CLIs', 'circle-arrow-up', { cmd: 'scm.updateAll' }, { meta: { text: plural(scmUpdates, 'update') } });
     const packageUpdates = packageRows(s, ui, now).filter((t) => t.updateAvailable).length;
     if (toolUpdates + packageUpdates) {
-      add('Actions', packageUpdates ? 'Update all toolchains and tools' : 'Update all toolchains', 'circle-arrow-up', { cmd: 'tools.updateAll' },
+      add('Updates', packageUpdates ? 'Update all toolchains and tools' : 'Update all toolchains', 'circle-arrow-up', { cmd: 'tools.updateAll' },
         { meta: { text: plural(toolUpdates + packageUpdates, 'update') } });
     }
-    add('Actions', 'Check for updates now', 'refresh-cw', { cmd: 'updates.check' });
-    add('Actions', 'Automatic updates…', 'settings-2', { cmd: 'auto.settings' }, { keywords: 'auto update idle schedule providers toolchains tools t3' });
+    add('Updates', 'Check for updates now', 'refresh-cw', { cmd: 'updates.check' });
+    add('Updates', 'Automatic updates…', 'clock', { cmd: 'auto.settings' }, { keywords: 'auto update idle schedule providers agents toolchains tools t3' });
     add('Actions', 'Open T3 Code', 'external-link', { cmd: 'open.t3' });
     add('Actions', 'Theme: light', 'sun', { cmd: 'theme', mode: 'light' });
     add('Actions', 'Theme: dark', 'moon', { cmd: 'theme', mode: 'dark' });
     add('Actions', 'Theme: follow the system', 'monitor', { cmd: 'theme', mode: 'system' });
-    add('Actions', 'Lock console', 'lock', { cmd: 'lock' });
-    if (s.publicUrl) add('Environment', 'Copy public URL', 'copy', { cmd: 'copy', text: s.publicUrl, toast: 'Public URL copied' }, { meta: { text: hostOf(s.publicUrl), mono: true } });
-    if (s.publicUrlSource !== 'env') add('Environment', s.publicUrl ? 'Change public URL' : 'Set public URL', 'globe', { cmd: 'url.edit' }, { meta: s.publicUrl ? { text: publicUrlSource(s) } : { text: 'not set', dot: 'warn' }, attention: !s.publicUrl });
+    if (s.publicUrl) add('Access', 'Copy public URL', 'copy', { cmd: 'copy', text: s.publicUrl, toast: 'Public URL copied' }, { meta: { text: hostOf(s.publicUrl), mono: true } });
+    if (s.publicUrlSource !== 'env') add('Access', s.publicUrl ? 'Change public URL' : 'Set public URL', 'globe', { cmd: 'url.edit' }, { meta: s.publicUrl ? { text: publicUrlSource(s) } : { text: 'not set', dot: 'warn' }, attention: !s.publicUrl });
     const connect = connectView(s);
-    if (connect.state === 'off' || connect.state === 'signin') add('Environment', 'Set up T3 Connect', 'globe', { cmd: 'connect.setup' });
-    if (connect.state === 'restart') add('Environment', 'Restart T3 Code to turn T3 Connect on', 'refresh-cw', { cmd: 'connect.restart' }, { attention: true });
-    if (connect.state === 'on') add('Environment', 'Turn T3 Connect off', 'globe', { cmd: 'connect.off' });
-    if (s.t3 && s.t3.pid) add('Actions', 'Restart T3 Code', 'refresh-cw', { cmd: 't3.restart' });
-    add('Environment', 'Show setup key', 'key-round', { cmd: 'key.show' });
-    if (s.setupKeySource && s.setupKeySource !== 'env') add('Environment', 'Replace setup key', 'refresh-cw', { cmd: 'key.replace' });
-    add('Environment', 'Copy diagnostics', 'copy', { cmd: 'diagnostics' });
+    if (connect.state === 'off' || connect.state === 'signin') add('Access', 'Set up T3 Connect', 'globe', { cmd: 'connect.setup' });
+    if (connect.state === 'restart') add('Access', 'Restart T3 Code to turn T3 Connect on', 'refresh-cw', { cmd: 'connect.restart' }, { attention: true });
+    if (connect.state === 'on') add('Access', 'Turn T3 Connect off', 'globe', { cmd: 'connect.off' });
+    if (s.t3 && s.t3.pid) add('Server', 'Restart T3 Code', 'refresh-cw', { cmd: 't3.restart' });
+    add('Server', 'Show setup key', 'key-round', { cmd: 'key.show' });
+    if (s.setupKeySource && s.setupKeySource !== 'env') add('Server', 'Replace setup key', 'refresh-cw', { cmd: 'key.replace' });
+    add('Server', 'Copy diagnostics', 'copy', { cmd: 'diagnostics' });
+    add('Server', 'Lock console', 'lock', { cmd: 'lock' });
 
-    for (const page of typeof T3Routes === 'object' ? T3Routes.PAGES : []) {
-      add('Go to', page.title, page.icon, { cmd: 'goto', route: page.route }, { shortcut: page.key ? 'G ' + page.key.toUpperCase() : null });
+    // A page answers to the name it had before it moved, too ("environment").
+    const routes = typeof T3Routes === 'object' ? T3Routes : { PAGES: [], ALIASES: {} };
+    for (const page of routes.PAGES) {
+      const formerly = Object.keys(routes.ALIASES).filter((name) => routes.ALIASES[name] === page.route).join(' ');
+      add('Go to', page.title, page.icon, { cmd: 'goto', route: page.route }, {
+        shortcut: page.key ? 'G ' + page.key.toUpperCase() : null,
+        keywords: KEYWORDS.goto + ' ' + page.title + (formerly ? ' ' + formerly : ''),
+      });
     }
     return items;
   };
 
-  const GROUP_ORDER = ['Agents', 'Context', 'Toolchains', 'Source control', 'Ports', 'Devices', 'Actions', 'Environment', 'Go to', 'Install from mise'];
+  // The sidebar's order, then what belongs to no one page.
+  const GROUP_ORDER = ['Access', 'Agents', 'Instructions & skills', 'Toolchains', 'Source control', 'Ports', 'Updates', 'Storage', 'Server', 'Actions', 'Go to', 'Install from mise'];
   // Registry results are capped: the best few, after everything the console itself offers.
   const SEARCH_ONLY_LIMIT = 6;
 
@@ -1619,7 +1673,7 @@ const T3Model = (() => {
     const groupRank = (g) => { const i = GROUP_ORDER.indexOf(g); return i === -1 ? GROUP_ORDER.length : i; };
     if (!q) {
       const attention = items.filter((i) => i.attention).map((i) => Object.assign({}, i, { group: 'Needs you', match: null }));
-      const rest = items.filter((i) => !i.attention && !i.searchOnly && i.group !== 'Devices').map((i) => Object.assign({}, i, { match: null }));
+      const rest = items.filter((i) => !i.attention && !i.searchOnly && !i.quiet).map((i) => Object.assign({}, i, { match: null }));
       rest.sort((a, b) => groupRank(a.group) - groupRank(b.group));
       return [...attention, ...rest];
     }
@@ -1746,9 +1800,8 @@ const T3Model = (() => {
     }));
   };
 
-  // Smart auto-update: the policy and last run state from /status, as the
-  // Agents and Toolchains headers and T3 Code updates card render them. Pure, so the
-  // same labels are testable without a browser.
+  // Automatic updates: the policy and last run from /status, as the Updates
+  // page's switches say them. Pure, so the words are testable without a browser.
   const autoUpdateView = (status, now) => {
     const auto = status?.autoUpdate || {};
     const rawPolicy = auto.policy || {};
@@ -1771,20 +1824,18 @@ const T3Model = (() => {
       if (ms < 60_000) return "Last used just now";
       return "Last used " + relTime(at, now);
     };
-    const kindLine = (kind) => (!kind?.enabled ? "Off"
-      : `On · check every ${kind.checkMinutes >= 60 && kind.checkMinutes % 60 === 0 ? (kind.checkMinutes / 60) + "h" : kind.checkMinutes + "m"} · update after ${kind.idleMinutes}m idle`);
+    const hours = (m) => (m % 60 === 0 ? plural(m / 60, 'hour') : m >= 60 ? Math.round(m / 6) / 10 + ' hours' : m + ' min');
+    // How a category's schedule reads under its switch on the Updates page.
+    const schedule = (kind) => (!kind?.enabled ? 'Off'
+      : 'Checks every ' + hours(kind.checkMinutes || 180) + ', and installs after ' + (kind.idleMinutes || 30) + ' min without activity.');
+    const checked = (at) => (Number.isFinite(at) && at > 0 ? 'Last checked ' + relTime(at, now) + '.' : null);
     return {
       policy, state,
-      providersLine: kindLine(policy.providers),
-      toolchainsLine: kindLine(policy.toolchains),
-      t3Line: kindLine(policy.t3),
-      anyEnabled: Boolean(policy.providers?.enabled || policy.toolchains?.enabled || policy.t3?.enabled),
+      schedule: { providers: schedule(policy.providers), toolchains: schedule(policy.toolchains), t3: schedule(policy.t3) },
+      lastChecked: { providers: checked(state.lastProviderCheckAt), toolchains: checked(state.lastToolchainCheckAt), t3: checked(state.lastT3CheckAt) },
       lastActivity: auto.lastActivityAt || null,
       lastActivityText: fmtIdle(auto.lastActivityAt),
       busy: auto.busy || null,
-      providerCheck: state.lastProviderCheckAt ? "Last automatic check " + relTime(state.lastProviderCheckAt, now) : "No automatic check yet",
-      toolchainCheck: state.lastToolchainCheckAt ? "Last automatic check " + relTime(state.lastToolchainCheckAt, now) : "No automatic check yet",
-      t3Check: state.lastT3CheckAt ? "Last automatic check " + relTime(state.lastT3CheckAt, now) : null,
       lastResult: state.lastResult || null,
     };
   };
@@ -1800,7 +1851,7 @@ const T3Model = (() => {
     readiness, readySummary, needsYou, activity, setupBanner, setupFailures,
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
-    navBadges, serverWarnings, attentionCount, summaries, runtimeView, autoUpdateView,
+    navBadges, serverWarnings, diskWarning, attentionCount, summaries, updatesView, runtimeView, autoUpdateView,
     paletteItems, searchPalette,
     redactedDiagnostics, storageView,
   };

@@ -60,7 +60,7 @@ const runs = [
         }
         return route.continue();
       });
-      const url = new URL(base); url.hash = 'devices';
+      const url = new URL(base); url.hash = 'access';
       await page.goto(url.href);
       if (await page.getByLabel('Setup key', { exact: true }).isVisible()) {
         await page.getByLabel('Setup key', { exact: true }).fill(key);
@@ -120,7 +120,7 @@ const runs = [
       unavailable = true; await refresh(1);
       unavailable = false; await refresh(0);
       assert.equal(await ui.locator('#tool-filter').inputValue(), 'tool-2');
-      await ui.evaluate(() => { location.hash = 'devices'; });
+      await ui.evaluate(() => { location.hash = 'access'; });
       assert.equal(await ui.locator('#pair-label').inputValue(), draft, 'navigation must retain the pairing draft');
 
       await ui.locator('[data-cmd="pair.start"]').click();

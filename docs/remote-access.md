@@ -71,7 +71,7 @@ T3 Code's own address (through `T3_SINGLE_PORT`, or a proxy that routes
 `/__setup` on the same hostname), it offers that address as a single button,
 having checked that T3 Code answers there. Otherwise **Set address** takes
 any address, such as `t3.example.com` or `http://192.168.1.20:3773`. Change it
-later under **Environment**.
+later under **Access → How devices reach this server**.
 
 Before saving an address you typed, the setup page asks it for T3 Code's
 environment from inside the container. If a different T3 Code server answers,
@@ -101,11 +101,11 @@ tunnel of your own. Devices then connect through your T3 account instead of a
 pairing link, and Connect renews their credentials, so you don't re-pair every
 30 days.
 
-On the setup page, **Devices → From anywhere → Set up** shows a link and a code
+On the setup page, **Access → T3 Connect → Set up** shows a link and a code
 to approve in any browser. T3 Code makes the link when it starts, so the page
 then offers to restart it, and shows when the link is made. The container keeps
-running throughout. **Turn off** undoes it and keeps your sign-in, so turning
-it on again asks for no new code.
+running throughout. **Turn off T3 Connect**, in its **⋯** menu, undoes it and
+keeps your sign-in, so turning it on again asks for no new code.
 
 From a shell, the same sign-in is:
 
@@ -113,8 +113,8 @@ From a shell, the same sign-in is:
 docker compose exec -it t3code t3-login connect
 ```
 
-The link then takes effect **on T3 Code's next start**: use **Restart T3 Code**
-under **Environment**, or restart the container. Use `t3-login connect` rather
+The link then takes effect **on T3 Code's next start**: use **Restart** under
+**Server → T3 Code**, or restart the container. Use `t3-login connect` rather
 than `t3 connect` directly: `docker exec` runs as root, and Connect writes into
 the state directory, where root-owned files would stop the server from
 writing.
@@ -186,7 +186,7 @@ option.
 **Treat the setup key like a password.** It can do everything a pairing link
 can, and it can create new links. `compose.yaml` binds the port to loopback;
 only publish it as far as you need to. If it leaks, replace it under
-**Environment**, or change `T3_SETUP_KEY` if you set one. A browser already paired with T3 Code
+**Server → This console**, or change `T3_SETUP_KEY` if you set one. A browser already paired with T3 Code
 doesn't need the key (see [Opening it from T3 Code](setup-page.md#opening-it-from-t3-code)).
 
 ## How long things last

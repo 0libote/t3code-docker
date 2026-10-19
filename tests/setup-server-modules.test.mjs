@@ -13,7 +13,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { looksLikeDatabase, parseListeners, processLabel, splitLocal } from "../docker/setup/ports.mjs";
-import { countProjects, coveringMount, mountKind } from "../docker/harness/storage/system.mjs";
+import { countProjects, coveringMount, mountKind, mountSource } from "../docker/harness/storage/system.mjs";
 import { createLatestCache } from "../docker/setup/latest.mjs";
 import { clientAddress, isLoopback, plainAddress } from "../docker/setup/client-address.mjs";
 
@@ -91,6 +91,12 @@ test("mounts are judged the way t3-doctor judges them", () => {
   assert.equal(mountKind("/home/t3/.t3", MOUNTINFO), "durable", "however the data root is prefixed");
   assert.equal(mountKind("/opt/elsewhere", MOUNTINFO), "none", "the root filesystem is not a mount");
   assert.equal(mountKind("/home/t3x", MOUNTINFO), "none", "a prefix is not a parent");
+  // A volume is named, so the page can name it in the command that moves it.
+  assert.deepEqual(mountSource("/home/t3", MOUNTINFO), { kind: "durable", volume: "t3-home" });
+  assert.deepEqual(mountSource("/data", MOUNTINFO), { kind: "anonymous", volume: "2f1a9b0c7d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90" });
+  assert.deepEqual(mountSource("/home/t3/.t3", MOUNTINFO), { kind: "durable", volume: "t3-state" });
+  assert.deepEqual(mountSource("/workspace", MOUNTINFO), { kind: "durable", volume: null }, "a host directory has no volume name");
+  assert.deepEqual(mountSource("/opt/elsewhere", MOUNTINFO), { kind: "none", volume: null });
 });
 
 test("projects are the git repositories T3 Code registers on start", async () => {

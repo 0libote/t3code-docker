@@ -69,9 +69,12 @@ test("storage view handles loading, unknown sizes, disk pressure, and job progre
 
 test("disk pressure appears in navigation attention and storage is searchable", () => {
   const status = { storage: { disk: { usedPercent: 89 } } };
-  assert.equal(M.navBadges(status).environment.count, 1);
+  assert.equal(M.navBadges(status).storage.count, 1);
+  assert.equal(M.navBadges(status).server, null, "the disk is Storage's, not Server's");
   assert.equal(M.navBadges(status).more.count, 1);
-  assert.equal(M.navBadges({ storage: { disk: { usedPercent: 79 } } }).environment, null);
+  assert.equal(M.navBadges({ storage: { disk: { usedPercent: 79 } } }).storage, null);
+  assert.equal(M.diskWarning(status), "warn");
+  assert.equal(M.diskWarning({ storage: { disk: { usedPercent: 93 } } }), "danger");
   assert.ok(M.paletteItems(status, null, {}, NOW).some((item) => item.cmd.cmd === 'storage.goto'));
 });
 
@@ -562,7 +565,7 @@ test("navigation badges count what needs the user, and only mark what is running
   assert.deepEqual(plain(b.agents), { tone: "warn", count: 2 });
   assert.deepEqual(plain(b.toolchains), { tone: "info", kind: "running", count: 1 });
   assert.deepEqual(plain(b.ports), { tone: "info", kind: "live", count: 1 });
-  assert.equal(b.devices, null, "how many devices there are is the page's to say, not the sidebar's");
+  assert.equal(b.access, null, "how many devices there are is the page's to say, not the sidebar's");
   assert.equal(M.navBadges(statusWith(), null, ui()).agents, null, "nothing to say, no mark");
   const failedPort = { available: true, listening: [8080], tunnels: [{ port: 8080, state: "failed", error: "edge" }] };
   assert.deepEqual(plain(M.navBadges(s, failedPort, ui()).ports), { tone: "warn", count: 1 });
@@ -746,7 +749,12 @@ test("setup failures keep untried installs and stop reporting recovered rows", (
 test("a query finds items by the words people use, in any order", () => {
   const items = M.paletteItems(statusWith({ harnesses: [harness("grok", { signedIn: false })] }), null, ui(), NOW);
   const top = (q) => M.searchPalette(items, q)[0]?.label;
-  assert.equal(top("go to env"), "Environment");
+  assert.equal(top("go to serv"), "Server");
+  // A page's old name still finds it.
+  const goTo = (q) => M.searchPalette(items, q).filter((i) => i.group === "Go to").map((i) => i.cmd.route);
+  assert.deepEqual(plain(goTo("environment")), ["server"]);
+  assert.deepEqual(plain(goTo("devices")), ["access"]);
+  assert.deepEqual(plain(goTo("context")), ["instructions"]);
   assert.equal(top("log out"), "Lock console");
   assert.equal(top("login grok"), "Sign in to Grok Build");
   assert.equal(top("toolch"), "Toolchains", "the group with the best match leads");
@@ -796,7 +804,7 @@ test("a home or state folder that a recreate would leave behind needs the user",
   assert.deepEqual(plain(M.serverWarnings(paths("durable", "anonymous"))), ["state"]);
   assert.deepEqual(plain(M.serverWarnings(paths("none"))), ["home"], "not mounted at all is lost too");
   assert.deepEqual(plain(M.serverWarnings(paths(null, null))), [], "not measured yet is not a warning");
-  assert.deepEqual(plain(M.navBadges(paths("anonymous"), null, ui()).environment), { tone: "warn", count: 1 });
+  assert.deepEqual(plain(M.navBadges(paths("anonymous"), null, ui()).server), { tone: "warn", count: 1 });
   assert.equal(M.attentionCount(paths("anonymous"), null, ui()), 1, "T3 Code's Setup entry counts it");
   assert.equal(M.attentionCount(paths("durable"), null, ui()), 0);
 });
@@ -807,10 +815,10 @@ test("a channel name where a release would be is no release to wait for", () => 
   assert.equal(rust.status.text, "With clippy and rustfmt · up to date");
 });
 
-test("settings an older image left behind flag Environment", () => {
-  assert.deepEqual(plain(M.navBadges(statusWith({ legacyEnv: ["GOROOT", "PATH"] }), null, ui()).environment), { tone: "warn", count: 1 });
+test("settings an older image left behind flag Server", () => {
+  assert.deepEqual(plain(M.navBadges(statusWith({ legacyEnv: ["GOROOT", "PATH"] }), null, ui()).server), { tone: "warn", count: 1 });
   assert.deepEqual(plain(M.navBadges(statusWith({ legacyEnv: ["GOROOT"] }), null, ui()).more), { tone: "warn", count: 1 });
-  assert.equal(M.navBadges(statusWith({ legacyEnv: [] }), null, ui()).environment, null);
+  assert.equal(M.navBadges(statusWith({ legacyEnv: [] }), null, ui()).server, null);
 });
 
 // --------------------------------------------------------------- added tools --
@@ -870,7 +878,7 @@ test("an added tool's work shows with the rest, and its own operations name it",
   const act = M.activity(s, ui(), NOW);
   assert.deepEqual(plain(act.running.map((r) => r.id)), ["jq"]);
   assert.equal(act.finished[0].text, "Installed prettier");
-  assert.equal(M.summaries(s, null, ui(), NOW).toolchains.text, "5 of 5 installed · 1 added · through mise");
+  assert.equal(M.summaries(s, null, ui(), NOW).toolchains.text, "5 installed · 1 added");
 });
 
 // The shape GET /packages/registry serves.
@@ -1181,7 +1189,7 @@ test("a CLI an added tool provides is signed in to here, and installed, updated 
   assert.equal(glab.attention, true, "added to be used: signed out wants the user");
   assert.deepEqual(plain(M.managedSourceControlRows(signedOut, ui(), NOW)), [], "nothing to install or update here");
   assert.deepEqual(plain(M.needsYou(signedOut, null, ui()).map((r) => r.id)), ["glab"], "and on the Overview, like one installed here");
-  assert.equal(M.summaries(signedOut, null, ui(), NOW).sourcecontrol.text, "0 of 1 CLI signed in");
+  assert.equal(M.summaries(signedOut, null, ui(), NOW).sourcecontrol.text, "0 signed in");
 
   const signedIn = scmRow(statusWith({ sourceControl: [scm("glab", { installed: false, version: null, providedBy })] }), "glab");
   assert.equal(signedIn.status.text, "Signed in as ana on gitlab.com");
@@ -1215,7 +1223,7 @@ test("source control counts with the toolchains: needs-you, badges, update all, 
   assert.equal(badges.toolchains, null);
   assert.equal(badges.more.count, 1, "on a phone, More carries it");
   assert.equal(M.attentionCount(s, null, ui()), 1);
-  assert.equal(M.summaries(s, null, ui(), NOW).sourcecontrol.text, "1 of 3 CLIs signed in");
+  assert.equal(M.summaries(s, null, ui(), NOW).sourcecontrol.text, "1 signed in");
   const labels = M.paletteItems(s, null, ui(), NOW).map((i) => i.label);
   assert.ok(labels.includes("Install Gitea CLI"));
   assert.ok(labels.includes("Update Forgejo CLI to 1.1.0"));
@@ -1278,14 +1286,10 @@ test('unavailable device snapshots do not prompt pairing a first device', () => 
   assert.equal(M.readiness(s, {}).title, 'Pair your first device');
 });
 
-test('auto-update view summarizes policy, checks and activity', () => {
+test('auto-update view says each schedule, when each last checked, and the last activity', () => {
   const off = M.autoUpdateView({}, NOW);
-  assert.equal(off.anyEnabled, false);
-  assert.equal(off.providersLine, 'Off');
-  assert.equal(off.toolchainsLine, 'Off');
-  assert.equal(off.t3Line, 'Off');
-  assert.equal(off.providerCheck, 'No automatic check yet');
-  assert.equal(off.toolchainCheck, 'No automatic check yet');
+  assert.equal(off.schedule.providers, 'Off');
+  assert.deepEqual(plain(off.lastChecked), { providers: null, toolchains: null, t3: null });
   assert.equal(off.lastActivityText, 'Not used since the setup service started');
   assert.equal(M.autoUpdateView({ autoUpdate: { lastActivityAt: NOW - 10_000 } }, NOW).lastActivityText, 'Last used just now');
   const on = M.autoUpdateView({ autoUpdate: {
@@ -1293,12 +1297,10 @@ test('auto-update view summarizes policy, checks and activity', () => {
     state: { lastProviderCheckAt: NOW - 6 * MIN, lastToolchainCheckAt: NOW - 12 * MIN, lastResult: 'Queued 2 tool updates' },
     lastActivityAt: NOW - 2 * 60 * MIN, busy: 'An install or update is already running',
   } }, NOW);
-  assert.equal(on.anyEnabled, true);
-  assert.equal(on.providersLine, 'Off');
-  assert.equal(on.toolchainsLine, 'On · check every 45m · update after 15m idle');
-  assert.equal(on.t3Line, 'Off');
-  assert.match(on.providerCheck, /Last automatic check 6 min ago/);
-  assert.match(on.toolchainCheck, /Last automatic check 12 min ago/);
+  assert.equal(on.schedule.providers, 'Off');
+  assert.equal(on.schedule.toolchains, 'Checks every 45 min, and installs after 15 min without activity.');
+  assert.equal(on.lastChecked.providers, 'Last checked 6 min ago.');
+  assert.equal(on.lastChecked.toolchains, 'Last checked 12 min ago.');
   assert.match(on.lastActivityText, /Last used 2 hours ago/);
   assert.equal(on.busy, 'An install or update is already running');
   assert.equal(on.lastResult, 'Queued 2 tool updates');
@@ -1353,4 +1355,53 @@ test("a guide is linked at the release the image was built from", () => {
   assert.equal(R.docUrl("agents.md", "0.19.0"), "https://github.com/dizys/t3code-docker/blob/v0.19.0/docs/agents.md");
   assert.equal(R.docUrl("agents.md", "main@0123456789abcdef0123"), "https://github.com/dizys/t3code-docker/blob/main/docs/agents.md", "a branch build reads main");
   assert.equal(R.docUrl("agents.md", null), "https://github.com/dizys/t3code-docker/blob/main/docs/agents.md");
+});
+
+// ------------------------------------------------------------------ updates --
+
+test("the Updates page gathers every newer release, and Update all leaves T3 Code alone", () => {
+  const s = statusWith({
+    releaseAgeMs: DAY,
+    harnesses: [harness("claude", { latestVersion: "2.0.0" }), harness("codex")],
+    toolchains: [toolchain("go", { version: "1.27.1", latestVersion: "1.27.1", newestVersion: "1.27.2", newestReleasedAt: new Date(NOW - 3 * 60 * MIN).toISOString() }),
+      toolchain("rust", { latestVersion: "9.9.9" })],
+    t3: { port: 3773, runtime: { channel: "stable", version: "0.1.0", releases: { stable: { version: "0.1.1" } }, checkedAt: NOW } },
+  });
+  const view = M.updatesView(s, ui(), NOW);
+  assert.deepEqual(plain(view.available.map((r) => r.id)), ["claude", "rust"]);
+  assert.deepEqual(plain(view.due.map((r) => r.id)), ["claude", "rust"]);
+  assert.deepEqual(plain(view.held.map((r) => r.id)), ["go"], "mise's day-old wait is shown, with no button");
+  assert.equal(view.runtime.available, true);
+  assert.equal(view.count, 3, "T3 Code's own release counts in the sidebar...");
+  assert.equal(view.due.some((r) => r.id === "t3"), false, "...but restarts on its own button");
+  assert.deepEqual(plain(M.navBadges(s, null, ui()).updates), { tone: "info", kind: "count", count: 3 });
+  assert.equal(M.attentionCount(s, null, ui()), 0, "updates are offered, not owed");
+  assert.equal(M.summaries(s, null, ui(), NOW).updates.text, "3 available");
+  assert.equal(M.summaries(statusWith(), null, ui(), NOW).updates.text, "Up to date");
+});
+
+test("an update in progress stays on the Updates page until it ends", () => {
+  const s = statusWith({ harnesses: [harness("claude", { latestVersion: "2.0.0", installedVersion: "1.0.0", version: "1.0.0" })],
+    operations: { "harness:claude": { state: "running", kind: "update" } } });
+  const view = M.updatesView(s, ui(), NOW);
+  assert.deepEqual(plain(view.available.map((r) => r.id)), ["claude"]);
+  assert.equal(view.due.length, 0, "Update all does not ask twice");
+  assert.equal(view.running, 1);
+  assert.deepEqual(plain(M.navBadges(s, null, ui()).updates), { tone: "info", kind: "running", count: 1 });
+});
+
+test("each automatic update schedule reads as a sentence", () => {
+  const view = (policy) => M.autoUpdateView({ autoUpdate: { policy } }, NOW).schedule;
+  const off = view({ providers: { enabled: false }, toolchains: { enabled: false }, t3: { enabled: false } });
+  assert.equal(off.providers, "Off");
+  const on = view({ providers: { enabled: true, checkMinutes: 180, idleMinutes: 30 }, toolchains: { enabled: true, checkMinutes: 90, idleMinutes: 15 }, t3: { enabled: true, checkMinutes: 60, idleMinutes: 45 } });
+  assert.equal(on.providers, "Checks every 3 hours, and installs after 30 min without activity.");
+  assert.equal(on.toolchains, "Checks every 1.5 hours, and installs after 15 min without activity.");
+  assert.equal(on.t3, "Checks every 1 hour, and installs after 45 min without activity.");
+});
+
+test("update check failures can be read for every source at once", () => {
+  const status = { updates: { errors: { "harness:claude": "offline", "toolchain:go": "rate limit" } } };
+  assert.equal(M.updateCheckView(status, null).failures.length, 2);
+  assert.equal(M.updateCheckView(status, "harness").failures.length, 1);
 });

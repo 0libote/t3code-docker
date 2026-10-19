@@ -1,15 +1,17 @@
 # Storage management
 
-**Setup → Environment → Storage** shows available filesystem space, Go build
+**Setup → Storage** shows available filesystem space, Go build
 cache and npm download sizes, and a folder inventory. A warning appears in
 Overview and navigation at 80% usage; it becomes critical at 90%. Filesystem
 usage includes other containers and host files, while the inventory covers
 folders visible inside this container. Sizes use decimal GB and allocated disk
 space. Scans run in the background, at startup and every ten minutes; polling
-reads the cached inventory and current filesystem space. **Refresh** requests
-a new scan. The latest inventory survives setup service restarts.
+reads the cached inventory and current filesystem space. The refresh button
+beside **Disk** requests a new scan. The latest inventory survives setup service
+restarts.
 
-**Clear** previews the estimated space and asks for confirmation. Cleanup uses
+**Clear caches** at the top of the page, or **Clear** on one cache, previews the
+estimated space and asks for confirmation. Cleanup uses
 `go clean -cache` and `npm cache clean --force`, leaving npm's `_npx` tools,
 project files, installed tools, credentials, conversations, and backups alone.
 The next build or install may take longer. Cleanup shares the installation
@@ -17,7 +19,7 @@ lock, refuses to run during detected build/install activity, and rejects linked
 or external cache locations. A custom cache outside managed home cache folders
 must be cleaned from a terminal. Operation results survive service restarts.
 
-**Maintenance** controls two independent policies:
+**Settings**, under the caches, controls two independent policies:
 
 - **Automatic cache cleanup** starts off. When enabled, a cache above its limit
   is cleared after ten minutes without detected build/install activity. This

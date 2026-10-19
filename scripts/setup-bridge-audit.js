@@ -325,7 +325,7 @@ const run = async (base) => {
     }
     await page.keyboard.press("Enter");
     opened = await dialogRoute();
-    expect(opened.open && opened.palette === 0 && opened.hash === "#devices", "it opens Setup on Devices, after arrow keys too", JSON.stringify(opened));
+    expect(opened.open && opened.palette === 0 && opened.hash === "#access", "it opens Setup on Access, after arrow keys too", JSON.stringify(opened));
     await closeDialog();
 
     // Setup's group sits where a group of commands does, after T3's Actions:

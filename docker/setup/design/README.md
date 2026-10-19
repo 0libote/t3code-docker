@@ -74,3 +74,7 @@ Not in the handoff. Keep them when syncing.
   uv's letter mark from its docs. Rust follows the theme in `currentColor`, and
   Deno's black and white are `--agentmark-ink` and `--agentmark-hole`, as
   OpenCode's are. Added tools keep their monogram.
+- **Icons beyond the handoff's set.** Lucide's `pencil`, `book-open`,
+  `hard-drive`, `folder`, `clock`, `sparkles` and `file-text`, added in `ui.js`
+  beside the handoff's icons for pages it did not draw: editing, instructions,
+  storage, volumes, schedules and skills.

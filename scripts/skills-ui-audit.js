@@ -141,7 +141,7 @@ const checkSelect = async (page, select, theme) => {
    await page.getByRole('button', { name: /unlock/i }).click();
    await page.locator('#app').waitFor();
   }
-  await page.goto(base + (embedded ? '?embed=t3&theme=' + theme : '') + '#context');
+  await page.goto(base + (embedded ? '?embed=t3&theme=' + theme : '') + '#instructions');
   await page.locator('[data-cmd="skills.view"]').first().waitFor();
   await page.locator('#skill-provider').selectOption('claude');
   await page.locator('.tc-skills[data-provider="claude"]').waitFor();
