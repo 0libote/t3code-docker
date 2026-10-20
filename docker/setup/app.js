@@ -3766,6 +3766,7 @@
   document.addEventListener('change', (e) => {
     if (e.target.hasAttribute('data-context-mode')) run('context.provider.mode', { id: e.target.getAttribute('data-context-mode'), mode: e.target.value }, e.target);
     if (e.target.id === 'skill-provider') skillsUI.select(e.target.value);
+    if (e.target.id === 'mcp-provider') mcpUI.select(e.target.value);
     if (e.target.hasAttribute('data-skill-policy')) skillsUI.setState(e.target.getAttribute('data-skill-policy'), e.target.value);
   });
 

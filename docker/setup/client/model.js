@@ -1894,48 +1894,12 @@ const T3Model = (() => {
   // Shared MCP servers: redacted summaries in /status, secrets only in the
   // editor. Provider support is uneven; unsupported providers stay visible
   // with their reason instead of failing the whole section.
-  const MCP_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor', antigravity: 'Antigravity', grok: 'Grok Build', muse: 'Muse Code' };
   const mcpView = (status) => {
     const mcp = status?.context?.mcp || {};
     const shared = mcp.shared || {};
     return { present: Boolean(shared.present), count: shared.count || (shared.servers || []).length, revision: shared.revision || null,
       bytes: shared.bytes || 0, error: shared.error || null, ok: mcp.ok !== false };
   };
-  const mcpSharedRow = (status) => {
-    const view = mcpView(status);
-    const linked = (status?.context?.mcp?.providers || []).filter((row) => (row.linked || []).length)
-      .map((row) => (MCP_NAMES[row.provider] || row.provider) + ' (' + row.linked.length + ')');
-    return {
-      id: 'shared', key: 'mcp:shared', target: 'context-mcp', name: 'Shared MCP servers',
-      mono: 'MC', hue: '--id-toolchain', icon: 'plug',
-      state: view.error ? 'unavailable' : 'ok',
-      status: view.error ? { dot: 'danger', text: view.error }
-        : !view.present ? { text: 'Not written yet · link a provider after you add one' }
-          : { text: plural(view.count, 'server') + (linked.length ? ' · used by ' + listOf(linked) : ' · no provider linked yet') },
-      badge: view.error ? { tone: 'warn', text: 'Unavailable' } : null,
-      action: view.error ? null : { cmd: 'mcp.add', label: view.present ? 'Add server' : 'Add server', icon: 'plus' },
-      menu: [], attention: false,
-    };
-  };
-  const mcpProviderRows = (status) => {
-    const providers = status?.context?.mcp?.providers || [];
-    const harnesses = status?.harnesses;
-    const installed = Array.isArray(harnesses) ? new Set(harnesses.filter((h) => h.installed).map((h) => h.id)) : null;
-    const list = !installed || installed.size === 0 ? providers
-      : providers.filter((row) => installed.has(row.provider) || (row.linked || []).length || (row.ownCount || 0) > 0 || row.error);
-    return list.map((row) => ({
-      id: row.provider, key: 'mcp:' + row.provider, name: MCP_NAMES[row.provider] || row.provider,
-      mark: row.provider, mono: 'MC', hue: '--id-toolchain',
-      status: !row.supported || row.error ? { dot: 'danger', text: row.error || 'Unsupported' }
-        : (row.linked || []).length ? { text: 'Uses ' + listOf(row.linked) + ((row.ownCount || 0) ? ' · +' + plural(row.ownCount, 'own server') : '') }
-          : (row.ownCount || 0) ? { text: plural(row.ownCount, 'own server') + ' · none shared' }
-            : { text: 'No shared servers linked' },
-      note: row.warning || null, path: row.path || null, revision: row.revision || null,
-      linked: row.linked || [], unlinked: row.unlinked || [], diverged: row.diverged || [],
-      ownCount: row.ownCount || 0, supported: row.supported !== false, error: row.error || null,
-    }));
-  };
-
   // Automatic updates: the policy and last run from /status, as the Updates
   // page's switches say them. Pure, so the words are testable without a browser.
   const autoUpdateView = (status, now) => {
@@ -1987,7 +1951,7 @@ const T3Model = (() => {
     readiness, readySummary, needsYou, containerItems, activity, setupBanner, setupFailures,
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
-    mcpView, mcpSharedRow, mcpProviderRows,
+    mcpView,
     navBadges, serverWarnings, diskWarning, attentionCount, summaries, updatesView, runtimeView, autoUpdateView,
     paletteItems, searchPalette,
     redactedDiagnostics, storageView,

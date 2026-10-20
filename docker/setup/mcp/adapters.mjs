@@ -26,8 +26,8 @@ export function toClaudeEntry(s) {
 }
 export function fromClaudeEntry(name, entry) {
   if (!object(entry)) return null;
-  if (entry.type && !["http", "stdio"].includes(entry.type)) return null;
-  if (typeof entry.url === "string" && /^https?:\/\//.test(entry.url)) return { name, type: "remote", url: entry.url, headers: { ...(entry.headers ?? {}) }, enabled: true };
+  if (entry.type && !["http", "streamable-http", "stdio"].includes(entry.type)) return null;
+  if (["http", "streamable-http"].includes(entry.type) && typeof entry.url === "string" && /^https?:\/\//.test(entry.url)) return { name, type: "remote", url: entry.url, headers: { ...(entry.headers ?? {}) }, enabled: true };
   if (typeof entry.command === "string" && entry.command) return { name, type: "local", command: [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])], env: { ...(entry.env ?? {}) }, enabled: true };
   return null;
 }
@@ -56,7 +56,11 @@ export function fromOpenCodeEntry(name, entry) {
   return null;
 }
 export const toCursorEntry = toClaudeEntry;
-export const fromCursorEntry = fromClaudeEntry;
+// Cursor accepts a remote URL without an explicit transport selector.
+export function fromCursorEntry(name, entry) {
+  if (!object(entry) || (entry.type !== undefined && !["http", "stdio"].includes(entry.type))) return null;
+  return fromClaudeEntry(name, entry.type === undefined && typeof entry.url === "string" ? { ...entry, type: "http" } : entry);
+}
 export const isSupportedMcpProvider = (provider) => ["claude", "codex", "opencode", "cursor"].includes(provider);
 
 function jsonDocument(raw, strict) {
@@ -80,8 +84,8 @@ function containerFor(provider, value) {
   if (root !== undefined && !object(root)) throw problem("unsupported", "The MCP configuration has an unsupported server section.");
   // V1 may contain a real server named 'servers'. Its transport distinguishes
   // that entry from V2's server dictionary. Never rewrite V2 back to V1.
-  const v2 = provider === "opencode" && ((Object.hasOwn(root ?? {}, "servers") && !["local", "remote"].includes(root.servers?.type))
-    || (Object.hasOwn(root ?? {}, "timeout") && !["local", "remote"].includes(root.timeout?.type)));
+  const v2 = provider === "opencode" && ["servers", "timeout", "codemode", "protocol"].some((key) =>
+    Object.hasOwn(root ?? {}, key) && !["local", "remote"].includes(root[key]?.type));
   if (v2 && root.servers !== undefined && !object(root.servers)) throw problem("unsupported", "The OpenCode V2 server dictionary must be an object.");
   if (v2 && Object.keys(root).some((k) => !["servers", "timeout", "codemode", "protocol"].includes(k))) {
     throw problem("unsupported", "OpenCode mixes V1 and V2 MCP entries. Repair its MCP section before changing servers.");
@@ -113,7 +117,7 @@ export async function readProviderMcp(io, provider, { home, env = {} }) {
   let entries;
   if (provider === "codex") entries = [...parseMcpToml(snapshot.content)];
   else entries = Object.entries(containerFor(provider, jsonDocument(snapshot.content, provider !== "opencode")).entries);
-  const from = provider === "codex" ? fromCodexEntry : provider === "opencode" ? fromOpenCodeEntry : fromClaudeEntry;
+  const from = provider === "codex" ? fromCodexEntry : provider === "opencode" ? fromOpenCodeEntry : provider === "cursor" ? fromCursorEntry : fromClaudeEntry;
   return { provider, path: file, present: snapshot.exists, revision: snapshot.revision,
     servers: entries.map(([name, entry]) => {
       const canonical = from(name, entry);
@@ -122,7 +126,8 @@ export async function readProviderMcp(io, provider, { home, env = {} }) {
         || (entry.args !== undefined && (!Array.isArray(entry.args) || !entry.args.every(a => typeof a === 'string')))
         || ['env', 'environment', 'headers', 'http_headers'].some(k => entry[k] !== undefined &&
           (!object(entry[k]) || ![null, Object.prototype].includes(Object.getPrototypeOf(entry[k])) || !Object.values(entry[k]).every(v => typeof v === 'string')))
-        || (['claude', 'cursor'].includes(provider) && entry.type !== undefined && entry.type !== (canonical?.type === 'remote' ? 'http' : 'stdio'));
+        || (['claude', 'cursor'].includes(provider) && entry.type !== undefined &&
+          !(canonical?.type === 'remote' ? ['http', 'streamable-http'] : ['stdio']).includes(entry.type));
       return { name, entry, canonical: !malformed && canonical && validateMcpServer(canonical).ok ? canonical : null, extra: hasExtraMcpOptions(provider, entry) };
     }) };
 }

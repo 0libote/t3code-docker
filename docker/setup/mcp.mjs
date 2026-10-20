@@ -121,7 +121,7 @@ export function createMcpService({ home, env = process.env, io, baseDir, ttlMs =
     const server = store.servers.find((entry) => entry.name === name);
     if (!server) throw problem("missing", "This shared MCP server no longer exists. Refresh the list.");
     if (linked && !linkable(provider, server)) {
-      throw problem("unsupported", "This provider has no native enabled flag; disable is represented by unlinking. Unlink instead.");
+      throw problem("unsupported", "Disabled shared definitions can only be applied to Codex and OpenCode. Unlink this agent’s copy instead.");
     }
     const result = await writeProviderMcpEntry(io, provider, { home, env }, name, linked ? toEntryFor(provider, server) : null, { revision: providerRevision });
     invalidate();

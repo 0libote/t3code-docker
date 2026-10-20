@@ -18,7 +18,7 @@ fs.mkdirSync(out, {recursive:true});
       const context = await browser.newContext({viewport,colorScheme:theme,reducedMotion:'reduce'});
       const page = await context.newPage();
       const errors = []; page.on('pageerror',e=>errors.push(e.message));
-      let revision = 'shared-1', nativeRevision = 1, configured = false, differs = false, claudePresent = false, readError = false, pendingRead;
+      let revision = 'shared-1', nativeRevision = 1, configured = false, differs = false, claudePresent = false, readError = false, pendingRead, pendingSave;
       let definition = {name:'probe',type:'local',enabled:true,command:['server'],env:{}};
       const calls = [];
       const snapshot = () => ({ok:true,shared:{present:true,count:1,revision,servers:[{name:'probe',type:definition.type,enabled:definition.enabled,command:definition.command,secretCount:Object.keys(definition.env).length}]},providers:[
@@ -38,6 +38,7 @@ fs.mkdirSync(out, {recursive:true});
           }
           return route.fulfill({json:snapshot()});
         }
+        if (url.pathname.endsWith('/save') && pendingSave) await pendingSave;
         const body = req.postDataJSON(); calls.push({route:url.pathname,body});
         if (url.pathname.endsWith('/link')) {
           assert.equal(body.providerRevision,'native-'+nativeRevision);
@@ -55,6 +56,7 @@ fs.mkdirSync(out, {recursive:true});
       const target = variant==='embedded'?await framed(page,url.href):page;
       if(variant!=='embedded')await page.goto(url.href);
       await unlock(target,key); await visit(target,page,'instructions/mcp');
+      await target.locator('#mcp-provider').selectOption('codex');
       const toggle=target.getByRole('switch',{name:'Codex configured for probe'});
       await toggle.click(); await toggle.waitFor({state:'visible'});
       await target.waitForFunction(()=>document.querySelector('[aria-label="Codex configured for probe"]')?.getAttribute('aria-checked')==='true');
@@ -66,8 +68,22 @@ fs.mkdirSync(out, {recursive:true});
       await target.getByRole('button',{name:'Edit probe',exact:true}).click();
       await target.locator('#mcp-command').waitFor();
       await target.waitForFunction(()=>document.querySelector('#mcp-command')?.value.includes('spaced'));
+      assert.equal(await target.getByRole('button',{name:'Save',exact:true}).isDisabled(),true);
+      // Each transport keeps its own values, including when the DOM is morphed.
+      const originalEnv=await target.locator('#mcp-pairs').inputValue();
+      await target.locator('#mcp-type').selectOption('remote');
+      assert.equal(await target.locator('#mcp-pairs').inputValue(),'{}');
+      await target.locator('#mcp-pairs').fill('{"Authorization":"fixture"}');
+      await target.locator('#mcp-type').selectOption('local');
+      assert.equal(await target.locator('#mcp-pairs').inputValue(),originalEnv);
       await target.locator('#mcp-command').fill('["server", " spaced ", ""]');
+      let finishSave; pendingSave=new Promise(resolve=>{finishSave=resolve;});
       await target.getByRole('button',{name:'Save',exact:true}).click();
+      await target.getByRole('button',{name:'Saving…',exact:true}).waitFor();
+      assert.equal(await target.locator('.tc-mcp-editor [aria-label=Close]').isDisabled(),true);
+      await page.keyboard.press('Escape');
+      assert.equal(await target.locator('.tc-mcp-editor').count(),1);
+      finishSave(); pendingSave=null;
       await target.locator('.tc-mcp-editor').waitFor({state:'detached'});
       assert.deepEqual(definition.command,['server',' spaced ','']);
       assert.deepEqual(definition.env,{MULTILINE:'line one\nline two',SPACES:' value '});
@@ -80,11 +96,14 @@ fs.mkdirSync(out, {recursive:true});
       // A disabled definition with a surviving Claude entry must remain removable.
       definition.enabled=false;claudePresent=true;
       await target.getByRole('button',{name:'Refresh MCP servers'}).click();
+      await target.locator('#mcp-provider').selectOption('claude');
       const claude=target.getByRole('switch',{name:'Claude Code configured for probe'});
       await target.waitForFunction(()=>document.querySelector('[aria-label="Claude Code configured for probe"]')?.getAttribute('aria-checked')==='true');
       await claude.click();await target.getByRole('button',{name:'Unlink',exact:true}).click();
       await target.waitForFunction(()=>document.querySelector('[aria-label="Claude Code configured for probe"]')?.getAttribute('aria-checked')==='false');
       assert.equal(claudePresent,false);
+      await target.locator('#mcp-provider').selectOption('codex');
+      assert.equal(await toggle.getAttribute('aria-checked'),'true');
       // A dismissed read must never populate a newly opened Add dialog.
       let release;pendingRead={promise:new Promise(resolve=>{release=resolve;})};
       await target.getByRole('button',{name:'Edit probe',exact:true}).click();
@@ -100,17 +119,22 @@ fs.mkdirSync(out, {recursive:true});
       await target.getByRole('alert').filter({hasText:'JSON array'}).waitFor();
       assert.equal(calls.length,count,'invalid JSON must not submit');
       assert.equal(await target.locator('#mcp-command').inputValue(),'not JSON');
+      await page.keyboard.press('Escape');
+      await target.getByRole('alertdialog').getByRole('button',{name:'Cancel',exact:true}).click();
+      assert.equal(await target.locator('#mcp-command').inputValue(),'not JSON');
       await target.locator('.tc-mcp-editor [data-mcp=close][aria-label=Close]').click();
+      await target.getByRole('button',{name:'Discard changes',exact:true}).click();
       readError=true;
       await target.getByRole('button',{name:'Edit probe',exact:true}).click();
       await target.getByRole('alert').filter({hasText:'Fixture read failure'}).waitFor();
       assert.equal(await target.getByRole('button',{name:'Save',exact:true}).isDisabled(),true);
+      assert.equal(await target.getByRole('button',{name:'Remove…',exact:true}).isDisabled(),true);
       await page.screenshot({path:path.join(out,`${variant}-${theme}-read-error.png`)});
       await target.locator('.tc-mcp-editor [data-mcp=close][aria-label=Close]').click();
       assert.equal(await target.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
       assert.deepEqual(errors,[]);
       await context.close();
-      console.log(`${variant} ${theme}: fresh toggles, editor revisions, lossless values, apply/unlink, failed and late reads passed.`);
+      console.log(`${variant} ${theme}: agent selection, links, editor revisions, separate transport drafts, guarded saves/discard, apply/unlink, failed and late reads passed.`);
     }
   } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

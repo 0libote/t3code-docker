@@ -12,9 +12,9 @@
     ]
   },
   "providers": [
-    {"provider":"claude","supported":true,"path":"/home/t3/.claude.json","revision":"claude-fixture","linked":["playwright"],"diverged":["docs"],"unlinked":["database"],"ownCount":1},
+    {"provider":"claude","supported":true,"path":"/home/t3/.claude.json","revision":"claude-fixture","linked":["playwright"],"diverged":["docs"],"unlinked":["database"],"ownCount":1,"own":["github"]},
     {"provider":"codex","supported":true,"path":"/home/t3/.codex/config.toml","revision":"codex-fixture","linked":["playwright","docs","database"],"diverged":[],"unlinked":[],"ownCount":0},
-    {"provider":"opencode","supported":true,"path":"/home/t3/.config/opencode/opencode.jsonc","revision":"opencode-fixture","linked":["docs"],"diverged":[],"unlinked":["playwright","database"],"ownCount":2},
+    {"provider":"opencode","supported":true,"path":"/home/t3/.config/opencode/opencode.jsonc","revision":"opencode-fixture","linked":["docs"],"diverged":[],"unlinked":["playwright","database"],"ownCount":2,"own":["github","filesystem"]},
     {"provider":"cursor","supported":true,"path":"/home/t3/.cursor/mcp.json","revision":"cursor-fixture","linked":[],"diverged":[],"unlinked":["playwright","docs","database"],"ownCount":0},
     {"provider":"antigravity","supported":false,"error":"Antigravity uses isolated T3 profiles; shared MCP settings are not integrated yet.","linked":[],"diverged":[],"unlinked":[],"ownCount":0},
     {"provider":"grok","supported":false,"error":"Grok MCP management is not implemented. Grok may inherit Claude and Cursor servers through compatibility imports.","linked":[],"diverged":[],"unlinked":[],"ownCount":0},

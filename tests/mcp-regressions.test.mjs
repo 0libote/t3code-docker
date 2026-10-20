@@ -195,3 +195,34 @@ test("the browser CLI and console can alternate without duplicate TOML or ignore
   }
   assert.match(await fs.readFile(ocFile,'utf8'),/keep/);
 });
+
+
+test("Claude HTTP needs an explicit transport while Cursor accepts its URL default", async (t) => {
+  const f = await fixture(t);
+  const url = 'https://example.test/mcp';
+  await f.svc.create({name:'probe',type:'remote',url,headers:{}});
+  await writeProviderMcpEntry(fs,'claude',f,'probe',{url});
+  assert.equal((await f.svc.list('claude')).shared[0].diverged,true);
+  assert.equal((await readProviderMcp(fs,'claude',f)).servers[0].canonical,null);
+  await writeProviderMcpEntry(fs,'cursor',f,'probe',{url});
+  assert.equal((await f.svc.list('cursor')).shared[0].linked,true);
+  await writeProviderMcpEntry(fs,'claude',f,'probe',{type:'streamable-http',url});
+  assert.equal((await f.svc.list('claude')).shared[0].linked,true);
+});
+
+test("OpenCode V2 global options without servers retain their shape when linking", async (t) => {
+  for (const options of [{codemode:false},{protocol:'legacy'},{timeout:{startup:30000}}]) {
+    const f = await fixture(t), file = path.join(f.home,'.config/opencode/opencode.jsonc');
+    await fs.mkdir(path.dirname(file),{recursive:true});
+    await fs.writeFile(file,JSON.stringify({mcp:options}));
+    const created = await f.svc.create(server('probe'));
+    assert.deepEqual((await readProviderMcp(fs,'opencode',f)).servers,[]);
+    await f.svc.setLink('opencode','probe',true,created.revision);
+    assert.deepEqual(JSON.parse(await fs.readFile(file,'utf8')).mcp,{...options,servers:{probe:{type:'local',command:['server'],disabled:false}}});
+    assert.equal((await f.svc.list('opencode')).shared[0].linked,true);
+  }
+  // V1 servers can use these names; transport-bearing objects are entries.
+  const f = await fixture(t);
+  for (const name of ['servers','timeout','codemode','protocol']) await writeProviderMcpEntry(fs,'opencode',f,name,{type:'local',command:['server']});
+  assert.deepEqual((await readProviderMcp(fs,'opencode',f)).servers.map(s=>s.name),['servers','timeout','codemode','protocol']);
+});

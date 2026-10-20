@@ -127,7 +127,7 @@ test("disabled shared servers link only where the provider has an enabled flag",
   await svc.setLink("codex", "quiet", true, created.revision);
   await svc.setLink("opencode", "quiet", true, created.revision);
   assert.equal((await svc.list("codex")).shared[0].linked, true);
-  await assert.rejects(svc.setLink("claude", "quiet", true, created.revision), /no native enabled flag/);
+  await assert.rejects(svc.setLink("claude", "quiet", true, created.revision), { code: "unsupported" });
   await assert.rejects(svc.setLink("grok", "quiet", true, created.revision), /not implemented/);
 });
 
@@ -167,14 +167,8 @@ const ctx = vm.createContext({ URL });
 vm.runInContext(`${readFileSync(new URL("../docker/setup/client/model.js", import.meta.url), "utf8")}\nthis.M = T3Model;`, ctx);
 const M = ctx.M;
 
-test("MCP view model rows say what each provider uses", () => {
-  const status = { context: { mcp: { ok: true, shared: { present: true, count: 2, servers: [] }, providers: [
-    { provider: "codex", linked: ["playwright"], unlinked: ["notion"], diverged: [], ownCount: 1, supported: true },
-    { provider: "grok", supported: false, error: "unverified", linked: [], unlinked: ["playwright", "notion"], ownCount: 0 },
-  ] } } };
-  assert.equal(M.mcpView(status).count, 2);
-  assert.equal(M.mcpSharedRow(status).status.text, "2 servers · used by Codex (1)");
-  const [codex, grok] = M.mcpProviderRows(status);
-  assert.equal(codex.status.text, "Uses playwright · +1 own server");
-  assert.match(grok.status.text, /unverified/);
+test("MCP view model reports shared counts and read errors", () => {
+  assert.equal(M.mcpView({context:{mcp:{shared:{servers:[{},{}]}}}}).count, 2);
+  assert.equal(M.mcpView({context:{mcp:{ok:false,shared:{error:"Cannot read store"}}}}).error, "Cannot read store");
+  assert.equal(M.mcpView({}).count, 0);
 });
