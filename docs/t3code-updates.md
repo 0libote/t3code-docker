@@ -1,7 +1,7 @@
 # Upgrading T3 Code
 
 Open **Setup → Updates**. **Check for updates** checks T3 Code and every agent
-and tool at once; for T3 Code it reads the official platform package's published
+and tool at once; for T3 Code it reads the official GitHub releases for the selected
 channel, and **Update and restart**
 installs its exact release immediately. It does not use mise's waiting period.
 
@@ -23,7 +23,8 @@ this setup console.
 Idle tracks console and client activity, not agent turns: a turn that
 outlasts the idle time with every client closed can still be interrupted.
 T3 Code keeps running while the release downloads, verifies
-its SHA-512 integrity and checks compatibility with the container supervisor.
+its SHA-256 digest against the release's `SHA256SUMS` and checks compatibility
+with the container supervisor. Image builds use the same verified CLI archives.
 Once ready, only T3 Code restarts. Active agent turns and its terminals stop;
 clients reconnect. The Setup service and container keep running. A failed or
 timed-out startup restores the previous version and SQLite snapshot, and an
@@ -36,6 +37,26 @@ release and the supervisor; an explicitly selected release stays selected
 after an image upgrade. Existing images need one image upgrade to gain this
 feature, and future releases which require a newer supervisor may still need
 a new image.
+
+Upstream stopped publishing the `@t3code/t3-linux-*` npm packages after
+`0.1.1-nightly.20261016.3190`. Images using that source need a new image with
+the GitHub archive updater before they can find newer nightlies. Existing
+downloaded runtimes, release selections and device credentials remain usable.
+Pulling this repository alone does not change an already running container.
+
+Checks use GitHub's public release API without requiring an account or token.
+If `GITHUB_TOKEN` is supplied (for example in CI), it authenticates only release
+API requests; it is never sent to archive or checksum download hosts.
+A GitHub outage, rate limit, missing archive or invalid checksum leaves the
+running version selected and reports the check or installation error. Failed
+checks retain the previous release information and its successful check time.
+Nightly discovery searches up to 100 recent releases, skipping preview and draft
+builds; it reports an error if no nightly can be found within that bound.
+
+Staging checks free space before downloading and extracting, reserving
+64 MiB of headroom for the running server. Downloads without a declared size
+need room for the 300 MiB download limit as well. Space is checked again during
+the download so other activity on the volume can stop staging safely.
 
 After a successful update, obsolete cached releases are removed. The active
 release, its predecessor and the latest known target for each channel are kept.

@@ -48,6 +48,10 @@ Each of these is a bug in the handoff, not a restyle. Keep them when syncing.
    The dark input rule sets `background-color` so it preserves `.tc-select`'s
    chevron. In forced colours, selects use their native indicator and a system
    focus outline, since that mode removes gradients and shadows.
+6. **The enabled switch thumb touched its track's right edge.** Its travel
+   omitted the 2px end inset. Translating by `--_t - 4px` keeps the same 2px
+   clearance above, below, and at the resting end in both states and sizes.
+   `scripts/row-ui-audit.js` measures the rendered thumb in each variant.
 
 ## Local additions
 

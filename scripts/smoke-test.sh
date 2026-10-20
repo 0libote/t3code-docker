@@ -63,8 +63,8 @@ retry() { local n=$1; shift; local i; for i in $(seq 1 "$n"); do
 STATE_MOUNT=""
 PAGE_HTML=""
 SETUP_COPY=""
-# The layout audit runs with its output discarded, so record it here and print
-# it with the failure summary.
+# Keep verbose check output for the failure summary, including live pin
+# lookups and the layout audits which otherwise have their output discarded.
 UI_AUDIT_LOG="${UI_AUDIT_LOG:-}"
 if [ -z "$UI_AUDIT_LOG" ]; then
   UI_AUDIT_LOG="$(mktemp "${TMPDIR:-/tmp}/t3-ui-audit.XXXXXX")"
@@ -219,8 +219,10 @@ fi
 # A freshly built image that immediately asks you to upgrade an agent is a bug
 # in this repo, not in the agent. The pins are what go stale, so assert they
 # were current when the image was built.
-check "the image's pinned versions were current at build time" \
-  "./scripts/bump-versions.sh --check"
+pinned_versions_current() {
+  "$SCRIPT_DIR/bump-versions.sh" --check >>"$UI_AUDIT_LOG" 2>&1
+}
+check "the image's pinned versions were current at build time" pinned_versions_current
 
 printf '\nPairing\n'
 pair_out="$(docker exec "$NAME" t3-pair --no-qr 2>/dev/null || true)"
@@ -465,6 +467,14 @@ t3_update_access_is_gated() {
   [ "$(docker exec "$NAME" curl -sS -o /dev/null -w '%{http_code}' -b /tmp/jar -H 'content-type: application/json' -d '{"channel":"preview","version":"0.0.45"}' http://127.0.0.1:3774/t3/update)" = 400 ]
 }
 check "T3 Code upgrades require sign-in, same-site access and a public channel" t3_update_access_is_gated
+
+# Catch a frozen release source or a changed upstream archive layout on each
+# native architecture. This only stages a nightly in /tmp; the live server,
+# selected release and its database are never changed.
+t3_github_archive_stages() {
+  docker exec -i --user t3 "$NAME" node --input-type=module < "$SCRIPT_DIR/t3-runtime-smoke.mjs" >>"$UI_AUDIT_LOG" 2>&1
+}
+check "a real GitHub nightly stages with Setup and supervisor compatibility" t3_github_archive_stages
 
 # This container carries an older image's settings (see LEGACY_ENV). They are
 # reported, the image still names itself correctly, and nothing it started runs
@@ -1661,7 +1671,7 @@ docker rm -f "${NAME}-boot" >/dev/null 2>&1 || true
 
 printf '\n%d passed, %d failed\n\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ] && [ -s "$UI_AUDIT_LOG" ]; then
-  printf 'Browser/native skill audit output:\n'
+  printf 'Smoke test diagnostics:\n'
   sed 's/^/  /' "$UI_AUDIT_LOG"
   printf '\n'
 fi

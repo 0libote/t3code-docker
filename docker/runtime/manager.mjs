@@ -1,8 +1,9 @@
 import { promises as fs, existsSync } from "node:fs";
 import path from "node:path";
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { packageRelease, unpackRelease, executableVersion } from "./releases.mjs";
 import { CHANNELS, channelOf, exactVersion, databaseName, validScopes, runtimePaths, readJson, writeJson, readSelection, selectedRuntime, operationBusy } from "./state.mjs";
 // The checkout and image deliberately have different infrastructure prefixes.
 const localHarness = new URL("../harness/", import.meta.url);
@@ -13,14 +14,8 @@ const [{ compareVersions }, { acquireLock, liveHolder }, { createFs }] = await P
 export { databaseBusy, operationBusy } from "./state.mjs";
 
 const execute = promisify(execFile);
-const REGISTRY = "https://registry.npmjs.org";
-const LIMIT = 300 * 1024 * 1024;
-export const platformPackage = (arch = process.arch) => {
-  if (!["x64", "arm64"].includes(arch) || process.platform !== "linux") throw new Error("T3 Code updates support Linux amd64 and arm64.");
-  return `@t3code/t3-linux-${arch}`;
-};
+export { packageRelease, executableVersion } from "./releases.mjs";
 const errorText = (error) => String(error?.message ?? error).slice(0, 400);
-export const executableVersion = (output) => /^(?:t3\s+)?v?(\d+\.\d+\.\d+(?:-nightly\.\d{8}\.\d+)?)$/i.exec(String(output).trim())?.[1] ?? null;
 
 /** Ask the release's own CLI which data store it opens, in a disposable home. */
 export async function discoverRuntime(binary, paths, { run = execute, env = process.env } = {}) {
@@ -35,26 +30,6 @@ export async function discoverRuntime(binary, paths, { run = execute, env = proc
     if (names.length !== 1) throw new Error("Could not identify this release's authentication database safely.");
     return { database: names[0], scopes };
   } finally { await fs.rm(probe, { recursive: true, force: true }); }
-}
-
-export async function packageRelease(channel, { fetcher = fetch, arch = process.arch } = {}) {
-  if (!CHANNELS.includes(channel)) throw new Error("Choose Stable or Nightly.");
-  const name = platformPackage(arch);
-  const response = await fetcher(`${REGISTRY}/${name}/${channel === "stable" ? "latest" : "nightly"}`, { signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) throw new Error(`Could not check ${channel} releases (HTTP ${response.status}).`);
-  const pkg = await response.json();
-  if (pkg.name !== name || !exactVersion(pkg.version) || channelOf(pkg.version) !== channel) throw new Error(`The registry did not return a valid ${channel} release.`);
-  const url = new URL(pkg.dist?.tarball ?? "");
-  if (url.origin !== REGISTRY || url.username || url.password || !/^sha512-[A-Za-z0-9+/]+=*$/.test(pkg.dist?.integrity ?? "")) throw new Error("The release has no supported download integrity information.");
-  return { version: pkg.version, name, url: url.href, integrity: pkg.dist.integrity, bytes: pkg.dist.unpackedSize ?? null };
-}
-
-/** Only normal files/directories under npm's package root may be extracted. */
-export function validateArchive(names, types) {
-  for (const name of names.trim().split("\n")) {
-    if (!name.startsWith("package/") || name.split("/").includes("..") || name.includes("\\")) throw new Error("The release archive contains an unsafe path.");
-  }
-  for (const row of types.trim().split("\n")) if (!/^[d-]/.test(row)) throw new Error("The release archive contains unsupported links or entries.");
 }
 
 export async function installRelease(paths, release, { fetcher = fetch, run = execute, env = process.env, bridge = "/usr/local/share/t3-client/setup-bridge.js", onPhase = async () => {} } = {}) {
@@ -74,40 +49,11 @@ export async function installRelease(paths, release, { fetcher = fetch, run = ex
   }
   await fs.mkdir(paths.versions, { recursive: true, mode: 0o700 });
   const stage = await fs.mkdtemp(path.join(paths.versions, ".staging-"));
-  const archive = path.join(stage, "download.tgz");
-  const unpacked = path.join(stage, "package");
   try {
-    const space = await fs.statfs(paths.root);
-    if (release.bytes && Number(space.bavail) * Number(space.bsize) < release.bytes * 2 + LIMIT) throw new Error("There is not enough free space to stage this T3 Code release.");
     await onPhase("downloading");
-    const response = await fetcher(release.url, { redirect: "error", signal: AbortSignal.timeout(180_000) });
-    if (!response.ok || !response.body) throw new Error(`Could not download T3 Code (HTTP ${response.status}).`);
-    const hash = createHash("sha512");
-    let bytes = 0;
-    const file = await fs.open(archive, "wx", 0o600);
-    try {
-      for await (const chunk of response.body) {
-        bytes += chunk.length;
-        if (bytes > LIMIT) throw new Error("The release download exceeded the supported size.");
-        hash.update(chunk);
-        await file.writeFile(chunk);
-      }
-      await file.sync();
-    } finally { await file.close(); }
-    const expected = Buffer.from(release.integrity.slice(7), "base64");
-    const actual = hash.digest();
-    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw new Error("T3 Code's download failed its integrity check. The running version was kept.");
+    const unpacked = await unpackRelease(stage, release, { fetcher, run });
     await onPhase("verifying");
-    const options = { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 };
-    const names = await run("/usr/bin/tar", ["-tzf", archive], options);
-    const types = await run("/usr/bin/tar", ["-tvzf", archive], options);
-    validateArchive(names.stdout, types.stdout);
-    await fs.mkdir(unpacked, { mode: 0o700 });
-    await run("/usr/bin/tar", ["-xzf", archive, "--no-same-owner", "--no-same-permissions", "--strip-components=1", "-C", unpacked], options);
-    const pkg = await readJson(path.join(unpacked, "package.json"));
-    if (pkg?.name !== release.name || pkg.version !== release.version) throw new Error("The downloaded package does not match the requested release.");
     const binary = path.join(unpacked, "t3");
-    await fs.chmod(binary, 0o755);
     await preflight(binary);
     const shellPath = path.join(unpacked, "client/index.html");
     const shell = await fs.readFile(shellPath, "utf8");
@@ -138,7 +84,7 @@ export function createRuntimeManager({ env = process.env, fetcher = fetch, insta
     if (channel !== undefined && !CHANNELS.includes(channel)) throw new Error("Choose Stable or Nightly.");
     checking ??= (async () => {
       await load();
-      const results = await Promise.allSettled(CHANNELS.map((channel) => packageRelease(channel, { fetcher })));
+      const results = await Promise.allSettled(CHANNELS.map((channel) => packageRelease(channel, { fetcher, token: env.GITHUB_TOKEN })));
       checkErrors = {};
       results.forEach((result, index) => {
         if (result.status === "fulfilled") {
@@ -192,7 +138,7 @@ export function createRuntimeManager({ env = process.env, fetcher = fetch, insta
       const phase = async (name) => { operation.phase = name; await writeJson(paths.operation, operation); };
       void (async () => {
         try {
-          const release = await packageRelease(channel, { fetcher });
+          const release = await packageRelease(channel, { fetcher, token: env.GITHUB_TOKEN });
           if (release.version !== version) throw new Error("A newer release was published. Check for updates again before installing.");
           const directory = await install(paths, release, { fetcher, env, bridge: env.T3_SETUP_BRIDGE, onPhase: phase });
           const installed = await readJson(path.join(directory, ".installed.json"));

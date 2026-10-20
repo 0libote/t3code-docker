@@ -564,11 +564,10 @@
     const variant = opts.plain ? null : a.variant === 'primary' && opts.primary === false ? null : a.variant;
     return html`<button class="${btnClass(variant)}" type="button" data-cmd="${a.cmd}" data-target="${row.target}" data-id="${row.id}" data-key="act-${row.key}">${a.icon ? icon(a.icon) : ''}${a.label}</button>`;
   };
-  // A row without a menu keeps its place, so every row's one action lines up.
-  const menuSlot = () => html`<span class="tc-row-menu-slot" aria-hidden="true"></span>`;
+  // Only real controls occupy the action group; its last control uses the row inset.
   const menuButton = (row) => row.menu.length
     ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for ${row.name}" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-' + row.key))}" data-cmd="row.menu" data-target="${row.target}" data-id="${row.id}" data-key="menu-${row.key}">${icon('ellipsis')}</button>`
-    : menuSlot();
+    : '';
 
   /** An agent or toolchain row: tile, name and version, one status line, one verb, a menu. */
   const resourceRow = (row, opts = {}) => {
@@ -584,7 +583,7 @@
         ${noticeError ? html`<span class="tc-status" role="alert">${dot('danger')}<span class="tc-status-text">${noticeError.text}${detail('notice')}</span></span>` : noticeLine(row.notice)}
         ${row.state === 'running' ? opLine(row) : ''}
       </div>
-      <div class="${cx('tc-row-actions', opts.wrap && 'tc-row-actions--wrap')}">${actionButton(row, opts)}${opts.menu === false ? menuSlot() : menuButton(row)}</div>
+      <div class="${cx('tc-row-actions', opts.wrap && 'tc-row-actions--wrap')}">${actionButton(row, opts)}${opts.menu === false ? '' : menuButton(row)}</div>
     </div>`;
   };
 
@@ -744,7 +743,7 @@
     <div class="tc-row tc-row--compact" data-key="needs-${item.key}">
       <span class="tc-tile tc-tile--icon" data-tone="${item.tone}" aria-hidden="true">${icon(item.icon)}</span>
       <div class="tc-row-main"><span class="tc-row-name">${item.name}</span><span class="tc-status"><span class="tc-status-text">${item.text}</span></span></div>
-      <div class="tc-row-actions tc-row-actions--wrap">${itemAction(item.action)}${menuSlot()}</div>
+      <div class="tc-row-actions tc-row-actions--wrap">${itemAction(item.action)}</div>
     </div>`;
   // On a phone each item's one action goes under its words, so they read whole.
   const attentionRow = (item) => (item.icon ? itemRow(item) : resourceRow(item, { plain: true, menu: false, wrap: true }));
@@ -1020,7 +1019,7 @@
           ${url ? html`<span class="tc-status tc-url-line"><span class="tc-mono tc-truncate">${url}</span>${copyButton(url, 'Copy public URL', { iconOnly: true })}${source && source !== 'set here' ? html`<span class="tc-url-source">${source === 'T3_PUBLIC_URL' ? 'from T3_PUBLIC_URL' : source}</span>` : ''}</span>`
             : html`<span class="tc-status">${dot('warn')}<span class="tc-status-text">Not set. Pairing links point at it, so they need one${here && !here.local ? html`: this page is open at ${M.hostOf(here.url)}, and T3 Code answers there too` : ''}.</span></span>`}
         </div>
-        <div class="tc-row-actions tc-row-actions--wrap">${action}${!url && here && !here.local ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for the public URL" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-url'))}" data-cmd="url.menu" data-key="menu-url">${icon('ellipsis')}</button>` : menuSlot()}</div>
+        <div class="tc-row-actions tc-row-actions--wrap">${action}${!url && here && !here.local ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for the public URL" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-url'))}" data-cmd="url.menu" data-key="menu-url">${icon('ellipsis')}</button>` : ''}</div>
       </div>
       ${connectRow(s)}
     </div></div>`;
@@ -1069,7 +1068,7 @@
     return html`<div class="tc-row tc-row--compact" data-key="connect">
       <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('globe')}</span>
       <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">T3 Connect</span>${badge(view.badge)}</div><span class="tc-status tc-status--prose">${view.text}</span></div>
-      <div class="tc-row-actions tc-row-actions--wrap">${view.action ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="${view.action.cmd}">${view.action.icon ? icon(view.action.icon) : ''}${view.action.label}</button>` : ''}${menu.length ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for T3 Connect" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-connect'))}" data-cmd="connect.menu" data-key="menu-connect">${icon('ellipsis')}</button>` : menuSlot()}</div>
+      <div class="tc-row-actions tc-row-actions--wrap">${view.action ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="${view.action.cmd}">${view.action.icon ? icon(view.action.icon) : ''}${view.action.label}</button>` : ''}${menu.length ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for T3 Connect" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-connect'))}" data-cmd="connect.menu" data-key="menu-connect">${icon('ellipsis')}</button>` : ''}</div>
     </div>`;
   };
 
@@ -1243,16 +1242,16 @@
     } else if (p.state === 'starting') {
       title = html`${title}<span class="tc-badge tc-badge--info"><span class="tc-spinner" aria-hidden="true"></span>Publishing</span>`;
       status = html`<span class="tc-status"><span class="tc-status-text">${joinParts([proc, 'waiting for a public hostname…'])}</span></span>${progressBar(null)}`;
-      actions = html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="port.stop" data-id="${p.port}" data-key="stop-${p.port}">Cancel</button>${menuSlot()}`;
+      actions = html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="port.stop" data-id="${p.port}" data-key="stop-${p.port}">Cancel</button>`;
     } else if (p.state === 'failed') {
       title = html`${title}<span class="tc-badge tc-badge--danger">Failed</span>`;
       status = statusLine({ dot: 'danger', text: p.error || 'The tunnel failed' });
-      actions = html`<button class="tc-btn tc-btn--warning tc-btn--sm" type="button" data-cmd="port.publish" data-id="${p.port}" data-key="pub-${p.port}">${icon('refresh-cw')}Retry</button>${menuSlot()}`;
+      actions = html`<button class="tc-btn tc-btn--warning tc-btn--sm" type="button" data-cmd="port.publish" data-id="${p.port}" data-key="pub-${p.port}">${icon('refresh-cw')}Retry</button>`;
     } else {
       status = p.db
         ? html`<span class="tc-status">${dot('warn')}<span class="tc-status-text">${joinParts([proc, 'looks like a database, so Publish asks first'])}</span></span>`
         : html`<span class="tc-status"><span class="tc-status-text">${proc || where ? joinParts([proc, where]) : p.listening ? 'Listening in the container' : 'Not listening right now'}</span></span>`;
-      actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="port.publish" data-id="${p.port}" data-key="pub-${p.port}">${p.db ? 'Publish…' : 'Publish'}</button>${menuSlot()}`;
+      actions = html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="port.publish" data-id="${p.port}" data-key="pub-${p.port}">${p.db ? 'Publish…' : 'Publish'}</button>`;
     }
     return html`
       <div class="${cx('tc-row tc-row--compact', p.expanded && 'tc-row--expanded')}" data-key="port-${p.port}">
@@ -1341,7 +1340,7 @@
         ${keyView.value
           ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="key.hide" data-key="key-toggle">${icon('eye-off')}Hide</button>`
           : html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="key.show" data-key="key-toggle">${icon('eye')}Show</button>`}
-        ${source === 'env' ? menuSlot() : html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for the setup key" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-key'))}" data-cmd="key.menu" data-key="menu-key">${icon('ellipsis')}</button>`}
+        ${source === 'env' ? '' : html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for the setup key" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-key'))}" data-cmd="key.menu" data-key="menu-key">${icon('ellipsis')}</button>`}
       </div>
     </div>`;
   };
@@ -1437,8 +1436,8 @@
         ${s.setupKeySource ? keyRow(s.setupKeySource) : ''}
         ${viaT3(s)
           ? html`<div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('shield-check')}</span><div class="tc-row-main"><span class="tc-row-name">Signed in through T3 Code</span><span class="tc-status tc-status--prose">This browser is paired with T3 Code, which already gives it a terminal here, so the console didn’t ask for the key. Revoking it under Access ends both.</span></div></div>`
-          : html`<div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('lock')}</span><div class="tc-row-main"><span class="tc-row-name">Lock this browser</span><span class="tc-status">Ends this browser’s session here. Coming back takes the setup key.</span></div><div class="tc-row-actions tc-row-actions--wrap"><button class="tc-btn tc-btn--sm" type="button" data-cmd="lock">Lock</button>${menuSlot()}</div></div>`}
-        <div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('circle-stop')}</span><div class="tc-row-main"><span class="tc-row-name">Turn the console off</span><span class="tc-status tc-status--prose">Set <code>T3_SETUP_ENABLED=0</code> once you’re set up. Pairing then takes <code class="tc-nowrap">t3-pair</code> in a shell.</span></div><div class="tc-row-actions tc-row-actions--wrap">${copyButton('T3_SETUP_ENABLED=0', 'Copy setting', { ghost: false, size: 'tc-btn--sm' })}${menuSlot()}</div></div>
+          : html`<div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('lock')}</span><div class="tc-row-main"><span class="tc-row-name">Lock this browser</span><span class="tc-status">Ends this browser’s session here. Coming back takes the setup key.</span></div><div class="tc-row-actions tc-row-actions--wrap"><button class="tc-btn tc-btn--sm" type="button" data-cmd="lock">Lock</button></div></div>`}
+        <div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('circle-stop')}</span><div class="tc-row-main"><span class="tc-row-name">Turn the console off</span><span class="tc-status tc-status--prose">Set <code>T3_SETUP_ENABLED=0</code> once you’re set up. Pairing then takes <code class="tc-nowrap">t3-pair</code> in a shell.</span></div><div class="tc-row-actions tc-row-actions--wrap">${copyButton('T3_SETUP_ENABLED=0', 'Copy setting', { ghost: false, size: 'tc-btn--sm' })}</div></div>
       </div></div>`)}`;
   };
 
@@ -1466,15 +1465,15 @@
           <div class="tc-row-title"><span class="tc-row-name">T3 Code</span><span class="tc-version">${view.version || 'unknown version'}${targetVersion ? html` <span class="tc-version-arrow" aria-label="to">→</span> ${targetVersion}` : ''}</span>${busy ? html`<span class="tc-badge tc-badge--info"><span class="tc-spinner" aria-hidden="true"></span>${view.busy ? 'Updating' : 'Checking'}</span>` : ''}</div>
           <span class="tc-status">${view.available || view.busy ? '' : view.checkError ? dot('warn') : ''}<span class="tc-status-text"><span>${state}</span>${view.checkedAt && !busy ? ' · checked ' + M.relTime(view.checkedAt, now()) : ''}</span></span>
         </div>
-        <div class="tc-row-actions">${view.available || view.error ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="t3.update" data-channel="${view.error ? view.operation.channel : view.channel}"${busy || !view.supported || !view.latest ? raw(' disabled') : ''}>${view.error ? 'Retry update' : 'Update and restart'}</button>` : ''}${menuSlot()}</div>
+        <div class="tc-row-actions">${view.available || view.error ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="t3.update" data-channel="${view.error ? view.operation.channel : view.channel}"${busy || !view.supported || !view.latest ? raw(' disabled') : ''}>${view.error ? 'Retry update' : 'Update and restart'}</button>` : ''}</div>
       </div>
       <div class="tc-row tc-row--compact tc-runtime-channel">
         <div class="tc-row-main"><span class="tc-row-name">Release channel</span><span class="tc-status">${view.channel === 'nightly' ? 'New features first. Nightly builds can be less reliable.' : 'Published releases, for everyday work.'}</span></div>
-        <div class="tc-row-actions tc-runtime-channel-actions"><div class="tc-seg" role="group" aria-label="T3 Code release channel">${['stable', 'nightly'].map((channel) => html`<button type="button" data-cmd="t3.channel" data-channel="${channel}" aria-pressed="${view.channel === channel}" ${busy || !view.supported ? 'disabled' : ''}>${channel === 'stable' ? icon('shield-check') : icon('moon')}${channel === 'stable' ? 'Stable' : 'Nightly'}</button>`)}</div>${menuSlot()}</div>
+        <div class="tc-row-actions tc-runtime-channel-actions"><div class="tc-seg" role="group" aria-label="T3 Code release channel">${['stable', 'nightly'].map((channel) => html`<button type="button" data-cmd="t3.channel" data-channel="${channel}" aria-pressed="${view.channel === channel}" ${busy || !view.supported ? 'disabled' : ''}>${channel === 'stable' ? icon('shield-check') : icon('moon')}${channel === 'stable' ? 'Stable' : 'Nightly'}</button>`)}</div></div>
       </div>
       ${view.error || view.checkError ? html`<div class="tc-runtime-notes">
         ${view.error ? notice('danger', 'circle-alert', 'The last T3 Code update didn’t finish', view.error) : ''}
-        ${view.checkError ? notice('warn', 'globe', 'Couldn’t check for T3 Code updates', 'The last known releases are shown. Check again once the registry is reachable.') : ''}
+        ${view.checkError ? notice('warn', 'globe', 'Couldn’t check for T3 Code updates', view.checkError + ' The last known releases are shown.') : ''}
       </div>` : ''}
       ${!view.supported || view.separateHistory ? html`<div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>${!view.supported
         ? 'Updating in place needs the container’s T3 Code supervisor. Pull a newer image once to turn it on.'
@@ -1499,7 +1498,7 @@
       <div class="tc-row-main"><span class="tc-row-name" id="auto-${kind}-name">${label}</span><span class="tc-status" id="auto-${kind}-desc">${auto.schedule[kind]}${on && auto.lastChecked[kind] ? ' ' + auto.lastChecked[kind] : ''}</span></div>
       <div class="tc-row-actions">
         ${on ? html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="auto.schedule" data-id="${kind}" data-key="auto-schedule-${kind}" aria-label="Change the ${label} schedule">Schedule</button>` : ''}
-        <label class="tc-switch-hit" for="auto-toggle-${kind}"><button class="tc-switch" id="auto-toggle-${kind}" type="button" role="switch" aria-checked="${String(on)}" aria-labelledby="auto-${kind}-name" aria-describedby="auto-${kind}-desc" data-cmd="auto.toggle" data-id="${kind}" data-key="auto-toggle-${kind}"${busy ? raw(' disabled aria-busy="true"') : ''}></button></label>${menuSlot()}
+        <label class="tc-switch-hit" for="auto-toggle-${kind}"><button class="tc-switch" id="auto-toggle-${kind}" type="button" role="switch" aria-checked="${String(on)}" aria-labelledby="auto-${kind}-name" aria-describedby="auto-${kind}-desc" data-cmd="auto.toggle" data-id="${kind}" data-key="auto-toggle-${kind}"${busy ? raw(' disabled aria-busy="true"') : ''}></button></label>
       </div>
     </div>`;
   };
@@ -1584,7 +1583,7 @@
       </div>
       <div class="tc-row-actions tc-row-actions--wrap">
         ${row.mode && !row.error ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="context.provider.edit" data-id="${row.id}" aria-label="Edit what ${row.name} reads"${busy ? raw(' disabled') : ''}>${icon('pencil')}Edit</button>` : ''}
-        <select class="tc-select tc-select--sm tc-context-mode" data-context-mode="${row.id}" aria-label="What ${row.name} reads"${busy || row.error ? raw(' disabled') : ''}>${options.map(([mode, label, off]) => html`<option value="${mode}"${(row.mode || 'none') === mode ? raw(' selected') : ''}${off ? raw(' disabled') : ''}>${label}${off ? ' (write it first)' : ''}</option>`)}</select>${menuSlot()}
+        <select class="tc-select tc-select--sm tc-context-mode" data-context-mode="${row.id}" aria-label="What ${row.name} reads"${busy || row.error ? raw(' disabled') : ''}>${options.map(([mode, label, off]) => html`<option value="${mode}"${(row.mode || 'none') === mode ? raw(' selected') : ''}${off ? raw(' disabled') : ''}>${label}${off ? ' (write it first)' : ''}</option>`)}</select>
       </div>
     </div>`;
   };
