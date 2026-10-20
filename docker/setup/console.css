@@ -121,9 +121,6 @@ html.tc-locked { overflow: hidden; }
 /* Names and values that must not part at a hyphen. */
 .tc-nowrap { white-space: nowrap; }
 
-/* A row without a menu keeps the menu's place, so actions line up down a list. */
-.tc-row-menu-slot { display: block; width: var(--control-sm); height: 1px; flex: none; }
-.tc-root[data-density="touch"] .tc-row-menu-slot { width: 32px; }
 /* A port's tile says whether it is out on the internet. */
 .tc-tile--port-state[data-live] { color: var(--info-text); }
 
@@ -157,7 +154,6 @@ html.tc-locked { overflow: hidden; }
 @media (max-width: 639.98px) {
   .tc-row:has(> .tc-row-actions--wrap) { grid-template-columns: auto minmax(0, 1fr); }
   .tc-row > .tc-row-actions--wrap { grid-column: 2 / -1; justify-content: flex-start; }
-  .tc-row-actions--wrap > .tc-row-menu-slot { display: none; }
   /* Only rows without a leading tile put actions under the whole main block.
      A stale plain modifier must not move an icon row into a single column. */
   .tc-row--plain:not(:has(> .tc-tile, > .tc-row-lead)):has(> .tc-row-actions--wrap) { grid-template-columns: minmax(0, 1fr); }
@@ -590,7 +586,6 @@ html.tc-locked { overflow: hidden; }
 @media (max-width: 639.98px) {
   .tc-runtime-channel { grid-template-columns: minmax(0, 1fr); }
   .tc-runtime-channel-actions { width: 100%; }
-  .tc-runtime-channel-actions > .tc-row-menu-slot { display: none; }
   .tc-runtime-channel .tc-seg { display: flex; flex: 1 1 auto; }
   .tc-runtime-channel .tc-seg button { flex: 1; min-height: 32px; justify-content: center; }
 }

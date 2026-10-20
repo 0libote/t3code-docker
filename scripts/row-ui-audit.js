@@ -17,6 +17,10 @@ const actions = (update) => `<div class="tc-row-actions tc-row-actions--wrap">${
 const main = (title, text) => `<div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">${title}</span></div><span class="tc-status tc-status--prose">${text}</span></div>`;
 const section = (id, title, row) => `<section class="tc-section" id="${id}"><div class="tc-section-head"><h2 class="tc-section-title">${title}</h2></div><div class="tc-group"><div class="tc-list">${row}</div></div></section>`;
 const provider = (update) => `<div class="tc-row tc-row--compact tc-row--plain"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon}</span><div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">Provider updates</span><span class="tc-badge tc-badge--ok">Auto</span><span class="tc-badge">${update ? "3 available" : "Up to date"}</span></div><span class="tc-status tc-status--prose">Providers not checked yet · On · check every 3h · update after 30m idle</span></div>${actions(update)}</div>`;
+const switches = (disabled) => [false, true].map((large) => [false, true].map((on) => {
+  const control = `<button class="tc-switch" type="button" role="switch" aria-label="${large ? "Large" : "Small"} ${on ? "on" : "off"} ${disabled ? "disabled" : "enabled"}" aria-checked="${on}"${disabled ? " disabled" : ""}></button>`;
+  return large ? `<label class="tc-switch-hit">${control}</label>` : control;
+}).join("")).join("");
 const fixtures = [
   section("reported-row", "Updates", provider(false)),
   section("available-row", "Updates available", provider(true)),
@@ -25,6 +29,7 @@ const fixtures = [
   section("connect-row", "With an icon", `<div class="tc-row tc-row--compact"><span class="tc-tile tc-tile--icon">${icon}</span>${main("T3 Connect", "Connect this server to reach it from your other devices.")}<div class="tc-row-actions tc-row-actions--wrap">${button("Connect")}</div></div>`),
   section("plain-single", "Single action", `<div class="tc-row tc-row--compact tc-row--plain">${main("Lock console", "Ends this browser’s session. You will need the setup key to come back.")}${button("Lock")}</div>`),
   section("plain-empty", "Without an action", `<div class="tc-row tc-row--compact tc-row--plain">${main("Signed in through T3 Code", "This browser is paired with T3 Code.")}</div>`),
+  ...[false, true].map((disabled) => section(`switches-${disabled}`, "Switches", `<div class="tc-row tc-row--compact tc-row--plain">${main(disabled ? "Disabled" : "Enabled", "Both sizes and states.")}<div class="tc-row-actions">${switches(disabled)}</div></div>`)),
 ].join("");
 
 const geometry = () => {
@@ -51,6 +56,19 @@ const geometry = () => {
     for (const child of row.querySelectorAll(".tc-btn, .tc-row-main")) {
       const r = child.getBoundingClientRect();
       if (r.left < parent.left || r.right > parent.right || r.bottom > parent.bottom) issues.push(`${id}: content outside row`);
+    }
+  }
+  for (const control of document.querySelectorAll(".tc-switch")) {
+    const track = control.getBoundingClientRect(), thumb = getComputedStyle(control, "::after");
+    const [x, y = 0] = thumb.translate === "none" ? [0, 0] : thumb.translate.split(/\s+/).map(parseFloat);
+    const width = parseFloat(thumb.width), height = parseFloat(thumb.height);
+    const left = parseFloat(thumb.left) + x, top = parseFloat(thumb.top) + y;
+    const right = track.width - left - width, bottom = track.height - top - height;
+    const end = control.getAttribute("aria-checked") === "true" ? right : left;
+    if (![width, height, left, top, right, bottom].every(Number.isFinite)
+      || Math.min(left, top, right, bottom) < 0
+      || Math.abs(width - height) > 0.5 || Math.abs(top - bottom) > 0.5 || Math.abs(end - top) > 0.5) {
+      issues.push(`${control.getAttribute("aria-label")}: switch thumb insets must balance (left ${left}, right ${right}, top ${top}, bottom ${bottom})`);
     }
   }
   return issues;
@@ -81,7 +99,7 @@ const geometry = () => {
       await frame.evaluate(() => document.fonts.ready);
       const issues = await frame.evaluate(geometry);
       if (issues.length) failures.push({ tag, issues });
-      else console.log(`PASS ${tag}: icon/text alignment, action placement, containment (7 row variants)`);
+      else console.log(`PASS ${tag}: icon/text alignment, action placement, containment (9 row variants), balanced switch thumbs (8 variants)`);
       await context.close();
     }
   } finally { await browser.close(); }
