@@ -11,6 +11,8 @@ const API = "https://api.github.com/repos/pingdotgg/t3code/releases";
 const DOWNLOAD = "https://github.com/pingdotgg/t3code/releases/download";
 const LIMIT = 300 * 1024 * 1024;
 const UNPACKED_LIMIT = 1024 * 1024 * 1024;
+const HEADROOM = 64 * 1024 * 1024;
+const SPACE_CHECK_BYTES = 8 * 1024 * 1024;
 const PAGE_SIZE = 20;
 const downloadHosts = new Set(["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]);
 export const executableVersion = (output) => /^(?:t3\s+)?v?(\d+\.\d+\.\d+(?:-nightly\.\d{8}\.\d+)?)$/i.exec(String(output).trim())?.[1] ?? null;
@@ -109,32 +111,63 @@ export function validateArchive(names, types, root) {
   return unpacked;
 }
 
+const spaceError = () => new Error("There is not enough free space to stage this T3 Code release. Free up storage and try again.");
+async function writableSpace(directory, required) {
+  const space = await fs.statfs(directory);
+  const available = Number(space.bavail) * Number(space.bsize) - HEADROOM;
+  if (available < required) throw spaceError();
+  return available;
+}
+
 export async function unpackRelease(stage, release, { fetcher = fetch, run = execute } = {}) {
   if (!["x64", "arm64"].some((arch) => archiveStem(release.version, arch) === release.root)
     || release.url !== `${DOWNLOAD}/v${release.version}/${release.root}.tar.gz`
     || !/^sha256-[a-f0-9]{64}$/.test(release.integrity)) throw new Error("Invalid release download or checksum information.");
   const archive = path.join(stage, "download.tgz");
   const destination = path.join(stage, "contents");
+  // Refuse a full volume before requesting the archive. Once headers arrive,
+  // admit its actual size (or the download limit when no length is supplied).
+  await writableSpace(stage, 1);
   const response = await get(release.url, { fetcher, timeout: 180_000 });
   const hash = createHash("sha256");
   let bytes = 0;
-  const file = await fs.open(archive, "wx", 0o600);
+  let file;
   try {
+    const header = response.headers.get("content-length");
+    const length = /^\d+$/.test(header ?? "") && Number.isSafeInteger(Number(header)) ? Number(header) : null;
+    if (length !== null && length > LIMIT) throw new Error("The release download exceeded the supported size.");
+    let writable = await writableSpace(stage, length ?? LIMIT);
+    let checkedAt = 0;
+    file = await fs.open(archive, "wx", 0o600);
     for await (const chunk of response.body) {
-      bytes += chunk.length;
-      if (bytes > LIMIT) throw new Error("The release download exceeded the supported size.");
+      if (bytes + chunk.length > LIMIT) throw new Error("The release download exceeded the supported size.");
+      if (length !== null && bytes + chunk.length > length) throw new Error("T3 Code's download did not match its declared size.");
+      // Other processes keep using this volume while T3 runs. Recheck in
+      // bounded batches, and before a chunk could consume the reserved space.
+      if (bytes + chunk.length - checkedAt >= SPACE_CHECK_BYTES || chunk.length > writable) {
+        writable = await writableSpace(stage, length === null ? chunk.length : length - bytes);
+        checkedAt = bytes;
+      }
+      writable -= chunk.length;
       hash.update(chunk);
       await file.writeFile(chunk);
+      bytes += chunk.length;
     }
+    if (length !== null && bytes !== length) throw new Error("T3 Code's download did not match its declared size.");
     await file.sync();
-  } finally { await file.close(); }
+  } catch (error) {
+    if (error.code === "ENOSPC" || error.code === "EDQUOT") throw spaceError();
+    throw error;
+  } finally {
+    try { await file?.close(); }
+    finally { await response.body?.cancel().catch(() => {}); }
+  }
   if (!timingSafeEqual(hash.digest(), Buffer.from(release.integrity.slice(7), "hex"))) throw new Error("T3 Code's download failed its integrity check. The running version was kept.");
   const options = { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, LC_ALL: "C" } };
   const names = await run("/usr/bin/tar", ["-tzf", archive], options);
   const types = await run("/usr/bin/tar", ["-tvzf", archive], options);
   const unpacked = validateArchive(names.stdout, types.stdout, release.root);
-  const space = await fs.statfs(stage);
-  if (Number(space.bavail) * Number(space.bsize) < unpacked + 64 * 1024 * 1024) throw new Error("There is not enough free space to stage this T3 Code release.");
+  await writableSpace(stage, unpacked);
   await fs.mkdir(destination, { mode: 0o700 });
   await run("/usr/bin/tar", ["-xzf", archive, "--no-same-owner", "--no-same-permissions", "--strip-components=1", "-C", destination], options);
   const pkg = await readJson(path.join(destination, "package.json"));

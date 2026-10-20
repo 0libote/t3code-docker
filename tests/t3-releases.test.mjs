@@ -51,8 +51,99 @@ else if (process.argv[2] === 'auth') {
   const env = { ...process.env, T3CODE_HOME: path.join(root, "home") };
   const bridge = path.join(root, "bridge.js");
   await fs.writeFile(bridge, 'console.log("data-t3-setup-entry");');
-  return { root, release, env, bridge, fetcher: async (url) => new Response(url.endsWith("/SHA256SUMS") ? `${release.integrity.slice(7)}  ${stem}.tar.gz\n` : bytes), paths: runtimePaths(env) };
+  return { root, release, env, bridge, bytes, fetcher: async (url) => new Response(url.endsWith("/SHA256SUMS") ? `${release.integrity.slice(7)}  ${stem}.tar.gz\n` : bytes), paths: runtimePaths(env) };
 }
+
+const MiB = 1024 * 1024;
+const space = (available) => ({ bavail: available, bsize: 1 });
+
+test("a full state volume refuses staging before requesting an archive and keeps live state", async (t) => {
+  const f = await fixture(t);
+  const selection = { schema: 1, channel: "stable", version: null };
+  await writeJson(f.paths.selection, selection);
+  await fs.mkdir(path.join(f.paths.home, "userdata"), { recursive: true });
+  const live = path.join(f.paths.home, "userdata/state.sqlite");
+  await fs.writeFile(live, "live database");
+  let fetched = false;
+  t.mock.method(fs, "statfs", async () => space(64 * MiB));
+  await assert.rejects(installRelease(f.paths, f.release, { ...f, fetcher: async () => { fetched = true; } }), /free space.*Free up storage/);
+  assert.equal(fetched, false);
+  assert.deepEqual(await fs.readdir(f.paths.versions), []);
+  assert.deepEqual(await readJson(f.paths.selection), selection);
+  assert.equal(await fs.readFile(live, "utf8"), "live database");
+});
+
+test("a known archive size admits a small release without requiring the whole download limit", async (t) => {
+  const f = await fixture(t);
+  t.mock.method(fs, "statfs", async () => space(65 * MiB));
+  const staged = await installRelease(f.paths, f.release, { ...f,
+    fetcher: async () => new Response(f.bytes, { headers: { "content-length": String(f.bytes.length) } }),
+  });
+  assert.equal((await readJson(path.join(staged, ".installed.json"))).version, VERSION);
+});
+
+test("insufficient download space cancels the response without creating an archive", async (t) => {
+  const f = await fixture(t);
+  t.mock.method(fs, "statfs", async () => space(64 * MiB + f.bytes.length - 1));
+  for (const header of [String(f.bytes.length), undefined, "invalid", "-1"]) {
+    const stage = await fs.mkdtemp(path.join(f.root, "stage-"));
+    let cancelled = false;
+    const fetcher = async () => new Response(new ReadableStream({ cancel() { cancelled = true; } }), {
+      headers: header === undefined ? {} : { "content-length": header },
+    });
+    await assert.rejects(unpackRelease(stage, f.release, { fetcher }), /free space/);
+    assert.equal(cancelled, true, `response cancelled for length ${header}`);
+    assert.deepEqual(await fs.readdir(stage), []);
+  }
+});
+
+test("unknown download lengths require space for the bounded download and reserved headroom", async (t) => {
+  const f = await fixture(t);
+  t.mock.method(fs, "statfs", async () => space(364 * MiB));
+  const staged = await installRelease(f.paths, f.release, f);
+  assert.equal((await readJson(path.join(staged, ".installed.json"))).version, VERSION);
+});
+
+test("disk pressure during a stream stops before writing into the server's reserved space", async (t) => {
+  const f = await fixture(t);
+  const stage = await fs.mkdtemp(path.join(f.root, "stage-"));
+  let checks = 0, cancelled = false;
+  t.mock.method(fs, "statfs", async () => space(++checks < 3 ? 512 * MiB : 68 * MiB - 1));
+  const fetcher = async () => new Response(new ReadableStream({
+    pull(controller) { controller.enqueue(Buffer.alloc(4 * MiB)); },
+    cancel() { cancelled = true; },
+  }));
+  await assert.rejects(unpackRelease(stage, f.release, { fetcher }), /free space/);
+  assert.equal((await fs.stat(path.join(stage, "download.tgz"))).size, 4 * MiB);
+  assert.equal(cancelled, true);
+  assert.equal(await readJson(f.paths.selection), null);
+});
+
+test("disk space is checked again before extraction and failed staging is removed", async (t) => {
+  const f = await fixture(t);
+  let checks = 0;
+  const commands = [];
+  t.mock.method(fs, "statfs", async () => space(++checks < 3 ? 512 * MiB : 64 * MiB));
+  await assert.rejects(installRelease(f.paths, f.release, { ...f, run: async (command, args, options) => {
+    commands.push(args[0]);
+    return execute(command, args, options);
+  } }), /free space/);
+  assert.deepEqual(commands, ["-tzf", "-tvzf"], "an admitted download never implies extraction is safe");
+  assert.deepEqual(await fs.readdir(f.paths.versions), []);
+});
+
+test("oversized or misleading content lengths never publish or execute a runtime", async (t) => {
+  const f = await fixture(t);
+  for (const length of [301 * MiB, f.bytes.length - 1, f.bytes.length + 1]) {
+    let executed = false;
+    await assert.rejects(installRelease(f.paths, f.release, { ...f,
+      fetcher: async () => new Response(f.bytes, { headers: { "content-length": String(length) } }),
+      run: async () => { executed = true; },
+    }), /supported size|declared size/);
+    assert.equal(executed, false);
+    assert.deepEqual(await fs.readdir(f.paths.versions), []);
+  }
+});
 
 test("both architectures resolve public GitHub releases and their exact checksums", async () => {
   for (const arch of ["x64", "arm64"]) for (const channel of ["stable", "nightly"]) {

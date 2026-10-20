@@ -53,6 +53,11 @@ checks retain the previous release information and its successful check time.
 Nightly discovery searches up to 100 recent releases, skipping preview and draft
 builds; it reports an error if no nightly can be found within that bound.
 
+Staging checks free space before downloading and extracting, reserving
+64 MiB of headroom for the running server. Downloads without a declared size
+need room for the 300 MiB download limit as well. Space is checked again during
+the download so other activity on the volume can stop staging safely.
+
 After a successful update, obsolete cached releases are removed. The active
 release, its predecessor and the latest known target for each channel are kept.
 
