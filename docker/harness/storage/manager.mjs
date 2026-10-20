@@ -14,6 +14,50 @@ const IDLE_MS = 10 * 60 * 1000;
 const TERMINAL = new Set(["succeeded", "failed", "interrupted"]);
 const errorResult = (code, error) => ({ ok: false, code, error });
 
+// Every cache the Storage page can measure and clear. Each one is removed
+// only by its own tool's native command, only when the user chooses it, and
+// only after the shared install lock and a build/install activity check.
+const CACHES = [
+  { id: "go", label: "Go build cache", budgetKey: "goBudgetBytes",
+    description: "Compiled packages. Builds recreate these when needed." },
+  { id: "gomod", label: "Go module cache", budgetKey: "gomodBudgetBytes",
+    description: "Downloaded modules. Builds fetch them again when needed." },
+  { id: "npm", label: "npm downloads", budgetKey: "npmBudgetBytes",
+    description: "Downloaded packages. Installs fetch them again when needed." },
+  { id: "uv", label: "uv cache", budgetKey: "uvBudgetBytes",
+    description: "Downloaded Python packages. uv fetches them again when needed." },
+  { id: "bun", label: "Bun install cache", budgetKey: "bunBudgetBytes",
+    description: "Downloaded packages. Installs fetch them again when needed." },
+  { id: "mise", label: "mise caches", budgetKey: "miseBudgetBytes",
+    description: "Version metadata and backend downloads. mise refetches them when needed." },
+  { id: "deno", label: "Deno cache", budgetKey: "denoBudgetBytes",
+    description: "Cached remote modules. Deno fetches them again when needed." },
+];
+export const CACHE_IDS = CACHES.map((cache) => cache.id);
+export const cacheLabel = (id) => CACHES.find((cache) => cache.id === id)?.label || id;
+
+// The exact directory a cache row measures. npm's row covers downloads only:
+// its npx tools, like credentials and projects, are never counted as cleanup.
+const cacheTarget = (id, detected) => {
+  if (!detected?.[id]) return null;
+  return id === "npm" ? path.join(detected.npm.path, "_cacache") : detected[id].path;
+};
+
+// Native cleanup commands. Bun's cache command needs a project directory, so
+// it runs in a scratch project; nothing of the user's is ever placed there.
+const cacheCommand = (id, detected, scratch) => {
+  switch (id) {
+    case "go": return { argv: [detected.go.executable, "clean", "-cache"], env: { GOCACHE: detected.go.path } };
+    case "gomod": return { argv: [detected.gomod.executable, "clean", "-modcache"], env: { GOMODCACHE: detected.gomod.path } };
+    case "npm": return { argv: [detected.npm.executable, ...(detected.npm.argsPrefix || []), "cache", "clean", "--force", "--cache", detected.npm.path] };
+    case "uv": return { argv: [detected.uv.executable, "cache", "clean"], env: { UV_CACHE_DIR: detected.uv.path } };
+    case "bun": return { argv: [detected.bun.executable, "pm", "cache", "rm"], cwd: scratch };
+    case "mise": return { argv: [detected.mise.executable, "-y", "cache", "clear"] };
+    case "deno": return { argv: [detected.deno.executable, "clean"], env: { DENO_DIR: detected.deno.path } };
+    default: return null;
+  }
+};
+
 export function createStorageManager(options = {}) {
   const env = options.env ?? process.env;
   const userHome = path.resolve(options.home ?? env.HOME ?? os.homedir());
@@ -91,11 +135,11 @@ export function createStorageManager(options = {}) {
         if (!roots.some((root) => inside(root, stateRoot))) roots.push(stateRoot);
         const { sizes, partial } = await measure(roots);
         const bytes = (target) => sizes[target] ?? 0;
-        const go = caches.go.path;
-        const npm = path.join(caches.npm.path, "_cacache");
+        const targets = {};
+        for (const def of CACHES) targets[def.id] = cacheTarget(def.id, caches);
         // A configured cache may be deeper than the bounded home traversal.
         // Measure those locations explicitly rather than report a false zero.
-        const missing = [go, npm, path.join(dataDir, "installs"), ...["userdata", "agents", "backups", "container-runtime"].map((part) => path.join(stateRoot, part))]
+        const missing = [...Object.values(targets).filter(Boolean), path.join(dataDir, "installs"), ...["userdata", "agents", "backups", "container-runtime"].map((part) => path.join(stateRoot, part))]
           .filter((target) => sizes[target] === undefined);
         if (missing.length) {
           const extra = await measure(missing);
@@ -103,18 +147,21 @@ export function createStorageManager(options = {}) {
           Object.assign(sizes, extra.sizes);
         }
         const guards = {};
-        for (const [id, target] of [["go", go], ["npm", npm]]) {
-          guards[id] = await checkPath(target, { userHome, cacheHome: env.XDG_CACHE_HOME, stateRoot, workspace, io });
+        // A harness fixture or older detector may only know some caches. Rows
+        // are shown only for caches with a detected location; cleanup of an
+        // unknown cache reports it as unavailable instead of guessing.
+        const present = CACHES.filter((def) => targets[def.id]);
+        for (const def of present) {
+          guards[def.id] = await checkPath(targets[def.id], { userHome, cacheHome: env.XDG_CACHE_HOME, stateRoot, workspace, io });
         }
         const row = (id, label, target, description, kind = "data", extra = {}) => ({ id, label, path: target,
           bytes: bytes(target), description, kind, ...extra });
-        const cacheRow = (id, label, target, description) => row(id, label, target, description, "cache", {
-          cleanable: Boolean(guards[id].safe && caches[id].executable),
-          unavailable: guards[id].reason || caches[id].unavailable || (!caches[id].executable ? "The cache tool is not available." : null),
+        const cacheRow = (def) => row(def.id, def.label, targets[def.id], def.description, "cache", {
+          cleanable: Boolean(guards[def.id].safe && caches[def.id]?.executable),
+          unavailable: guards[def.id].reason || caches[def.id]?.unavailable || (!caches[def.id]?.executable ? "The cache tool is not available." : null),
         });
         const categories = [
-          cacheRow("go", "Go build cache", go, "Compiled packages. Builds recreate these when needed."),
-          cacheRow("npm", "npm downloads", npm, "Downloaded packages. Installs fetch them again when needed."),
+          ...present.map(cacheRow),
           row("tools", "Agents & toolchains", path.join(dataDir, "installs"), "Installed agents, language runtimes, and added tools."),
           row("history", "Threads & agent data", path.join(stateRoot, "userdata"), "Conversation history, attachments, and server data."),
           row("agents", "Agent profiles", path.join(stateRoot, "agents"), "Agent conversations, sign-ins, and provider settings."),
@@ -123,9 +170,9 @@ export function createStorageManager(options = {}) {
         ];
         const cacheRoots = [path.join(userHome, ".cache"), path.join(userHome, ".npm")];
         const otherCaches = cacheRoots.reduce((sum, target) => sum + bytes(target), 0)
-          - categories.filter((item) => ["go", "npm"].includes(item.id) && cacheRoots.some((root) => inside(root, item.path))).reduce((sum, item) => sum + item.bytes, 0);
+          - categories.filter((item) => CACHE_IDS.includes(item.id) && cacheRoots.some((root) => inside(root, item.path))).reduce((sum, item) => sum + item.bytes, 0);
         categories.push({ id: "other-caches", label: "Other caches", bytes: Math.max(0, otherCaches),
-          path: cacheRoots.join(" · "), kind: "data", description: "Browser, package manager, model, and npx caches." });
+          path: cacheRoots.join(" · "), kind: "data", description: "Browser, npx, and other tool caches. Managed caches above are cleared individually." });
         const assignedHome = categories.filter((item) => item.id !== "other-caches" && inside(userHome, item.path)).reduce((sum, item) => sum + item.bytes, 0) + Math.max(0, otherCaches);
         categories.push({ id: "other-home", label: "Other home data", bytes: Math.max(0, bytes(userHome) - assignedHome),
           path: userHome, kind: "data", description: "Other files in the persistent home." });
@@ -166,8 +213,8 @@ export function createStorageManager(options = {}) {
 
   async function clean(ids, { onStarted, onProgress, automatic = false, dryRun = false } = {}) {
     await ready;
-    if (!Array.isArray(ids) || !ids.length || ids.length > 2 || new Set(ids).size !== ids.length || ids.some((id) => !["go", "npm"].includes(id))) {
-      return errorResult("invalid-cache", "Choose Go, npm, or both caches.");
+    if (!Array.isArray(ids) || !ids.length || ids.length > CACHES.length || new Set(ids).size !== ids.length || ids.some((id) => !CACHE_IDS.includes(id))) {
+      return errorResult("invalid-cache", `Choose one or more caches: ${CACHES.map((cache) => cache.id).join(", ")}.`);
     }
     if (!caches) {
       try { caches = await detect({ env, userHome, run }); } catch { /* reported below */ }
@@ -191,9 +238,11 @@ export function createStorageManager(options = {}) {
       const selected = [];
       for (const id of ids) {
         const cache = caches[id];
-        const target = id === "npm" ? path.join(cache.path, "_cacache") : cache.path;
-        const guard = await checkPath(target, { userHome, cacheHome: env.XDG_CACHE_HOME, stateRoot, workspace, io });
-        if (!guard.safe || !cache.executable) return errorResult("unavailable", guard.reason || "The cache tool is not available.");
+        const target = cacheTarget(id, caches);
+        const guard = target
+          ? await checkPath(target, { userHome, cacheHome: env.XDG_CACHE_HOME, stateRoot, workspace, io })
+          : { safe: false, reason: "Cache information is not available. Refresh and try again." };
+        if (!guard.safe || !cache?.executable) return errorResult("unavailable", guard.reason || cache?.unavailable || "The cache tool is not available.");
         selected.push({ id, bytes: 0, target, ...cache });
       }
       if (!dryRun) {
@@ -213,17 +262,26 @@ export function createStorageManager(options = {}) {
       if (dryRun) return { ok: true, dryRun: true, caches: selected.map(({ id, bytes }) => ({ id, bytes })), estimatedBytes };
       await report({ estimatedBytes });
       let reclaimedBytes = 0;
+      let scratch = null;
+      const scratchProject = async () => {
+        if (scratch) return scratch;
+        scratch = path.join(temporary, "bun-cache-project");
+        await io.mkdir(scratch, { recursive: true });
+        try { await io.access(path.join(scratch, "package.json")); }
+        catch { await io.writeFile(path.join(scratch, "package.json"), '{"private":true,"name":"t3-storage-bun-cache"}\n'); }
+        return scratch;
+      };
       for (const cache of selected) {
         const guard = await checkPath(cache.target, { userHome, cacheHome: env.XDG_CACHE_HOME, stateRoot, workspace, io });
         if (!guard.safe) throw new Error(guard.reason);
         // Recheck after measurement: a build may have started while scanning.
         if (buildsOrInstallsRunning(await processes())) throw new Error("A build or installation started. Cleanup was stopped; try again when it finishes.");
         await report({ phase: cache.id, reclaimedBytes });
-        const argv = cache.id === "go" ? [cache.executable, ...(cache.argsPrefix || []), "clean", "-cache"]
-          : [cache.executable, ...(cache.argsPrefix || []), "cache", "clean", "--force", "--cache", cache.path];
-        const result = await run(argv, { cwd: userHome, timeoutMs: 5 * 60 * 1000,
-          env: { ...env, GOCACHE: caches.go.path, GOTOOLCHAIN: "local", MISE_AUTO_INSTALL: "false", MISE_NOT_FOUND_SYSTEM_FALLBACK: "false" } });
-        if (result.error || result.code !== 0) throw new Error(`${cache.id === "go" ? "Go" : "npm"} cache cleanup failed. Retry, or use the terminal for details.`);
+        const command = cacheCommand(cache.id, caches, cache.id === "bun" ? await scratchProject() : null);
+        if (!command) throw new Error(`${cacheLabel(cache.id)} cannot be cleaned automatically. Clean it from a terminal.`);
+        const result = await run(command.argv, { cwd: command.cwd || userHome, timeoutMs: 5 * 60 * 1000,
+          env: { ...env, GOTOOLCHAIN: "local", MISE_AUTO_INSTALL: "false", MISE_NOT_FOUND_SYSTEM_FALLBACK: "false", ...command.env } });
+        if (result.error || result.code !== 0) throw new Error(`${cacheLabel(cache.id)} cleanup failed. Retry, or use the terminal for details.`);
         const after = await measure([cache.target]);
         if (after.partial) throw new Error("Cleanup finished, but its result could not be fully measured. Refresh storage.");
         const remainingBytes = after.sizes[cache.target] ?? 0;
@@ -250,7 +308,11 @@ export function createStorageManager(options = {}) {
     if (stopped || facts.operation?.state === "running") return;
     await readPreferences();
     if (!facts.policy.automatic || facts.policyError || facts.partial || !facts.at) return;
-    const ids = facts.categories.filter((item) => item.cleanable && item.bytes > facts.policy[`${item.id}BudgetBytes`]).map((item) => item.id);
+    const overBudget = (item) => {
+      const budgetKey = CACHES.find((cache) => cache.id === item.id)?.budgetKey;
+      return budgetKey && Number.isFinite(facts.policy[budgetKey]) && item.bytes > facts.policy[budgetKey];
+    };
+    const ids = facts.categories.filter((item) => item.cleanable && overBudget(item)).map((item) => item.id);
     if (!ids.length) return;
     if (buildsOrInstallsRunning(await processes())) { lastActivityAt = now(); return; }
     if (now() - lastActivityAt < IDLE_MS) return;
@@ -313,7 +375,7 @@ export function createStorageManager(options = {}) {
       if (facts.operation?.finishedAt > (facts.at || 0)) {
         for (const [id, bytes] of Object.entries(facts.operation.cacheResults || {})) {
           const row = facts.categories.find((item) => item.id === id);
-          if (row && ["go", "npm"].includes(id) && Number.isFinite(bytes) && bytes >= 0) row.bytes = bytes;
+          if (row && CACHE_IDS.includes(id) && Number.isFinite(bytes) && bytes >= 0) row.bytes = bytes;
         }
         facts.cleanableBytes = facts.categories.filter((item) => item.cleanable).reduce((sum, item) => sum + item.bytes, 0);
       }

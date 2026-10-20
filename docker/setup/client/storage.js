@@ -53,9 +53,10 @@ const T3StorageUI = (() => {
       if (!rows.length || busy() || current.refreshing) return;
       lastToast?.close();
       const amount = rows.reduce((sum, row) => sum + row.bytes, 0);
-      const title = rows.length === 1 ? 'Clear ' + (rows[0].id === 'go' ? 'Go build cache' : 'npm downloads') + '?' : 'Clear build and download caches?';
+      const title = rows.length === 1 ? 'Clear ' + rows[0].label + '?' : 'Clear ' + rows.length + ' caches?';
       const confirmed = await Kit.confirm({
-        title, body: 'Approximately ' + M.formatBytes(amount) + ' can be freed. These files are recreated when needed.',
+        title, body: 'Approximately ' + M.formatBytes(amount) + ' can be freed'
+          + (rows.length === 1 ? '' : ' from ' + rows.map((row) => row.label).join(', ')) + '. These files are recreated when needed.',
         consequences: [
           { icon: 'history', text: 'The next build or package install may take longer.' },
           { icon: 'shield-check', text: 'Project files, sign-ins, conversations, and installed tools are kept.' },
@@ -73,6 +74,18 @@ const T3StorageUI = (() => {
       await reload(); render();
     };
 
+    // Every cache clears only by its own tool's command; rows the tool cannot
+    // clean explain themselves instead of offering a Clear button.
+    const cacheIcon = (id) => id === 'go' ? 'wrench' : 'download';
+    const BUDGET_FIELDS = [
+      ['storage-go-limit', 'goBudgetBytes', 'Go build cache limit'],
+      ['storage-gomod-limit', 'gomodBudgetBytes', 'Go module cache limit'],
+      ['storage-npm-limit', 'npmBudgetBytes', 'npm cache limit'],
+      ['storage-uv-limit', 'uvBudgetBytes', 'uv cache limit'],
+      ['storage-bun-limit', 'bunBudgetBytes', 'Bun cache limit'],
+      ['storage-mise-limit', 'miseBudgetBytes', 'mise cache limit'],
+      ['storage-deno-limit', 'denoBudgetBytes', 'Deno cache limit'],
+    ];
     const preferences = () => {
       lastToast?.close();
       const initial = view().policy;
@@ -85,12 +98,11 @@ const T3StorageUI = (() => {
               <h2 class="tc-dialog-title" id="storage-settings-title">Storage maintenance</h2>
               <p class="tc-dialog-desc">Choose what happens in the background. Your projects, conversations, and sign-ins are kept.</p>
               <div class="tc-storage-setting">
-                <div><label class="tc-row-name" id="storage-auto-label">Automatic cache cleanup</label><p class="tc-hint" id="storage-auto-help">Clear Go and npm caches over their limits after 10 minutes without build or install activity.</p></div>
+                <div><label class="tc-row-name" id="storage-auto-label">Automatic cache cleanup</label><p class="tc-hint" id="storage-auto-help">Clear each cache over its limit after 10 minutes without build or install activity.</p></div>
                 <span class="tc-storage-toggle"><button type="button" class="tc-switch" role="switch" aria-labelledby="storage-auto-label" aria-describedby="storage-auto-help" aria-checked="${String(draft.automatic)}" data-storage-switch="automatic"></button></span>
               </div>
               <div class="tc-storage-budgets">
-                <div class="tc-field"><label class="tc-label" for="storage-go-limit">Go cache limit</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="500" step="0.25" id="storage-go-limit" value="${draft.goBudgetBytes / GB}" inputmode="decimal" aria-describedby="storage-limit-help"><span>GB</span></div></div>
-                <div class="tc-field"><label class="tc-label" for="storage-npm-limit">npm cache limit</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="500" step="0.25" id="storage-npm-limit" value="${draft.npmBudgetBytes / GB}" inputmode="decimal" aria-describedby="storage-limit-help"><span>GB</span></div></div>
+                ${BUDGET_FIELDS.map(([id, key, label]) => html`<div class="tc-field"><label class="tc-label" for="${id}">${label}</label><div class="tc-storage-input"><input class="tc-input" type="number" min="0.25" max="500" step="0.25" id="${id}" value="${draft[key] / GB}" inputmode="decimal" aria-describedby="storage-limit-help"><span>GB</span></div></div>`)}
               </div>
               <p class="tc-hint" id="storage-limit-help">A cache is cleared when it exceeds its limit. The next build or install may take longer.</p>
               <div class="tc-storage-setting tc-storage-setting--border">
@@ -110,9 +122,8 @@ const T3StorageUI = (() => {
       });
       panel.querySelector('form').addEventListener('submit', async (event) => {
         event.preventDefault(); if (saving) return;
-        const fields = [['#storage-go-limit', 'goBudgetBytes'], ['#storage-npm-limit', 'npmBudgetBytes']];
-        for (const [selector, key] of fields) {
-          const input = panel.querySelector(selector), value = Number(input.value);
+        for (const [id, key] of BUDGET_FIELDS) {
+          const input = panel.querySelector('#' + id), value = Number(input.value);
           input.removeAttribute('aria-invalid');
           if (!input.value.trim() || !Number.isFinite(value) || value < 0.25 || value > 500) {
             input.setAttribute('aria-invalid', 'true'); message('Enter a cache limit between 0.25 and 500 GB.'); input.focus(); return;
@@ -188,7 +199,7 @@ const T3StorageUI = (() => {
         <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>The disk is shared with anything else on it; the sizes below are this container’s.</span></div></div>`, refresh)}
         ${part('storage-cache-title', 'Caches', html`<div class="tc-group">
           <div class="tc-list">${current.cacheRows.length ? current.cacheRows.map((row) => html`<div class="tc-row tc-row--compact" data-key="storage-${row.id}">
-            <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon(row.id === 'go' ? 'wrench' : 'download')}</span>
+            <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon(cacheIcon(row.id))}</span>
             <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">${row.label}</span><span class="tc-storage-size">${row.size}</span></div><span class="tc-status"><span class="tc-status-text">${row.unavailable || row.description}</span></span></div>
             <div class="tc-row-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="storage.clean" data-id="${row.id}" data-key="storage-clean-${row.id}" aria-label="Clear ${row.label}"${disabled(running || current.refreshing || !row.canClean)}>Clear</button></div></div>`)
             : html`<div class="tc-storage-empty" role="status">${current.error ? 'Couldn’t measure the caches. Measure again in a moment.' : html`<span class="tc-spinner" aria-hidden="true"></span>Measuring…`}</div>`}</div>

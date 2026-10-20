@@ -100,28 +100,63 @@ export async function detectCaches({ env, userHome, run }) {
   const nodeBin = env.T3_INFRA_NODE || process.execPath;
   const builtinNpm = path.join(path.dirname(nodeBin), "npm");
   const npmBin = await fs.access(builtinNpm, 1).then(() => builtinNpm, () => executableOnPath("npm", env));
+  const uvBin = await executableOnPath("uv", env);
+  const bunBin = await executableOnPath("bun", env);
+  const miseBin = await executableOnPath("mise", env);
+  const denoBin = await executableOnPath("deno", env);
   const query = async (bin, args) => {
     if (!bin) return null;
     const result = await run([bin, ...args], { env: safeEnv, cwd: userHome, timeoutMs: 15_000 });
     const value = result.code === 0 && !result.error ? result.stdout.trim() : "";
     return path.isAbsolute(value) ? path.resolve(value) : null;
   };
-  const [go, npm] = await Promise.all([
-    query(goBin, ["env", "GOCACHE"]), query(npmBin ? nodeBin : null, [npmBin, "config", "get", "cache"]),
+  const queryJson = async (bin, args) => {
+    if (!bin) return null;
+    try {
+      const result = await run([bin, ...args], { env: safeEnv, cwd: userHome, timeoutMs: 15_000 });
+      if (result.code !== 0 || result.error) return null;
+      const value = JSON.parse(result.stdout);
+      return value && typeof value === "object" ? value : null;
+    } catch { return null; }
+  };
+  const defaultCache = (part) => path.join(env.XDG_CACHE_HOME || path.join(userHome, ".cache"), part);
+  const bunHome = env.BUN_INSTALL && path.isAbsolute(env.BUN_INSTALL) ? path.resolve(env.BUN_INSTALL) : path.join(userHome, ".bun");
+  const [go, gomod, npm, uv, bun, mise, denoInfo] = await Promise.all([
+    query(goBin, ["env", "GOCACHE"]), query(goBin, ["env", "GOMODCACHE"]),
+    query(npmBin ? nodeBin : null, [npmBin, "config", "get", "cache"]),
+    query(uvBin, ["cache", "dir"]), query(bunBin, ["pm", "cache"]), query(miseBin, ["cache", "path"]),
+    queryJson(denoBin, ["info", "--json"]),
   ]);
+  const miseDir = mise || (env.MISE_CACHE_DIR && path.isAbsolute(env.MISE_CACHE_DIR) ? path.resolve(env.MISE_CACHE_DIR) : null);
+  const deno = denoInfo && typeof denoInfo.denoDir === "string" && path.isAbsolute(denoInfo.denoDir)
+    ? path.resolve(denoInfo.denoDir) : null;
+  const install = (bin, tool) => !bin ? `Install ${tool} to clean this cache.` : null;
   return {
-    go: { path: go || path.join(env.XDG_CACHE_HOME || path.join(userHome, ".cache"), "go-build"), executable: go ? goBin : null,
+    go: { path: go || defaultCache("go-build"), executable: go ? goBin : null,
       unavailable: !goBin ? "Install Go to clean this cache." : !go ? "Go cache settings could not be read. Refresh or check your Go configuration." : null },
+    gomod: { path: gomod || path.join(userHome, "go", "pkg", "mod"), executable: gomod ? goBin : null,
+      unavailable: !goBin ? "Install Go to clean this cache." : !gomod ? "Go module settings could not be read. Refresh or check your Go configuration." : null },
     npm: { path: npm || path.join(userHome, ".npm"), executable: npm ? nodeBin : null, argsPrefix: npmBin ? [npmBin] : [],
       unavailable: !npmBin ? "Install Node/npm to clean this cache." : !npm ? "npm cache settings could not be read. Refresh or check your npm configuration." : null },
+    uv: { path: uv || defaultCache("uv"), executable: uv ? uvBin : null,
+      unavailable: install(uvBin, "uv") || (!uv ? "uv cache settings could not be read. Refresh or check your uv configuration." : null) },
+    bun: { path: bun || path.join(bunHome, "install", "cache"), executable: bunBin,
+      unavailable: install(bunBin, "Bun") },
+    mise: { path: miseDir || defaultCache("mise"), executable: miseBin,
+      unavailable: install(miseBin, "mise") },
+    deno: { path: deno || defaultCache("deno"), executable: deno ? denoBin : null,
+      unavailable: install(denoBin, "Deno") || (!deno ? "Deno cache settings could not be read. Refresh or check your Deno configuration." : null) },
   };
 }
 
 /** Only ordinary cache directories under known cache roots can be cleaned.
+ * Bun keeps its install cache under ~/.bun and Go keeps modules under ~/go;
+ * both are tool-owned locations cleaned only by those tools' own commands.
  * Symlink components and custom locations are visible but never auto-cleaned. */
 export async function checkCachePath(target, { userHome, cacheHome, stateRoot, workspace, io = fs }) {
   if (!path.isAbsolute(target)) return { safe: false, reason: "This cache has a custom location. Clean it from a terminal." };
-  const cacheRoots = [cacheHome, path.join(userHome, ".cache"), path.join(userHome, ".npm")].filter((p) => p && inside(userHome, p));
+  const cacheRoots = [cacheHome, path.join(userHome, ".cache"), path.join(userHome, ".npm"),
+    path.join(userHome, ".bun"), path.join(userHome, "go")].filter((p) => p && inside(userHome, p));
   if (!cacheRoots.some((root) => inside(root, target)) || target === userHome
       || inside(stateRoot, target) || inside(workspace, target)) {
     return { safe: false, reason: "This cache is outside the managed cache locations. Clean it from a terminal." };
@@ -171,8 +206,15 @@ export function buildsOrInstallsRunning(snapshot) {
   if (!snapshot.complete) return true;
   return snapshot.processes.some(({ args, executable }) => {
     const bin = path.basename(executable || args[0] || "");
-    if (["go", "compile", "link"].includes(bin)) return true;
+    if (["go", "compile", "link", "rustc", "bunx"].includes(bin)) return true;
+    // A Deno process of any kind can populate the Deno cache; cleaning while
+    // one runs risks removing files from under it.
+    if (bin === "deno") return true;
+    if (bin === "cargo" && args.slice(1).some((arg) => /^(build|run|test|bench|install|fetch|update|add|remove|package|publish)$/.test(arg))) return true;
+    if (bin === "mise" && args.slice(1).some((arg) => /^(install|i|upgrade|up|uninstall)$/.test(arg))) return true;
     const packageTool = args.findIndex((arg) => /(?:^|\/)(?:npm(?:-cli\.js)?|pnpm(?:\.cjs)?|yarn(?:\.js)?|bun)$/.test(arg));
-    return packageTool !== -1 && args.slice(packageTool + 1).some((arg) => /^(install|ci|add|update|upgrade|exec|dlx)$/.test(arg));
+    if (packageTool !== -1 && args.slice(packageTool + 1).some((arg) => /^(install|ci|add|update|upgrade|exec|dlx)$/.test(arg))) return true;
+    const uvTool = args.findIndex((arg) => /(?:^|\/)(?:uv|pip(?:\d(?:\.\d+)?)?)$/.test(arg));
+    return uvTool !== -1 && args.slice(uvTool + 1).some((arg) => /^(install|sync|add|lock|pip|tool|venv|download|wheel)$/.test(arg));
   });
 }

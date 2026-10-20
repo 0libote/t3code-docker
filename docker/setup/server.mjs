@@ -2271,7 +2271,7 @@ const startStorageWork = async (storage, kind, input) => {
     ? storage.trimVersions({ ...options, token: input.token }) : storage.clean(input.ids, options))
     .then((result) => {
       if (result.ok) recordEvent(kind === "versions" ? "storage.trimmed" : "storage.cleaned",
-        kind === "versions" ? "Trimmed older tool versions" : "Cleared build and download caches");
+        kind === "versions" ? "Trimmed older tool versions" : "Cleared caches");
       return { http: storageHttpStatus(result), body: result };
     }).catch(() => ({ http: 503, body: { ok: false, error: "Storage cleanup could not finish. Refresh and try again." } }));
   return Promise.race([started, done]);

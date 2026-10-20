@@ -179,8 +179,67 @@ test("opt-in budget maintenance waits for ten quiet minutes and stops for build 
 });
 
 test("package commands executed through node and Go compiler processes block cleanup", () => {
-  for (const args of [["node", "/tools/npm-cli.js", "ci"], ["pnpm", "install"], ["yarn", "add", "foo"], ["bun", "install"], ["/go/pkg/tool/linux/compile", "-o", "obj"]]) assert.equal(buildsOrInstallsRunning({ complete: true, processes: [{ args }] }), true, args.join(" "));
-  assert.equal(buildsOrInstallsRunning({ complete: true, processes: [{ args: ["node", "server.mjs"] }] }), false);
+  for (const args of [["node", "/tools/npm-cli.js", "ci"], ["pnpm", "install"], ["yarn", "add", "foo"], ["bun", "install"], ["/go/pkg/tool/linux/compile", "-o", "obj"],
+    ["uv", "pip", "install", "requests"], ["uv", "sync"], ["pip", "install", "x"], ["pip3", "download", "x"], ["cargo", "build"], ["cargo", "fetch"], ["rustc", "--crate-name", "x"],
+    ["deno", "run", "main.ts"], ["mise", "install"], ["mise", "up"], ["bunx", "prettier"], ["go", "build", "./..."]]) assert.equal(buildsOrInstallsRunning({ complete: true, processes: [{ args }] }), true, args.join(" "));
+  for (const args of [["node", "server.mjs"], ["mise", "ls"], ["mise", "cache", "path"], ["cargo", "--version"], ["uv", "--version"], ["git", "status"]]) assert.equal(buildsOrInstallsRunning({ complete: true, processes: [{ args }] }), false, args.join(" "));
+});
+
+test("uv, bun and mise caches clear through their own native commands", async (t) => {
+  const f = await fixture(t);
+  const targets = { uv: path.join(f.home, ".cache/uv"), bun: path.join(f.home, ".bun/install/cache"), mise: path.join(f.home, ".cache/mise") };
+  for (const dir of Object.values(targets)) {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, "blob"), Buffer.alloc(8192, 7));
+  }
+  const seen = [];
+  const manager = createStorageManager({ ...f.base,
+    detectCaches: async () => Object.fromEntries(Object.entries(targets).map(([id, target]) => [id, { path: target, executable: `/bin/${id}` }])),
+    run: async (args, options) => {
+      seen.push({ args, cwd: options.cwd });
+      const id = args[0] === "/bin/uv" ? "uv" : args[0] === "/bin/bun" ? "bun" : "mise";
+      await fs.rm(targets[id], { recursive: true, force: true });
+      return { code: 0, stdout: "", stderr: "" };
+    } });
+  t.after(() => manager.stop());
+  await manager.refresh();
+  const preview = await manager.clean(["uv", "bun", "mise"], { dryRun: true });
+  assert.equal(preview.ok, true); assert.ok(preview.estimatedBytes >= 3 * 8192);
+  const result = await manager.clean(["uv", "bun", "mise"]);
+  assert.equal(result.ok, true); assert.ok(result.reclaimedBytes >= 3 * 8192);
+  assert.deepEqual(seen.map((call) => call.args), [["/bin/uv", "cache", "clean"], ["/bin/bun", "pm", "cache", "rm"], ["/bin/mise", "-y", "cache", "clear"]]);
+  // Bun runs in a scratch project, never in the user's home or workspace.
+  assert.ok(seen[1].cwd.endsWith("bun-cache-project") && !seen[1].cwd.startsWith(f.home));
+  assert.ok(seen[1].cwd.startsWith(f.base.temporary));
+  for (const file of f.sentinels) assert.equal((await fs.readFile(file)).length, 8192);
+});
+
+test("a cache whose tool is missing is reported, not cleaned", async (t) => {
+  const f = await fixture(t);
+  const manager = createStorageManager({ ...f.base,
+    detectCaches: async () => ({ deno: { path: path.join(f.home, ".cache/deno"), executable: null, unavailable: "Install Deno to clean this cache." } }) });
+  t.after(() => manager.stop());
+  await manager.refresh();
+  assert.equal((await manager.clean(["deno"])).code, "unavailable");
+  assert.equal((await manager.clean(["go"])).code, "unavailable");
+  assert.equal(f.calls.length, 0);
+});
+
+test("new cache budgets validate like the existing ones", async (t) => {
+  const f = await fixture(t);
+  for (const key of ["uvBudgetBytes", "bunBudgetBytes", "miseBudgetBytes", "denoBudgetBytes", "gomodBudgetBytes"]) {
+    assert.equal((await f.manager.setPolicy({ [key]: GB / 8 })).ok, false, key);
+    assert.equal((await f.manager.setPolicy({ [key]: 501 * GB })).ok, false, key);
+  }
+  assert.equal((await f.manager.setPolicy({ ...DEFAULT_POLICY, uvBudgetBytes: 3 * GB, bunBudgetBytes: GB, miseBudgetBytes: 4 * GB, denoBudgetBytes: GB, gomodBudgetBytes: GB })).ok, true);
+});
+
+test("CLI clean all previews only cleanable caches and accepts new budget flags", async (t) => {
+  const f = await fixture(t), out = [], err = [];
+  const run = (args) => runStorageCli(args, { create: () => createStorageManager(f.base), out: (line) => out.push(line), err: (line) => err.push(line) });
+  assert.equal(await run(["clean", "all", "--yes"]), 0); assert.equal(f.calls.length, 2);
+  assert.equal(await run(["policy", "--uv-budget", "3", "--mise-budget", "oops"]), 2);
+  assert.equal(await run(["policy", "--uv-budget", "3", "--bun-budget", "1.5", "--mise-budget", "4", "--deno-budget", "0.5", "--gomod-budget", "2"]), 0);
 });
 
 test("CLI defaults to previews, requires explicit apply, and rejects irrelevant flags", async (t) => {

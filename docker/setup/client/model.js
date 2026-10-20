@@ -1774,16 +1774,23 @@ const T3Model = (() => {
   // ----------------------------------------------------------- diagnostics --
   /** Storage presentation stays pure so loading, partial scans, disk pressure,
    * and interrupted operations can be verified without a browser. */
+  const currentCacheLabel = (phase, cacheRows) => {
+    const row = (cacheRows || []).find((item) => item.id === phase);
+    return row ? (row.label || phase) : null;
+  };
+  // Rows written before per-tool caches existed carry no kind; Go and npm
+  // were the only caches then, so those ids stay cache rows.
+  const isCacheRow = (item) => item.kind === 'cache' || (!item.kind && ['go', 'npm'].includes(item.id));
   const storageView = (status, now) => {
     const storage = status && status.storage || {};
     const operation = storage.operation || null;
     const categories = Array.isArray(storage.categories) ? storage.categories : [];
     const size = (item) => Number.isFinite(item.bytes) && item.bytes >= 0 ? item.bytes : null;
-    const cacheRows = categories.filter((item) => ['go', 'npm'].includes(item.id)).map((item) => ({
+    const cacheRows = categories.filter(isCacheRow).map((item) => ({
       ...item, bytes: size(item), size: formatBytes(size(item)),
       canClean: Boolean(item.cleanable && size(item) > 0),
     }));
-    const dataRows = categories.filter((item) => !['go', 'npm'].includes(item.id)).map((item) => ({ ...item, bytes: size(item), size: formatBytes(size(item)) }))
+    const dataRows = categories.filter((item) => !isCacheRow(item)).map((item) => ({ ...item, bytes: size(item), size: formatBytes(size(item)) }))
       .sort((a, b) => (b.bytes || 0) - (a.bytes || 0));
     const ids = cacheRows.filter((item) => item.canClean).map((item) => item.id);
     const cleanableBytes = cacheRows.filter((item) => item.canClean).reduce((sum, item) => sum + item.bytes, 0);
@@ -1799,9 +1806,8 @@ const T3Model = (() => {
       busy: Boolean(operation && operation.state === 'running'),
       loading: !storage.at, refreshing: Boolean(storage.refreshing),
       checked: storage.at ? 'Checked ' + relTime(storage.at, now) : 'Not measured yet',
-      progress: !operation || operation.state !== 'running' ? null : operation.phase === 'go' ? 'Clearing Go build cache…'
-        : operation.phase === 'npm' ? 'Clearing npm downloads…' : operation.phase === 'versions' ? 'Trimming older tool versions…' : 'Checking caches…',
-      policy: storage.policy || { automatic: false, retainManagedVersions: true, goBudgetBytes: 10_000_000_000, npmBudgetBytes: 2_000_000_000 },
+      progress: !operation || operation.state !== 'running' ? null : operation.phase === 'versions' ? 'Trimming older tool versions…' : currentCacheLabel(operation.phase, cacheRows) ? 'Clearing ' + currentCacheLabel(operation.phase, cacheRows) + '…' : 'Checking caches…',
+      policy: storage.policy || { automatic: false, retainManagedVersions: true, goBudgetBytes: 10_000_000_000, npmBudgetBytes: 2_000_000_000, uvBudgetBytes: 2_000_000_000, bunBudgetBytes: 2_000_000_000, miseBudgetBytes: 5_000_000_000, denoBudgetBytes: 1_000_000_000, gomodBudgetBytes: 2_000_000_000 },
     };
   };
 

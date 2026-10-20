@@ -220,6 +220,7 @@ html.tc-locked { overflow: hidden; }
 .tc-storage-removable { color: var(--accent-text); }
 @media (max-width: 639.98px) {
   .tc-storage-number { font-size: 21px; line-height: 28px; }
+  .tc-storage-settings .tc-storage-budgets { grid-template-columns: 1fr; }
 }
 
 /* Readiness collapsed to one line once everything is done. */

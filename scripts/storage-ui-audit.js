@@ -44,14 +44,20 @@ const geometry = () => {
       const page = await context.newPage(), errors = [], requests = [];
       page.on('pageerror', (error) => errors.push(error.message));
       let state = 'ready', policyFailure = false;
-      const policy = { schema:1, automatic:false, retainManagedVersions:true, goBudgetBytes:10*GB, npmBudgetBytes:2*GB };
+      const policy = { schema:1, automatic:false, retainManagedVersions:true,
+        goBudgetBytes:10*GB, gomodBudgetBytes:2*GB, npmBudgetBytes:2*GB, uvBudgetBytes:2*GB, bunBudgetBytes:2*GB, miseBudgetBytes:5*GB, denoBudgetBytes:1*GB };
       const storage = () => ({ at:Date.now(), refreshing:state === 'scanning', policy,
         error:state === 'partial' ? 'Some folders could not be read. Sizes are partial estimates.' : null,
-        operation:state === 'running' ? { id:'mock-job',state:'running',phase:'npm' } : null,
+        operation:state === 'running' ? { id:'mock-job',state:'running',phase:'uv' } : null,
         disk:{usedPercent:state === 'critical' ? 96 : 89,totalBytes:207*GB,usedBytes:183*GB,availableBytes:24*GB},
         categories:state === 'loading' ? [] : [
-          {id:'go',label:'Go build cache',path:'/home/t3/.cache/go-build',bytes:state === 'empty' ? 0 : 39*GB,cleanable:true,description:'Compiled packages. Builds recreate these when needed.'},
-          {id:'npm',label:'npm downloads',path:'/home/t3/.npm/_cacache',bytes:state === 'empty' ? 0 : 6.5*GB,cleanable:true,description:'Downloaded packages. Installs fetch them again when needed.'},
+          {id:'go',label:'Go build cache',path:'/home/t3/.cache/go-build',bytes:state === 'empty' ? 0 : 39*GB,cleanable:true,kind:'cache',description:'Compiled packages. Builds recreate these when needed.'},
+          {id:'gomod',label:'Go module cache',path:'/home/t3/go/pkg/mod',bytes:state === 'empty' ? 0 : 2.1*GB,cleanable:true,kind:'cache',description:'Downloaded modules. Builds fetch them again when needed.'},
+          {id:'npm',label:'npm downloads',path:'/home/t3/.npm/_cacache',bytes:state === 'empty' ? 0 : 6.5*GB,cleanable:true,kind:'cache',description:'Downloaded packages. Installs fetch them again when needed.'},
+          {id:'uv',label:'uv cache',path:'/home/t3/.cache/uv',bytes:state === 'empty' ? 0 : 1.7*GB,cleanable:true,kind:'cache',description:'Downloaded Python packages. uv fetches them again when needed.'},
+          {id:'bun',label:'Bun install cache',path:'/home/t3/.bun/install/cache',bytes:state === 'empty' ? 0 : 1.9*GB,cleanable:true,kind:'cache',description:'Downloaded packages. Installs fetch them again when needed.'},
+          {id:'mise',label:'mise caches',path:'/home/t3/.cache/mise',bytes:state === 'empty' ? 0 : 7*GB,cleanable:true,kind:'cache',description:'Version metadata and backend downloads. mise refetches them when needed.'},
+          {id:'deno',label:'Deno cache',path:'/home/t3/.cache/deno',bytes:0,cleanable:false,kind:'cache',description:'Cached remote modules. Deno fetches them again when needed.',unavailable:'Deno is not installed.'},
           {id:'backups',label:'Upgrade backups',path:'/home/t3/.t3/backups',bytes:13.6*GB},
           {id:'workspace',label:'Projects',path:'/workspace/a-project-with-a-long-name/local-application-state',bytes:22*GB},
         ] });
