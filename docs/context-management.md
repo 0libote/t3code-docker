@@ -111,6 +111,11 @@ identifies them as system skills.
 Inventory loads when the Skills tab opens or its agent changes. **Refresh skills**
 rescans after external changes. Concurrent requests share a lookup and results
 are cached for 15 seconds; regular `/status` polling does not scan skills.
+Each inventory also reports its provider adapter: the global skill folder,
+the project skill folder where one is verified (Codex, Cursor, OpenCode and
+Antigravity share `.agents/skills` inside a project), and whether the tool
+itself is detected. Detection never gates management: an undetected tool
+shows a note, and adding, editing and importing still work.
 Bodies load separately through authenticated, discovered-installation IDs.
 Details refuse a link retargeted after discovery. No skill files, provider
 settings or persistence mappings change during inventory reads. Native Codex

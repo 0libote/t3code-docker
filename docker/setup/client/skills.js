@@ -77,6 +77,7 @@ const T3SkillsUI = (() => {
           ${visibleSkills().length ? html`<div class="tc-list">${visibleSkills().map(row)}</div>` : ''}
           ${!visibleSkills().length ? html`<div class="tc-empty tc-empty--compact tc-skill-empty"><span class="tc-empty-media" aria-hidden="true"><span class="tc-empty-icon">${icon('sparkles')}</span></span><span class="tc-empty-title">${inventory.skills?.length ? 'All skills are hidden' : inventory.warnings?.length ? 'No skills could be shown' : 'No skills yet'}</span><span class="tc-empty-desc">${inventory.skills?.length ? 'Turn off Hide bundled skills to show them.' : inventory.warnings?.length ? 'The messages above say why.' : 'Nothing in ' + providerName(provider) + '’s global skill folders. Add one here, or install one from a source.'}</span></div>` : ''}
           ${inventory.roots?.length ? html`<details class="tc-skill-locations" data-key="skill-locations"><summary>Looked in ${M.plural(inventory.roots.length, 'folder')}</summary>${inventory.roots.map((root) => html`<code>${root.path}</code>`)}</details>` : ''}
+          ${inventory.adapter && !inventory.adapter.detected ? html`<p class="tc-skill-message tc-muted" role="status">${icon('info', 'tc-icon--sm')}<span>${providerName(provider)} isn’t detected here, so these are plain files until it is installed. Adding, editing and importing still work.</span></p>` : ''}
         ` : ''}
       </div>
       <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>${coverageText()}</span></div>

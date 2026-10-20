@@ -9,6 +9,7 @@ import { codexConfigPath, configSnapshot, stateRevision, serializeState } from "
 import { createSkillFileManager, skillRevision } from "./skills/files.mjs";
 import { createSkillPolicies } from "./skills/policies.mjs";
 import { readSkillOrigin, skillFingerprint } from "./skills/origins.mjs";
+import { adapterDetection } from "./skills/adapters.mjs";
 import { resolveSkillSource } from "./skills/sources.mjs";
 import { createSkillImporter } from "./skills/imports.mjs";
 
@@ -196,6 +197,7 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
       } catch (error) { nativeError = summaryError(error); }
     }
     const policy = await fileManager.policyFor(provider);
+    const adapter = await adapterDetection(provider, { home, env, io });
     for (const row of scanned.skills) {
       const origin = await readSkillOrigin(io, row, home);
       if (origin && policy.capabilities(row).canEdit) {
@@ -214,7 +216,7 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
       return { ...row, ...policy.capabilities(row), canToggle: !reason, stateReadOnlyReason: reason,
         stateRevision: !reason ? stateRevision(config, row) : null };
     }).sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
-      roots: scanned.roots, coverage, nativeError, warnings: scanned.warnings, scannedAt: Date.now(),
+      roots: scanned.roots, coverage, nativeError, warnings: scanned.warnings, scannedAt: Date.now(), adapter,
       coverageText: coverage === "policy" ? "Known global skill folders with native user policy settings checked by the managed provider. Project/session and managed policies can further restrict availability."
         : coverage === "native" ? "Managed Codex inventory in the setup environment, with known local folders included. Project skills are excluded."
         : "Known global skill folders only. Provider availability, plugins and additional configured locations are not verified.",
