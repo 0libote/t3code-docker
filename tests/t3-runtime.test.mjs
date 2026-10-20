@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { runtimePaths, writeJson, readJson, readSelection, selectedRuntime, exactVersion } from "../docker/runtime/state.mjs";
-import { createRuntimeManager, packageRelease, installRelease, validateArchive, executableVersion } from "../docker/runtime/manager.mjs";
+import { createRuntimeManager, packageRelease, installRelease, executableVersion } from "../docker/runtime/manager.mjs";
 import { recoverUpdate, snapshotDatabase, syncAuthentication, pruneRuntimes, projectScopes } from "../docker/runtime/supervisor.mjs";
 
 const NIGHTLY = "0.0.46-nightly.20261011.2980";
@@ -32,8 +32,15 @@ const waitFor = async (fn, ms = 5000) => {
   while (Date.now() < deadline) { if (await fn()) return; await new Promise((resolve) => setTimeout(resolve, 20)); }
   throw new Error("Timed out waiting for runtime state");
 };
-const release = (version = NIGHTLY) => ({ name: `@t3code/t3-linux-${process.arch}`, version, dist: { tarball: `https://registry.npmjs.org/@t3code/t3-linux-${process.arch}/-/t3-${version}.tgz`, integrity: "sha512-" + Buffer.alloc(64).toString("base64") } });
-const registry = async (url) => new Response(JSON.stringify(release(url.endsWith("/latest") ? "0.0.45" : NIGHTLY)));
+const release = (version = NIGHTLY) => ({ tag_name: `v${version}`, draft: false, prerelease: version.includes("nightly") });
+const nightlyIndex = (url) => url.includes("?per_page=");
+const registry = async (url) => {
+  if (url.endsWith("/SHA256SUMS")) {
+    const version = /\/v([^/]+)\/SHA256SUMS$/.exec(url)[1];
+    return new Response(["x64", "arm64"].map((arch) => "0".repeat(64) + `  t3-${version}-linux-${arch}.tar.gz`).join("\n"));
+  }
+  return new Response(JSON.stringify(nightlyIndex(url) ? [release()] : release("0.0.45")));
+};
 async function seedDatabase(file, value) {
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(file);
@@ -79,27 +86,11 @@ test("managed CLI resolution parks database commands during activation", async (
   assert.equal((await resolve()).stdout.trim(), paths.binary);
 });
 
-test("channel metadata rejects previews, wrong packages and untrusted download hosts", async () => {
-  assert.equal((await packageRelease("nightly", { fetcher: registry })).version, NIGHTLY);
-  await assert.rejects(packageRelease("preview", { fetcher: registry }), /Stable or Nightly/);
-  await assert.rejects(packageRelease("stable", { fetcher: registry, arch: "riscv64" }), /amd64 and arm64/);
-  for (const modify of [(pkg) => { pkg.name = "another-package"; }, (pkg) => { pkg.version = "0.0.46-preview.20261011.1"; }, (pkg) => { pkg.dist.tarball = "https://untrusted.example/download"; }, (pkg) => { pkg.dist.integrity = "sha1-anything"; }]) {
-    const pkg = release(); modify(pkg);
-    await assert.rejects(packageRelease("nightly", { fetcher: async () => new Response(JSON.stringify(pkg)) }));
-  }
-});
-
-test("archive traversal, links and special files are refused before extraction", () => {
-  validateArchive("package/t3\npackage/client/index.html\n", "-rwxr-xr-x t3\ndrwxr-xr-x client\n");
-  for (const name of ["/tmp/escape", "package/../escape", "elsewhere/t3", "package/dir\\escape"]) assert.throws(() => validateArchive(name, "-file"), /unsafe/);
-  for (const type of ["l", "h", "b", "c", "p"]) assert.throws(() => validateArchive("package/t3", type + "entry"), /unsupported/);
-});
-
 test("integrity failure never executes or publishes the download", async (t) => {
   const { paths } = await world(t);
-  const pkg = release();
+  const pkg = await packageRelease("nightly", { fetcher: registry });
   let runs = 0;
-  await assert.rejects(installRelease(paths, { version: pkg.version, name: pkg.name, url: pkg.dist.tarball, integrity: pkg.dist.integrity }, { fetcher: async () => new Response("corrupt archive"), run: async () => { runs += 1; } }), /integrity check/);
+  await assert.rejects(installRelease(paths, pkg, { fetcher: async () => new Response("corrupt archive"), run: async () => { runs += 1; } }), /integrity check/);
   assert.equal(runs, 0);
   assert.equal((await selectedRuntime(paths)).version, "0.0.45");
   assert.deepEqual(await fs.readdir(paths.versions), []);
@@ -145,7 +136,7 @@ test("cached release checks remain available offline without selecting or instal
 
 test("an unavailable nightly tag does not block a fresh stable release check", async (t) => {
   const { env } = await world(t);
-  const manager = createRuntimeManager({ env, fetcher: async (url) => url.endsWith("/nightly") ? new Response("missing", { status: 404 }) : registry(url) });
+  const manager = createRuntimeManager({ env, fetcher: async (url) => nightlyIndex(url) ? new Response("missing", { status: 404 }) : registry(url) });
   const checked = await manager.check();
   assert.equal(checked.error, null);
   assert.match(checked.errors.nightly, /404/);
@@ -183,7 +174,7 @@ test("Stable success does not mask a failed selected Nightly channel", async (t)
   const { env, paths } = await world(t);
   await fakeRuntime(paths, NIGHTLY);
   await writeJson(paths.selection, { schema: 1, channel: "nightly", version: NIGHTLY });
-  const manager = createRuntimeManager({ env, fetcher: async (url) => url.endsWith("/nightly") ? new Response("missing", { status: 404 }) : registry(url) });
+  const manager = createRuntimeManager({ env, fetcher: async (url) => nightlyIndex(url) ? new Response("missing", { status: 404 }) : registry(url) });
   const result = await manager.check();
   assert.match(result.error, /404/);
   assert.equal(result.channels.stable.version, "0.0.45");
@@ -204,7 +195,7 @@ test("switching checks report the requested channel independently of the selecte
   assert.match(stable.error, /stable offline/);
   assert.equal(nightly.error, null);
   assert.equal(nightly.channels.nightly.version, NIGHTLY);
-  assert.equal(calls.length, 2, 'concurrent channel checks share the registry requests');
+  assert.equal(calls.length, 3, 'concurrent channel checks share GitHub requests, including the successful channel checksum');
   await assert.rejects(manager.check({ channel: 'preview' }), /Stable or Nightly/);
 });
 

@@ -7,6 +7,10 @@ Issues and pull requests are welcome. Before opening one:
   notice if they broke. Run it against your build
   (`./scripts/smoke-test.sh t3code:browser`) and add a check for whatever you
   fixed. Most of its checks were added after something broke.
+  The T3 Code archive check stages a real current nightly in a disposable home,
+  verifies its checksum, Setup bridge, launcher protocol and native auth probes,
+  then deletes it without selecting or starting it. It can also run locally:
+  `node scripts/t3-runtime-smoke.mjs docker/runtime docker/t3-client/setup-bridge.js`.
 - **CI builds and tests both images on both architectures** before anything is
   published, so a change that only works on amd64 is caught. The slower agent
   lifecycle test runs on amd64 for every build.

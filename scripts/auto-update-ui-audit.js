@@ -71,7 +71,7 @@ const geometry = () => {
       let holdStatus = null;
       const runtime = { ...fixture.t3?.runtime, channel: 'stable', version: '0.1.0',
         releases: { stable: { version: '0.1.0' }, nightly: { version: '0.1.1-nightly.20261017.1' } }, checkedAt: 1, checking: false,
-        checkError: 'registry offline', operation: null, supported: true };
+        checkError: "GitHub's release API rate limit was reached. Try checking again later; the running version was kept.", operation: null, supported: true };
 
       let requestedChannel;
       await host.route('**/*', async (route) => {
@@ -317,6 +317,22 @@ const geometry = () => {
       const card = page.getByRole('region', { name: 'T3 Code', exact: true });
       await card.getByText('Couldn’t check for T3 Code updates', { exact: true }).waitFor();
       assert.equal(await card.getByText('Up to date', { exact: true }).count(), 0);
+      // Background checks have no toast. Their reason must remain visible
+      // after ordinary polls, with remote text escaped and long names wrapped.
+      for (const [name, error] of [
+        ['rate-limit', runtime.checkError],
+        ['checksum', 'The release must list exactly one SHA-256 checksum for t3-0.1.1-nightly.20261019.3373-linux-arm64.tar.gz.'],
+        ['metadata', 'GitHub returned invalid metadata: <script>unsafe</script>'],
+      ]) {
+        runtime.checkError = error;
+        await refreshStatus();
+        await card.getByText(error + ' The last known releases are shown.', { exact: true }).waitFor();
+        assert.equal(await card.locator('script').count(), 0, 'release errors are rendered as text');
+        await refreshStatus();
+        assert.equal(await card.getByText(error + ' The last known releases are shown.', { exact: true }).count(), 1, 'polling keeps the reason available');
+        await check(`release ${name} failure`);
+        await host.screenshot({ path: path.join(output, `${tag}-release-${name}.png`) });
+      }
       await check('selected channel failure');
       await host.screenshot({ path: path.join(output, `${tag}-check-failed.png`) });
       await card.getByRole('button', { name: 'Nightly', exact: true }).click();
@@ -337,6 +353,7 @@ const geometry = () => {
       };
       await control().click();
       await card.getByText('Stable update available', { exact: true }).waitFor();
+      assert.equal(await card.locator('.tc-runtime-notes').count(), 0, 'a successful check clears the persistent warning');
       assert.equal(await card.getByRole('button', { name: 'Update and restart', exact: true }).count(), 1);
       await check('recovered update');
       await finishCheck();
