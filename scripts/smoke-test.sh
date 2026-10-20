@@ -63,8 +63,8 @@ retry() { local n=$1; shift; local i; for i in $(seq 1 "$n"); do
 STATE_MOUNT=""
 PAGE_HTML=""
 SETUP_COPY=""
-# The layout audit runs with its output discarded, so record it here and print
-# it with the failure summary.
+# Keep verbose check output for the failure summary, including live pin
+# lookups and the layout audits which otherwise have their output discarded.
 UI_AUDIT_LOG="${UI_AUDIT_LOG:-}"
 if [ -z "$UI_AUDIT_LOG" ]; then
   UI_AUDIT_LOG="$(mktemp "${TMPDIR:-/tmp}/t3-ui-audit.XXXXXX")"
@@ -219,8 +219,10 @@ fi
 # A freshly built image that immediately asks you to upgrade an agent is a bug
 # in this repo, not in the agent. The pins are what go stale, so assert they
 # were current when the image was built.
-check "the image's pinned versions were current at build time" \
-  "./scripts/bump-versions.sh --check"
+pinned_versions_current() {
+  "$SCRIPT_DIR/bump-versions.sh" --check >>"$UI_AUDIT_LOG" 2>&1
+}
+check "the image's pinned versions were current at build time" pinned_versions_current
 
 printf '\nPairing\n'
 pair_out="$(docker exec "$NAME" t3-pair --no-qr 2>/dev/null || true)"
@@ -1669,7 +1671,7 @@ docker rm -f "${NAME}-boot" >/dev/null 2>&1 || true
 
 printf '\n%d passed, %d failed\n\n' "$pass" "$fail"
 if [ "$fail" -gt 0 ] && [ -s "$UI_AUDIT_LOG" ]; then
-  printf 'Browser/native skill audit output:\n'
+  printf 'Smoke test diagnostics:\n'
   sed 's/^/  /' "$UI_AUDIT_LOG"
   printf '\n'
 fi

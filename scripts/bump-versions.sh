@@ -32,13 +32,24 @@ PLAYWRIGHT_MCP_VERSION:@playwright/mcp
 "
 
 npm_latest() {
-  curl -fsS --max-time 30 "https://registry.npmjs.org/$1/latest" \
+  curl -fsS --connect-timeout 5 --max-time 30 --retry 2 --retry-max-time 20 \
+    "https://registry.npmjs.org/$1/latest" \
     | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])'
+}
+
+github_latest() {
+  # CI already supplies a token. Keep it out of process arguments and send it
+  # only to api.github.com; registry and archive requests remain unauthenticated.
+  local headers=""
+  [ -z "${GITHUB_TOKEN:-}" ] || headers="Authorization: Bearer ${GITHUB_TOKEN}"
+  printf '%s\n' "$headers" | curl -fsS --connect-timeout 5 --max-time 30 \
+    --retry 2 --retry-max-time 20 --header @- \
+    "https://api.github.com/repos/$1/releases/latest"
 }
 
 latest_version() {
   if [ "$1" = github-t3 ]; then
-    curl -fsS --max-time 30 https://api.github.com/repos/pingdotgg/t3code/releases/latest \
+    github_latest pingdotgg/t3code \
       | python3 -c 'import sys,json,re; tag=json.load(sys.stdin)["tag_name"]; re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) or sys.exit("Expected a stable T3 release tag"); print(tag[1:])'
   else
     npm_latest "$1"
@@ -86,7 +97,7 @@ echo "${DIM}T3 Code's own declared minimum is checked by the smoke test.${RESET}
 # Reported, never counted as drift and never bumped here: a new release also
 # needs its checksums and the idiomatic allowlist regenerated.
 mise_pin="$(grep -m1 '^ARG MISE_VERSION=' Dockerfile | cut -d= -f2)"
-mise_latest="$(curl -fsS --max-time 30 https://api.github.com/repos/jdx/mise/releases/latest 2>/dev/null \
+mise_latest="$(github_latest jdx/mise 2>/dev/null \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo "?")"
 if [ "$mise_pin" = "$mise_latest" ]; then
   printf '%smise%s %s is current\n' "$DIM" "$RESET" "$mise_pin"
