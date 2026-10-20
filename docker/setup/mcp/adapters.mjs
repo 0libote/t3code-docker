@@ -48,9 +48,11 @@ export function toOpenCodeEntry(s, v2 = false) {
   return s.type === "local" ? { type: "local", command: [...s.command], ...(Object.keys(s.env).length ? { environment: { ...s.env } } : {}), ...state }
     : { type: "remote", url: s.url, ...(Object.keys(s.headers).length ? { headers: { ...s.headers } } : {}), ...state };
 }
-export function fromOpenCodeEntry(name, entry) {
+export function fromOpenCodeEntry(name, entry, v2 = false) {
   if (!object(entry)) return null;
-  const enabled = entry.enabled !== false && entry.disabled !== true;
+  // The legacy loader can discard the other layout's state flag. It must
+  // not make inventory claim that a shared disabled definition was applied.
+  const enabled = v2 ? entry.disabled !== true : entry.enabled !== false;
   if (entry.type === "remote" && typeof entry.url === "string") return { name, type: "remote", url: entry.url, headers: { ...(entry.headers ?? {}) }, enabled };
   if (entry.type === "local" && Array.isArray(entry.command)) return { name, type: "local", command: [...entry.command], env: { ...(entry.environment ?? {}) }, enabled };
   return null;
@@ -103,10 +105,10 @@ async function fileFor(io, provider, home, env) {
 
 // Unknown provider options must be shown as differing, rather than implying
 // that cwd/auth/tool-policy differences are represented by the shared entry.
-export function hasExtraMcpOptions(provider, entry) {
+export function hasExtraMcpOptions(provider, entry, v2 = false) {
   const remote = typeof entry?.url === "string";
   const keys = provider === "codex" ? [...(remote ? ["url", "http_headers"] : ["command", "args", "env"]), "enabled"]
-    : provider === "opencode" ? [...(remote ? ["url", "headers"] : ["command", "environment"]), "type", "enabled", "disabled"]
+    : provider === "opencode" ? [...(remote ? ["url", "headers"] : ["command", "environment"]), "type", v2 ? "disabled" : "enabled"]
       : [...(remote ? ["url", "headers"] : ["command", "args", "env"]), "type"];
   return !object(entry) || Object.keys(entry).some((k) => !keys.includes(k));
 }
@@ -114,10 +116,13 @@ export function hasExtraMcpOptions(provider, entry) {
 export async function readProviderMcp(io, provider, { home, env = {} }) {
   const file = await fileFor(io, provider, home, env);
   const snapshot = await readConfig(io, file);
-  let entries;
+  let entries, v2 = false;
   if (provider === "codex") entries = [...parseMcpToml(snapshot.content)];
-  else entries = Object.entries(containerFor(provider, jsonDocument(snapshot.content, provider !== "opencode")).entries);
-  const from = provider === "codex" ? fromCodexEntry : provider === "opencode" ? fromOpenCodeEntry : provider === "cursor" ? fromCursorEntry : fromClaudeEntry;
+  else {
+    const container = containerFor(provider, jsonDocument(snapshot.content, provider !== "opencode"));
+    entries = Object.entries(container.entries); v2 = container.v2;
+  }
+  const from = provider === "codex" ? fromCodexEntry : provider === "opencode" ? (name, entry) => fromOpenCodeEntry(name, entry, v2) : provider === "cursor" ? fromCursorEntry : fromClaudeEntry;
   return { provider, path: file, present: snapshot.exists, revision: snapshot.revision,
     servers: entries.map(([name, entry]) => {
       const canonical = from(name, entry);
@@ -128,7 +133,7 @@ export async function readProviderMcp(io, provider, { home, env = {} }) {
           (!object(entry[k]) || ![null, Object.prototype].includes(Object.getPrototypeOf(entry[k])) || !Object.values(entry[k]).every(v => typeof v === 'string')))
         || (['claude', 'cursor'].includes(provider) && entry.type !== undefined &&
           !(canonical?.type === 'remote' ? ['http', 'streamable-http'] : ['stdio']).includes(entry.type));
-      return { name, entry, canonical: !malformed && canonical && validateMcpServer(canonical).ok ? canonical : null, extra: hasExtraMcpOptions(provider, entry) };
+      return { name, entry, canonical: !malformed && canonical && validateMcpServer(canonical).ok ? canonical : null, extra: hasExtraMcpOptions(provider, entry, v2) };
     }) };
 }
 

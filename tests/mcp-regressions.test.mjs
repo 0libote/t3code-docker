@@ -226,3 +226,24 @@ test("OpenCode V2 global options without servers retain their shape when linking
   for (const name of ['servers','timeout','codemode','protocol']) await writeProviderMcpEntry(fs,'opencode',f,name,{type:'local',command:['server']});
   assert.deepEqual((await readProviderMcp(fs,'opencode',f)).servers.map(s=>s.name),['servers','timeout','codemode','protocol']);
 });
+
+test("OpenCode inventory distinguishes V1 enabled and V2 disabled flags", async (t) => {
+  for (const v2 of [false, true]) for (const enabled of [false, true]) {
+    const f = await fixture(t), file = path.join(f.home,'.config/opencode/opencode.json');
+    await fs.mkdir(path.dirname(file),{recursive:true});
+    const wrongFlag = v2 ? {enabled} : {disabled:!enabled};
+    const entry = {type:'local',command:['server'],...wrongFlag};
+    await fs.writeFile(file,JSON.stringify({mcp:v2 ? {servers:{probe:entry}} : {probe:entry}}));
+    const created = await f.svc.create(server('probe',{enabled}));
+    assert.equal((await f.svc.list('opencode')).shared[0].linked,false);
+    assert.equal((await f.svc.list('opencode')).shared[0].diverged,true);
+    const native = await readProviderMcp(fs,'opencode',f);
+    assert.equal(native.servers[0].extra,true);
+    assert.equal(native.servers[0].canonical.enabled,true,'the other format’s flag must not change native state');
+    await f.svc.setLink('opencode','probe',true,created.revision,native.revision);
+    const repaired = await readProviderMcp(fs,'opencode',f);
+    assert.equal((await f.svc.list('opencode')).shared[0].linked,true);
+    assert.equal(repaired.servers[0].canonical.enabled,enabled);
+    assert.deepEqual(repaired.servers[0].entry,{type:'local',command:['server'],...(v2 ? {disabled:!enabled} : {enabled})});
+  }
+});

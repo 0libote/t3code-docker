@@ -401,7 +401,9 @@ blocks removal rather than silently leaving an unknown copy behind.
 Claude HTTP entries require an explicit transport type; a URL alone is
 reported as differing. The documented `streamable-http` alias is recognized.
 OpenCode JSONC wins if both files exist. V2 global options are preserved even
-when the config has no server dictionary yet. Codex uses a pinned vendored TOML
+when the config has no server dictionary yet. Entries using the other layout's
+state flag (`enabled` in V2 or `disabled` in V1) show **Differs** until applied
+with the correct flag. Codex uses a pinned vendored TOML
 syntax tree; nested tables, arrays of tables and unrelated comments are preserved.
 All provider writes share the native-settings serialization queue with skills,
 follow existing file/directory symlinks, reject stale revisions/retargeting and
