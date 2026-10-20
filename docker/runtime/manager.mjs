@@ -14,7 +14,7 @@ const [{ compareVersions }, { acquireLock, liveHolder }, { createFs }] = await P
 export { databaseBusy, operationBusy } from "./state.mjs";
 
 const execute = promisify(execFile);
-export { packageRelease, executableVersion, validateArchive } from "./releases.mjs";
+export { packageRelease, executableVersion } from "./releases.mjs";
 const errorText = (error) => String(error?.message ?? error).slice(0, 400);
 
 /** Ask the release's own CLI which data store it opens, in a disposable home. */

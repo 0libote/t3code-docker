@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Refresh the pinned tool versions in the Dockerfile against their registries.
+# Refresh the pinned tool versions in the Dockerfile against published releases.
 #
 # The pins exist so a rebuild is reproducible. The cost of pinning is that an
 # image goes stale the moment upstream ships, and a freshly built image that
@@ -38,7 +38,8 @@ npm_latest() {
 
 latest_version() {
   if [ "$1" = github-t3 ]; then
-    node --input-type=module -e 'import { packageRelease } from "./docker/runtime/releases.mjs"; console.log((await packageRelease("stable")).version);'
+    curl -fsS --max-time 30 https://api.github.com/repos/pingdotgg/t3code/releases/latest \
+      | python3 -c 'import sys,json,re; tag=json.load(sys.stdin)["tag_name"]; re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) or sys.exit("Expected a stable T3 release tag"); print(tag[1:])'
   else
     npm_latest "$1"
   fi

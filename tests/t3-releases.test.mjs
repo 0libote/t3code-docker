@@ -47,11 +47,11 @@ else if (process.argv[2] === 'auth') {
   const file = path.join(root, "fixture.tar.gz");
   await execute("/usr/bin/tar", ["-czf", file, "-C", root, stem]);
   const bytes = await fs.readFile(file);
-  const release = { version: VERSION, name: "t3-runtime", root: stem, archive: `${stem}.tar.gz`, url: `https://github.com/pingdotgg/t3code/releases/download/v${VERSION}/${stem}.tar.gz`, integrity: `sha256-${createHash("sha256").update(bytes).digest("hex")}` };
+  const release = { version: VERSION, name: "t3-runtime", root: stem, url: `https://github.com/pingdotgg/t3code/releases/download/v${VERSION}/${stem}.tar.gz`, integrity: `sha256-${createHash("sha256").update(bytes).digest("hex")}` };
   const env = { ...process.env, T3CODE_HOME: path.join(root, "home") };
   const bridge = path.join(root, "bridge.js");
   await fs.writeFile(bridge, 'console.log("data-t3-setup-entry");');
-  return { root, release, env, bridge, fetcher: async (url) => new Response(url.endsWith("/SHA256SUMS") ? `${release.integrity.slice(7)}  ${release.archive}\n` : bytes), paths: runtimePaths(env) };
+  return { root, release, env, bridge, fetcher: async (url) => new Response(url.endsWith("/SHA256SUMS") ? `${release.integrity.slice(7)}  ${stem}.tar.gz\n` : bytes), paths: runtimePaths(env) };
 }
 
 test("both architectures resolve public GitHub releases and their exact checksums", async () => {

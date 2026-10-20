@@ -66,7 +66,7 @@ export async function releaseForVersion(version, { fetcher = fetch, arch = proce
   const name = `${root}.tar.gz`;
   const base = `${DOWNLOAD}/v${version}`;
   const sums = await boundedText(await get(`${base}/SHA256SUMS`, { fetcher }), 1024 * 1024);
-  return { version, name: "t3-runtime", archive: name, root, url: `${base}/${name}`, integrity: `sha256-${archiveChecksum(sums, name)}`, bytes: null };
+  return { version, name: "t3-runtime", root, url: `${base}/${name}`, integrity: `sha256-${archiveChecksum(sums, name)}` };
 }
 
 export async function packageRelease(channel, { fetcher = fetch, arch = process.arch, token = process.env.GITHUB_TOKEN } = {}) {
