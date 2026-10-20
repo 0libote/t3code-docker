@@ -214,7 +214,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 # Pinned so a rebuild is reproducible; `scripts/bump-versions.sh` refreshes it
-# against the registry. The agent harnesses are not baked and therefore carry
+# against published releases. The agent harnesses are not baked and therefore carry
 # no pins here: the harness installer resolves and records an exact version on
 # explicit install.
 ARG T3_VERSION=0.1.0
@@ -228,28 +228,16 @@ ENV T3_INFRA_PREFIX=/opt/t3 \
     T3_INFRA_BINARY=/opt/t3/t3 \
     T3_INFRA_LAUNCHER=/usr/local/bin/t3-admin
 
-# The release is split into architecture-specific packages. Install the
-# platform package explicitly instead of the tiny `t3` npm launcher, then
-# flatten it into one architecture-independent immutable path. Its native
-# modules and client assets must remain beside the executable.
+# Upstream's npm platform packages are frozen. Install the exact GitHub CLI
+# archive and verify SHA256SUMS with the same implementation Setup uses.
+COPY docker/runtime/ /opt/t3-runtime/
 RUN set -eux; \
     case "$TARGETARCH" in \
-      amd64) t3_package='@t3code/t3-linux-x64' ;; \
-      arm64) t3_package='@t3code/t3-linux-arm64' ;; \
+      amd64) t3_arch=x64 ;; \
+      arm64) t3_arch=arm64 ;; \
       *) echo "unsupported T3 architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
-    install_root=/tmp/t3-install; \
-    mkdir -p "$T3_INFRA_PREFIX" "$install_root"; \
-    npm install --no-audit --no-fund --ignore-scripts --prefix "$install_root" \
-        "${t3_package}@${T3_VERSION}"; \
-    package_root="$install_root/node_modules/$t3_package"; \
-    cp -a "$package_root/." "$T3_INFRA_PREFIX/"; \
-    # Keep the package manifest as local audit evidence; runtime does not need
-    # npm's surrounding node_modules layout.
-    test -x "$T3_INFRA_BINARY"; \
-    test -f "$T3_INFRA_PREFIX/client/index.html"; \
-    rm -rf "$install_root"; \
-    npm cache clean --force; \
+    "$T3_INFRA_NODE" /opt/t3-runtime/install.mjs "$T3_VERSION" "$t3_arch" "$T3_INFRA_PREFIX"; \
     # Root-owned and not group/other writable: the t3 user runs the server and
     # must never be able to modify it.
     chown -R root:root "$T3_INFRA_PREFIX"; \
@@ -268,7 +256,6 @@ COPY docker/bin/ /usr/local/bin/
 # helpers: the harness manager owns install/resolve, and the provider
 # integration turns its selection into T3's per-provider `binaryPath`.
 COPY docker/harness/ /opt/t3-harness/
-COPY docker/runtime/ /opt/t3-runtime/
 COPY docker/provider-integration/ /opt/t3-provider/
 COPY docker/setup/ /opt/t3-setup/
 # The one-port router (T3_SINGLE_PORT): T3 Code and the setup page behind a

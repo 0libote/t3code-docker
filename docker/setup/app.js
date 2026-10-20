@@ -1475,7 +1475,7 @@
       </div>
       ${view.error || view.checkError ? html`<div class="tc-runtime-notes">
         ${view.error ? notice('danger', 'circle-alert', 'The last T3 Code update didn’t finish', view.error) : ''}
-        ${view.checkError ? notice('warn', 'globe', 'Couldn’t check for T3 Code updates', 'The last known releases are shown. Check again once the registry is reachable.') : ''}
+        ${view.checkError ? notice('warn', 'globe', 'Couldn’t check for T3 Code updates', view.checkError + ' The last known releases are shown.') : ''}
       </div>` : ''}
       ${!view.supported || view.separateHistory ? html`<div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>${!view.supported
         ? 'Updating in place needs the container’s T3 Code supervisor. Pull a newer image once to turn it on.'
