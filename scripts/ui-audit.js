@@ -286,6 +286,18 @@ const audit = () => {
     if (Math.abs(box(main).left - left) > 1) {
       add("detached-row-text", "text does not follow the leading icon or row padding", main);
     }
+    // The final control ends at the row's normal inset. Reserving a menu's
+    // width when there is no menu leaves an unexplained blank strip beside it.
+    // Phone rows that put actions below the text are intentionally left aligned.
+    const actions = row.querySelector(":scope > .tc-row-actions");
+    if (!actions || !visible(actions) || getComputedStyle(actions).justifyContent !== "flex-end") continue;
+    const controls = [...actions.children].filter((el) => visible(el) && el.matches("button, a, input, select, label, [role=group]"));
+    if (!controls.length) continue;
+    const right = Math.max(...controls.map((el) => box(el).right));
+    const inset = box(row).right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+    if (Math.abs(right - inset) > 1) {
+      add("trailing-row-space", `final control is ${(inset - right).toFixed(2)}px from the row's right inset`, actions);
+    }
   }
 
   return findings;
