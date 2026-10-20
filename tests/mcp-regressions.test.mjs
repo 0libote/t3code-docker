@@ -146,6 +146,31 @@ test("Claude override roots are honored and duplicate JSON keys cannot be change
   assert.equal(await fs.readFile(file,'utf8'),raw);
 });
 
+test("mixed transport fields differ and malformed native maps are not recognized", async (t) => {
+  for (const provider of ['claude', 'codex', 'opencode', 'cursor']) {
+    const f = await fixture(t);
+    const created = await f.svc.create({name:'probe',type:'remote',url:'https://example.test/mcp',headers:{}});
+    const mixed = provider === 'codex' ? {url:'https://example.test/mcp',command:'extra'}
+      : provider === 'opencode' ? {type:'remote',url:'https://example.test/mcp',command:['extra']}
+        : {type:'http',url:'https://example.test/mcp',command:'extra'};
+    await writeProviderMcpEntry(fs,provider,f,'probe',mixed);
+    assert.equal((await f.svc.list(provider)).shared[0].diverged,true,provider);
+    await f.svc.setLink(provider,'probe',true,created.revision,(await f.svc.list(provider)).revision);
+    assert.equal((await f.svc.list(provider)).shared[0].linked,true,provider);
+    const headerKey = provider === 'codex' ? 'http_headers' : 'headers';
+    await writeProviderMcpEntry(fs,provider,f,'probe',{...mixed,[headerKey]:'not-an-object'});
+    assert.equal((await readProviderMcp(fs,provider,f)).servers[0].canonical,null,provider);
+    const local = provider === 'opencode' ? {type:'local',command:['server'],environment:0}
+      : {command:'server',env:0};
+    await writeProviderMcpEntry(fs,provider,f,'probe',local);
+    assert.equal((await readProviderMcp(fs,provider,f)).servers[0].canonical,null,provider);
+    if (['claude','cursor'].includes(provider)) {
+      await writeProviderMcpEntry(fs,provider,f,'probe',{command:'server',type:'http'});
+      assert.equal((await readProviderMcp(fs,provider,f)).servers[0].canonical,null,provider);
+    }
+  }
+});
+
 test("the browser CLI and console can alternate without duplicate TOML or ignored JSONC/V2 entries", async (t) => {
   const f = await fixture(t), bin = path.join(f.root, 'bin');
   await fs.mkdir(bin);

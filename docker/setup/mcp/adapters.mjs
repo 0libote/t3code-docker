@@ -100,9 +100,10 @@ async function fileFor(io, provider, home, env) {
 // Unknown provider options must be shown as differing, rather than implying
 // that cwd/auth/tool-policy differences are represented by the shared entry.
 export function hasExtraMcpOptions(provider, entry) {
-  const keys = provider === "codex" ? ["command", "args", "env", "url", "http_headers", "enabled"]
-    : provider === "opencode" ? ["type", "command", "environment", "url", "headers", "enabled", "disabled"]
-      : ["type", "command", "args", "env", "url", "headers"];
+  const remote = typeof entry?.url === "string";
+  const keys = provider === "codex" ? [...(remote ? ["url", "http_headers"] : ["command", "args", "env"]), "enabled"]
+    : provider === "opencode" ? [...(remote ? ["url", "headers"] : ["command", "environment"]), "type", "enabled", "disabled"]
+      : [...(remote ? ["url", "headers"] : ["command", "args", "env"]), "type"];
   return !object(entry) || Object.keys(entry).some((k) => !keys.includes(k));
 }
 
@@ -118,7 +119,10 @@ export async function readProviderMcp(io, provider, { home, env = {} }) {
       const canonical = from(name, entry);
       const malformed = !object(entry)
         || ['enabled', 'disabled'].some(k => entry[k] !== undefined && typeof entry[k] !== 'boolean')
-        || (entry.args !== undefined && (!Array.isArray(entry.args) || !entry.args.every(a => typeof a === 'string')));
+        || (entry.args !== undefined && (!Array.isArray(entry.args) || !entry.args.every(a => typeof a === 'string')))
+        || ['env', 'environment', 'headers', 'http_headers'].some(k => entry[k] !== undefined &&
+          (!object(entry[k]) || ![null, Object.prototype].includes(Object.getPrototypeOf(entry[k])) || !Object.values(entry[k]).every(v => typeof v === 'string')))
+        || (['claude', 'cursor'].includes(provider) && entry.type !== undefined && entry.type !== (canonical?.type === 'remote' ? 'http' : 'stdio'));
       return { name, entry, canonical: !malformed && canonical && validateMcpServer(canonical).ok ? canonical : null, extra: hasExtraMcpOptions(provider, entry) };
     }) };
 }
