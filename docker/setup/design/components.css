@@ -207,7 +207,7 @@
 .tc-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: calc(var(--_t) - 2px); height: calc(var(--_t) - 2px); border-radius: 50%; background: #fff;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.1); transition: translate 150ms; }
 .tc-switch[aria-checked="true"] { background: var(--accent); }
-.tc-switch[aria-checked="true"]::after { translate: calc(var(--_t) - 2px) 0; }
+.tc-switch[aria-checked="true"]::after { translate: calc(var(--_t) - 4px) 0; }
 
 /* listbox */
 .tc-listbox { list-style: none; margin: 0; padding: 4px var(--space-2); display: flex; flex-direction: column; gap: 1px; max-height: 280px; overflow: auto; }
