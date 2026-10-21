@@ -77,12 +77,15 @@ test("Git discovery reads bounded blobs without checkout, shell execution, hooks
     calls.push(args); assert.equal(command, "git"); assert.equal(options.env.GIT_TERMINAL_PROMPT, "0"); assert.ok(options.signal); assert.ok(options.timeout <= 45000);
     if (args.includes("clone")) { temporary = args.at(-1); assert.ok(args.includes("--no-checkout")); assert.ok(args.includes("protocol.ext.allow=never")); return { stdout: Buffer.alloc(0) }; }
     if (args.includes("ls-remote")) return { stdout: Buffer.alloc(0) };
+    if (args.includes("rev-parse")) return { stdout: Buffer.from("e".repeat(40)) };
     if (args.includes("ls-tree")) return { stdout: Buffer.from(`100644 blob ${"a".repeat(40)} ${Buffer.byteLength(body)}\tskills/review/SKILL.md\0` + `100755 blob ${"b".repeat(40)} 5\tskills/review/check.sh\0` + `120000 blob ${"c".repeat(40)} 12\tskills/review/secret\0` + `160000 commit ${"d".repeat(40)} -\tsubmodule\0`) };
     assert.ok(args.includes("cat-file")); return { stdout: Buffer.from(args.at(-1) === "a".repeat(40) ? body : "check") };
   };
   const result = await f.resolve("https://github.com/org/repo/tree/main/skills/review", { run });
   assert.equal(result.sourceType, "git");
   assert.equal(result.skills[0].files.length, 2); assert.equal(result.warnings.length, 2);
+  assert.equal(result.sourceInfo.commit, "e".repeat(40));
+  assert.equal(result.sourceInfo.ref, "main");
   assert.equal(calls.filter((args) => args.includes("cat-file")).length, 2);
   await assert.rejects(fs.stat(path.dirname(temporary)), { code: "ENOENT" });
 });

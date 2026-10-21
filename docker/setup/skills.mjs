@@ -12,6 +12,7 @@ import { readSkillOrigin, skillFingerprint } from "./skills/origins.mjs";
 import { adapterDetection } from "./skills/adapters.mjs";
 import { resolveSkillSource } from "./skills/sources.mjs";
 import { createSkillImporter } from "./skills/imports.mjs";
+import { skillReach } from "./skills/reach.mjs";
 
 const PROVIDERS = Object.freeze({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok Build", muse: "Muse Code", antigravity: "Antigravity" });
 const DEFAULT_LIMITS = { entries: 2048, skills: 256, depth: 8, bytes: 4 * 1024 * 1024, fileBytes: 64 * 1024, milliseconds: 3000 };
@@ -107,6 +108,7 @@ export async function scanSkillFiles(provider, options) {
       const read = await readSkillFile(row.resolvedPath, limits.fileBytes, io);
       budget.bytes -= limits.fileBytes + 1 - read.bytes;
       Object.assign(row, skillMetadata(read.content, fallback), { bytes: read.bytes });
+      if (path.basename(file) === "SKILL.md" && row.name !== fallback) row.metadataError ||= "Name doesn’t match folder: use " + fallback + " in the frontmatter name.";
     } catch (error) {
       row.error = error?.code === "ENOENT" ? "The skill file or its linked target is missing." : summaryError(error);
     }
@@ -305,5 +307,13 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
     updateChecks.set(key, pending);
     try { return await pending; } finally { updateChecks.delete(key); }
   };
-  return { list, read, checkUpdate, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer };
+  const reach = ({ refresh = false } = {}) => {
+    const key = "reach", hit = cache.get(key);
+    if (hit && (hit.pending || (!refresh && Date.now() - hit.at < ttlMs))) return hit.promise;
+    const entry = { pending: true, at: Date.now() };
+    entry.promise = skillReach({ providers: skillProviders(), rootsFor: provider => skillRoots(provider, { home, env }), policyFor: fileManager.policyFor, io })
+      .then(result => { entry.pending = false; entry.at = Date.now(); return { ...result, home }; }, error => { cache.delete(key); throw error; });
+    cache.set(key, entry); return entry.promise;
+  };
+  return { list, read, reach, checkUpdate, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer };
 }

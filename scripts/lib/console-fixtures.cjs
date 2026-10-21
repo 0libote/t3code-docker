@@ -36,6 +36,17 @@ const SCENARIOS = {
     s.paths.volumeName = "t3-home";
     return s;
   },
+  skills: (s) => {
+    SCENARIOS.ready(s);
+    for (const id of ['cursor', 'grok', 'muse', 'antigravity']) {
+      let agent = harness(s, id);
+      if (!agent) { agent = { id, name: { cursor: 'Cursor', grok: 'Grok Build', muse: 'Muse Code', antigravity: 'Antigravity' }[id] }; s.harnesses.push(agent); }
+      Object.assign(agent, { installed: ['cursor', 'grok'].includes(id), runnable: true, version: '1.0.0', installedVersion: '1.0.0', signedIn: true });
+    }
+    s.context.agentsMd = { ...s.context.agentsMd, present: true, path: '/home/t3/.t3/setup/context/AGENTS.md', revision: 'fixture-shared', modifiedAt: Date.now() - 120000, bytes: 384 };
+    s.context.providers = s.context.providers.map(row => ({ ...row, mode: row.provider === 'opencode' ? 'separate' : 'shared', bytes: 1280, sourceRevision: 'fixture-instructions-' + row.provider }));
+    return s;
+  },
   setup: (s, now) => {
     s.publicUrl = null;
     s.publicUrlSource = null;
@@ -82,7 +93,7 @@ const statusFor = (scenario, change) => {
   return change ? change(status, now) || status : status;
 };
 const portsFor = (scenario, change) => {
-  const ports = PORTS[scenario](fixture("ports.json"), Date.now());
+  const ports = (PORTS[scenario] || PORTS.ready)(fixture("ports.json"), Date.now());
   return change ? change(ports, Date.now()) || ports : ports;
 };
 
@@ -90,21 +101,18 @@ const portsFor = (scenario, change) => {
  * Answer the console's data requests on `page` from the fixtures: every POST
  * is accepted here and none reaches the server.
  */
-const routeConsole = async (page, { status, ports }) => {
+const routeConsole = async (page, { status, ports, skillOptions }) => {
+  const skills = require('./skills-fixtures.cjs').createSkillsFixtures(skillOptions);
   await page.route("**/*", (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const at = (suffix) => url.pathname.endsWith(suffix);
+    const skillResponse = skills.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
+    if (skillResponse) return route.fulfill({ status: skillResponse.status, json: skillResponse.body });
     if (request.method() === "POST" && !at("/login")) return route.fulfill({ json: { ok: true } });
     if (at("/status")) return route.fulfill({ json: status() });
     if (at("/ports")) return route.fulfill({ json: ports() });
     if (at("/providers")) return route.fulfill({ json: fixture("providers.json") });
-    if (at("/context/skills")) {
-      const provider = url.searchParams.get("provider") || "claude";
-      const name = `skills-${provider}.json`;
-      return fs.existsSync(path.join(FIXTURES, name)) ? route.fulfill({ json: fixture(name) })
-        : route.fulfill({ json: { ok: true, provider, coverage: "files", skills: [], roots: [] } });
-    }
     return route.continue();
   });
 };
@@ -122,6 +130,7 @@ const framed = async (page, url) => {
 
 /** Unlock the console with its key and wait for the first page. */
 const unlock = async (target, key) => {
+  if (await target.locator('#app').count()) return; // fixture preview has no login
   await target.waitForSelector("input[type=password]");
   await target.fill("input[type=password]", key);
   await target.click("button[type=submit]");
@@ -131,7 +140,7 @@ const unlock = async (target, key) => {
 /** Go to a page (or a page's tab, "instructions/skills") and let its data land. */
 const visit = async (target, page, route) => {
   await target.evaluate((r) => { location.hash = r; window.scrollTo(0, 0); }, route);
-  await target.waitForSelector(`#page-${route.split("/")[0]}:not([hidden]) .tc-page-head`, { timeout: 30000 });
+  await target.waitForSelector(`#page-${route.split("/")[0]}:not([hidden]) .tc-page-head`, { timeout: 30000, state: "attached" });
   await target.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(route === "instructions/skills" ? 1200 : 400);
 };

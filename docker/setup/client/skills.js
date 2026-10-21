@@ -1,232 +1,197 @@
-// On-demand inventory and explicit local file management. Polling never scans skills.
+// One on-demand library. Polls cannot morph its owned subtree or rescan files.
 const T3SkillsUI = (() => {
   'use strict';
   const { html, raw, icon } = Kit;
-  const M = T3Model;
-  const providers = [['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['cursor', 'Cursor'], ['grok', 'Grok Build'], ['muse', 'Muse Code'], ['antigravity', 'Antigravity']];
-  const stateOf = (skill) => skill.error ? { text: 'Unavailable', tone: 'warn' }
-    : skill.stateAuthority === 'user-policy' ? { text: skill.stateLabel, tone: skill.state === 'off' || skill.state === 'deny' ? '' : 'ok' }
-    : skill.native && skill.state === 'enabled' ? { text: 'Enabled', tone: 'ok' }
-      : skill.native && skill.state === 'disabled' ? { text: 'Disabled', tone: '' }
-        : { text: 'Unverified', tone: '' };
+  const S = T3SkillModel, M = T3Model;
+  const disabled = value => value ? raw(' disabled') : '';
+  const mark = id => html`<span class="tc-tile tc-tile--mark tc-tile--xs" aria-hidden="true">${raw(T3C.agentMark(id))}</span>`;
   const create = ({ api, getStatus, render, readMarkdown, downloadMarkdown }) => {
-    let provider = null, inventory = null, loading = false, error = null, generation = 0, viewer = null, changing = null, checking = false;
+    const inventories = {}, errors = {}, epochs = {}, loading = new Set(), changing = new Map(), collapsed = new Map();
+    let installed = [], reach = null, rows = [], started = false, scan = null, query = '', agent = '', needsAttention = false, showAll = false, markup = null, highlighted = new Set();
     const filterKey = 't3-console-hide-bundled-skills';
-    let hideBundled = false;
+    let hideBundled = false, checking = false;
     try { hideBundled = localStorage.getItem(filterKey) === 'true'; } catch { /* this session only */ }
-    const visibleSkills = () => (inventory?.skills || []).filter((skill) => !hideBundled || skill.scope !== 'system');
-    const importer = T3SkillImport.create({ api, providers, refresh: () => load(true) });
-    const chooseDefault = () => {
-      const installed = (getStatus()?.harnesses || []).filter((row) => row.installed).map((row) => row.id);
-      return providers.find(([id]) => installed.includes(id))?.[0] || 'claude';
+    const columns = () => S.providers.filter(provider => showAll || installed.includes(provider.id));
+    const roots = () => S.rootsFor(inventories, reach);
+    const library = () => ({ rows, inventories, errors, roots: roots(), installed, agents: columns().map(provider => provider.id), home: reach?.home || getStatus()?.paths?.volume,
+      install: options => importer.open(options) });
+    const inspector = T3SkillInspector.create({ api, getLibrary: library, getStatus, availability: (...args) => availability(...args), refresh: () => loadAll(true), readMarkdown, downloadMarkdown });
+    const importer = T3SkillImport.create({ api, getLibrary: library, refresh: () => loadAll(true), showInLibrary: names => {
+      highlighted = new Set(names); query = ''; agent = ''; needsAttention = false; paint();
+      const field = document.getElementById('skill-search'); if (field) field.value = '';
+      requestAnimationFrame(() => [...document.querySelectorAll('.tc-mx-row[data-highlight], .tc-prow[data-highlight]')]
+        .find(element => element.getClientRects().length)?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+    } });
+    const rebuild = () => {
+      const current = Object.fromEntries(columns().filter(provider => inventories[provider.id]).map(provider => [provider.id, inventories[provider.id]]));
+      rows = S.join(current, reach);
     };
-    const load = async (refresh = false) => {
-      if (loading) return;
-      provider ||= chooseDefault();
-      const selected = provider, current = ++generation;
-      loading = true; error = null; render();
-      const response = await api('/context/skills?provider=' + encodeURIComponent(selected) + (refresh ? '&refresh=1' : ''));
-      if (current !== generation) return;
-      loading = false;
-      if (response.ok) inventory = response.data;
-      else error = response.error;
-      render();
+    const paint = () => {
+      markup = body(); render();
+      const mount = document.getElementById('skill-library'); if (mount) Kit.patch(mount, markup);
+      inspector.repaint(); importer.repaint?.();
     };
-    const providerName = (id) => providers.find(([key]) => key === id)?.[1] || 'this agent';
-    const coverageSummary = () => !inventory || loading ? ''
-      : M.plural(visibleSkills().length, 'skill') + (hideBundled && inventory.skills?.some((skill) => skill.scope === 'system') ? ' · ' + (inventory.skills.length - visibleSkills().length) + ' hidden' : '');
-    // What a skill's availability means for this agent, said once under the list.
-    const coverageText = () => !inventory ? 'Refresh after changing skills outside the console.'
-      : inventory.coverage === 'policy' ? 'These settings are ' + providerName(provider) + '’s own, for every project. A project’s settings can still turn a skill off. A change applies to new conversations.'
-        : inventory.coverage === 'native' && provider === 'codex' ? 'Codex reports which it loads. A change applies to new conversations.'
-          : 'Skill files found on disk. ' + providerName(provider) + ' doesn’t say here which it loads.';
-    /** The one control a skill row has: a policy, a switch, or what it is. */
-    const control = (skill) => {
-      if (skill.canSetState) {
-        const label = provider === 'claude' ? 'Visibility' : 'Permission';
-        return html`<select class="tc-select tc-select--sm tc-skill-policy" data-skill-policy="${skill.id}" aria-label="${label} for ${skill.name}"${changing ? raw(' disabled') : ''}>${skill.stateOptions.map((option) => html`<option value="${option.value}"${option.value === skill.state ? raw(' selected') : ''}>${option.label}</option>`)}</select>`;
-      }
-      if (skill.canToggle) {
-        const busy = changing?.id === skill.id && changing.provider === provider;
-        return html`<label class="tc-switch-hit" for="skill-switch-${skill.id}"><button class="tc-switch" id="skill-switch-${skill.id}" type="button" role="switch" aria-checked="${String(skill.state === 'enabled')}" aria-label="${skill.name} for Codex" data-cmd="skills.state" data-id="${skill.id}"${changing ? raw(' disabled') : ''}${busy ? raw(' aria-busy="true"') : ''}></button></label>`;
-      }
-      const status = stateOf(skill);
-      return html`<span class="tc-badge${status.tone ? ' tc-badge--' + status.tone : ''}">${status.text}</span>`;
+    const loadProvider = async (id, refresh = false) => {
+      if (changing.has(id)) return;
+      const epoch = (epochs[id] || 0) + 1; epochs[id] = epoch;
+      loading.add(id); delete errors[id]; paint();
+      const response = await api('/context/skills?provider=' + encodeURIComponent(id) + (refresh ? '&refresh=1' : ''));
+      if (epochs[id] !== epoch) return;
+      loading.delete(id);
+      if (response.ok) { inventories[id] = response.data; delete errors[id]; }
+      else errors[id] = response.error;
+      rebuild(); paint();
     };
-    /** A skill in a line: its name and what it is for, opening to the whole of it, and its control. */
-    const row = (skill) => {
-      const flag = skill.error ? { tone: 'warn', text: 'Unavailable' } : skill.metadataError ? { tone: 'warn', text: 'Check its metadata' } : null;
-      return html`<div class="tc-row tc-row--compact tc-skill-row" data-key="skill-${skill.id}">
-        <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('sparkles')}</span>
-        <button class="tc-row-main tc-skill-open" type="button" data-cmd="skills.view" data-id="${skill.id}" aria-label="View ${skill.name}">
-          <span class="tc-row-title"><span class="tc-row-name">${skill.name}</span>${skill.update ? html`<span class="tc-badge${skill.update.status === 'available' ? ' tc-badge--ok' : skill.update.status === 'error' ? ' tc-badge--warn' : ''}">${skill.update.status === 'available' ? 'Update available' : skill.update.status === 'error' ? 'Update check failed' : 'Up to date'}</span>` : ''}${flag ? html`<span class="tc-badge tc-badge--${flag.tone}">${flag.text}</span>` : ''}</span>
-          ${skill.description ? html`<span class="tc-skill-description" title="${skill.description}">${skill.description}</span>` : ''}
-        </button>
-        <div class="tc-row-actions">${control(skill)}</div>
-      </div>`;
+    const loadAll = (refresh = false) => {
+      if (scan) return scan;
+      installed = S.providers.filter(provider => getStatus()?.harnesses?.some(row => row.id === provider.id && row.installed)).map(provider => provider.id);
+      started = true;
+      const ids = showAll ? S.providers.map(provider => provider.id) : installed;
+      scan = Promise.allSettled([
+        ...ids.map(id => loadProvider(id, refresh)),
+        api('/context/skills/reach' + (refresh ? '?refresh=1' : '')).then(response => { if (response.ok) reach = response.data; rebuild(); paint(); }),
+      ]).finally(() => { scan = null; paint(); Kit.announce('Scanned ' + M.plural(rows.length, 'skill') + ' across ' + M.plural(installed.length, 'agent')); });
+      return scan;
     };
-    const content = () => html`<div class="tc-group tc-skills"${inventory ? raw(' data-provider="' + inventory.provider + '"') : ''}>
-      <div class="tc-skill-toolbar"><label class="tc-label" for="skill-provider">Agent</label><select class="tc-select tc-select--sm" id="skill-provider">${providers.map(([id, name]) => html`<option value="${id}"${(provider || chooseDefault()) === id ? raw(' selected') : ''}>${name}</option>`)}</select><span class="tc-hint tc-skill-count">${coverageSummary()}</span><span class="tc-spacer"></span><div class="tc-skill-actions">${actions()}</div></div>
-      <div class="tc-skill-filter"><label for="skill-hide-bundled">Hide bundled skills</label><button class="tc-switch" id="skill-hide-bundled" type="button" role="switch" aria-label="Hide bundled skills" aria-describedby="skill-filter-help" aria-checked="${String(hideBundled)}" data-cmd="skills.filter"></button><span class="tc-hint" id="skill-filter-help">Hide skills included with the agent from this list.</span></div>
-      <div class="tc-skill-body" aria-live="polite" aria-busy="${String(loading)}">
-        ${loading ? html`<p class="tc-skill-message tc-muted"><span class="tc-spinner" aria-hidden="true"></span>Reading skills…</p>` : ''}
-        ${error ? html`<p class="tc-skill-message tc-danger" role="alert">${icon('circle-alert')}<span>Couldn’t read skills: ${error}</span></p>` : ''}
-        ${!loading && !error && inventory ? html`
-          ${inventory.nativeError ? html`<p class="tc-skill-message tc-warning" role="status">${icon('triangle-alert')}<span>${providerName(provider)} couldn’t be asked which skills it loads: ${inventory.nativeError}</span></p>` : ''}
-          ${(inventory.warnings || []).map((warning) => html`<p class="tc-skill-message tc-warning" role="status">${icon('triangle-alert')}<span>${warning}</span></p>`)}
-          ${visibleSkills().length ? html`<div class="tc-list">${visibleSkills().map(row)}</div>` : ''}
-          ${!visibleSkills().length ? html`<div class="tc-empty tc-empty--compact tc-skill-empty"><span class="tc-empty-media" aria-hidden="true"><span class="tc-empty-icon">${icon('sparkles')}</span></span><span class="tc-empty-title">${inventory.skills?.length ? 'All skills are hidden' : inventory.warnings?.length ? 'No skills could be shown' : 'No skills yet'}</span><span class="tc-empty-desc">${inventory.skills?.length ? 'Turn off Hide bundled skills to show them.' : inventory.warnings?.length ? 'The messages above say why.' : 'Nothing in ' + providerName(provider) + '’s global skill folders. Add one here, or install one from a source.'}</span></div>` : ''}
-          ${inventory.roots?.length ? html`<details class="tc-skill-locations" data-key="skill-locations"><summary>Looked in ${M.plural(inventory.roots.length, 'folder')}</summary>${inventory.roots.map((root) => html`<code>${root.path}</code>`)}</details>` : ''}
-          ${inventory.adapter && !inventory.adapter.detected ? html`<p class="tc-skill-message tc-muted" role="status">${icon('info', 'tc-icon--sm')}<span>${providerName(provider)} isn’t detected here, so these are plain files until it is installed. Adding, editing and importing still work.</span></p>` : ''}
-        ` : ''}
-      </div>
-      <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>${coverageText()}</span></div>
-    </div>`;
-    const actions = () => html`${inventory?.skills?.some((skill) => skill.origin) ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.check-updates"${loading || changing || checking ? raw(' disabled') : ''}>${checking ? 'Checking updates…' : 'Check for updates'}</button>` : ''}<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-cmd="skills.refresh" aria-label="Refresh skills" title="Refresh skills"${loading || changing || checking ? raw(' disabled') : ''}>${icon('refresh-cw')}</button><button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.import">${icon('download')}Install from source</button>${inventory?.canCreate ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="skills.add">${icon('plus')}Add skill</button>` : ''}`;
+    const availability = (skill, provider, full = false) => {
+      const row = skill.byProvider[provider], state = S.state(row), busy = changing.has(provider), pending = changing.get(provider) === row?.id;
+      const label = S.nameOf(provider) + ' ' + (provider === 'claude' ? 'visibility' : provider === 'opencode' ? 'permission' : 'availability') + ' for ' + skill.name + ': ' + state.label;
+      const key = 'skill-cell-' + provider + '-' + (row?.id || encodeURIComponent(skill.key)) + (full ? '-inspector' : '-table');
+      if (errors[provider]) return html`<span class="tc-cell tc-cell--none" title="${errors[provider]}" aria-label="${S.nameOf(provider)} unavailable: ${errors[provider]}">—</span>`;
+      if (!row) return html`<button class="tc-cell tc-cell--none" type="button" data-cmd="skills.copy" data-id="${skill.key}" data-provider="${provider}" aria-label="Copy ${skill.name} to ${S.nameOf(provider)}"${disabled(!installed.includes(provider))}><span class="tc-cell-dash" aria-hidden="true">—</span><span class="tc-cell-add">${icon('plus')}Add</span></button>`;
+      if (pending) return html`<span class="tc-cell" role="status"><span class="tc-spinner" aria-hidden="true"></span><span class="tc-sr">Saving ${label}</span></span>`;
+      if (state.kind === 'policy') return full ? html`<select class="tc-select tc-select--sm" data-key="${key}" data-skill-policy="${row.id}" data-skill-provider="${provider}" aria-label="${label}"${disabled(busy)}>${row.stateOptions.map(option => html`<option value="${option.value}"${option.value === row.state ? raw(' selected') : ''}>${option.label}</option>`)}</select>`
+        : html`<button class="tc-cell" data-tone="${state.muted ? 'muted' : ''}" data-key="${key}" type="button" data-cmd="skills.policy" data-provider="${provider}" data-id="${row.id}" aria-label="${label}" aria-haspopup="menu"${disabled(busy)}>${state.label}${icon('chevron-down')}</button>`;
+      if (state.kind === 'switch') return html`<span class="tc-cell tc-cell--switch"><button class="tc-switch tc-switch--sm" role="switch" type="button" data-key="${key}" aria-checked="${String(row.state === 'enabled')}" aria-label="${label}" data-cmd="skills.state" data-id="${row.id}" data-provider="${provider}"${disabled(busy)}></button><span class="tc-small tc-muted">${state.label}</span></span>`;
+      if (state.kind === 'error') return html`<span class="tc-cell tc-warning" title="${state.reason}">${state.label}</span>`;
+      if (state.kind === 'locked') return html`<span class="tc-cell tc-cell--locked" title="${state.reason || 'Managed through its source'}">${state.label}${icon('lock')}</span>`;
+      const reason = 'In a folder ' + S.nameOf(provider) + ' reads. ' + S.nameOf(provider) + ' doesn’t report which skills it loads.';
+      return html`<span class="tc-cell tc-cell--found" tabindex="0" title="${reason}" aria-describedby="${key}-explanation"><span>Found</span></span><span class="tc-sr" id="${key}-explanation">${reason}</span>`;
+    };
+    const setState = async (id, provider, value) => {
+      const row = inventories[provider]?.skills.find(row => row.id === id);
+      if (!row || changing.has(provider) || !row.canSetState && !row.canToggle) return;
+      if (row.canSetState && (!row.stateOptions.some(option => option.value === value) || value === row.state)) return;
+      const focusedKey = document.activeElement?.getAttribute('data-key');
+      changing.set(provider, id); epochs[provider] = (epochs[provider] || 0) + 1; loading.delete(provider); paint();
+      const enabled = row.canToggle ? row.state !== 'enabled' : undefined;
+      const response = await api('/context/skills/state', { body: { provider, id, stateRevision: row.stateRevision, enabled, state: value } });
+      changing.delete(provider);
+      if (response.ok) { inventories[provider] = response.data.inventory; delete errors[provider]; rebuild(); paint(); Kit.toast('Saved ' + S.nameOf(provider) + ' setting'); Kit.announce('Saved ' + S.nameOf(provider) + '’s skill setting'); }
+      else { Kit.toast('Couldn’t change ' + S.nameOf(provider) + '’s setting for ' + row.name, { tone: 'danger', detail: response.error }); await loadProvider(provider, true); }
+      if (focusedKey && (document.activeElement === document.body || document.activeElement?.classList.contains('tc-skill-inspector'))) document.querySelector('[data-key="' + CSS.escape(focusedKey) + '"]')?.focus({ preventScroll: true });
+    };
+    const policyMenu = (id, provider, trigger) => {
+      const row = inventories[provider]?.skills.find(row => row.id === id);
+      if (!row?.canSetState || changing.has(provider)) return;
+      const explanations = { on: 'Claude sees its name and description. You can run /' + row.name + '.', 'name-only': 'Claude sees its name without the description, which saves context.', 'user-invocable-only': 'Hidden from Claude. You can still run /' + row.name + '.', off: 'Hidden from Claude and from the / menu.', allow: 'The agent can use this skill.', ask: 'The agent asks before using this skill.', deny: 'The agent cannot use this skill.' };
+      Kit.menu(trigger, { label: S.nameOf(provider) + ' skill setting', head: { title: S.nameOf(provider) + ' · ' + (provider === 'claude' ? 'visibility' : 'permission') },
+        items: row.stateOptions.map(option => ({ label: option.label, description: explanations[option.value], radio: true, checked: option.value === row.state, run: () => setState(id, provider, option.value) })),
+        footer: html`${row.statePath ? html`Saved in <code>${S.displayPath(row.statePath, library().home)}</code>. ` : ''}Applies to new sessions.${provider === 'opencode' && row.effectiveStateText ? html`<br>${row.effectiveStateText}` : ''}` });
+    };
     const checkUpdates = async () => {
-      if (loading || changing || checking) return;
-      const selected = provider, current = generation, rows = (inventory?.skills || []).filter((skill) => skill.origin);
-      checking = true; render();
+      if (checking || scan || loading.size) return;
+      const tracked = rows.filter(row => row.origin).map(row => ({ key: row.key, provider: row.provider, id: row.byProvider[row.provider].id, origin: row.origin }));
+      checking = true; paint();
       try {
-        for (const skill of rows) {
-          if (provider !== selected || generation !== current) break;
-          const response = await api('/context/skills/check-update', { body: { provider: selected, id: skill.id } });
-          if (provider !== selected || generation !== current) break;
-          if (response.ok) skill.update = response.data.update;
-          else skill.update = { status: 'error', error: response.error };
-          render();
-        }
-      } finally { checking = false; render(); }
-    };
-    const setState = async (id, state) => {
-      const row = inventory?.skills?.find((skill) => skill.id === id);
-      if ((!row?.canToggle && !row?.canSetState) || loading || changing) return;
-      const selected = provider, enabled = selected === 'codex' ? row.state !== 'enabled' : undefined;
-      if (row.canSetState && (!row.stateOptions.some((option) => option.value === state) || state === row.state)) return;
-      changing = { provider: selected, id }; render();
-      const response = await api('/context/skills/state', { body: { provider: selected, id, stateRevision: row.stateRevision, enabled, state } });
-      changing = null;
-      if (response.ok) Kit.toast(selected === 'codex' ? enabled ? 'Enabled skill for Codex' : 'Disabled skill for Codex' : 'Saved native skill policy');
-      else Kit.toast('Could not change skill policy', { tone: 'danger', detail: response.error });
-      if (provider !== selected) { render(); return; }
-      // Supersede any inventory fetched while the settings write was in flight.
-      generation++; loading = false;
-      if (response.ok) { inventory = response.data.inventory; error = null; render(); }
-      else { inventory = null; await load(true); }
-    };
-    const open = async (id, editing = false, creating = false) => {
-      const row = creating ? { name: 'Add skill', source: 'Provider', canEdit: true } : inventory?.skills?.find((skill) => skill.id === id);
-      if (!row || (editing && !creating && !row.canEdit)) return;
-      if (viewer?.saving) return;
-      viewer?.layer.close('replace');
-      const template = (slug) => '---\nname: ' + JSON.stringify(slug || 'my-skill') + '\ndescription: Describe when to use this skill.\n---\n\nWrite the skill instructions here.\n';
-      const current = { provider, row, loading: !creating, data: null, error: null, layer: null, editing, creating, saving: false, slug: '', target: inventory?.creationTargets?.[0]?.id || 'provider', draft: creating ? template('') : '', original: '', generated: true };
-      const formatBytes = (bytes) => bytes < 1024 ? bytes + ' B' : (bytes / 1024).toFixed(1).replace(/\.0$/, '') + ' KB';
-      const isDirty = () => creating || current.draft !== current.original;
-      const editorMeta = () => formatBytes(new TextEncoder().encode(current.draft).length) + ' · ' + (creating ? 'New skill' : isDirty() ? 'Unsaved changes' : 'Saved');
-      const fileName = () => (creating ? current.slug : row.name).replace(/[^a-z0-9-]/gi, '-').slice(0, 64) || 'skill';
-      const download = () => downloadMarkdown(fileName() + '.md', current.draft);
-      const disabled = (condition) => condition ? raw(' disabled') : '';
-      viewer = current;
-      current.layer = Kit.open({ kind: 'center', panel: { class: 'tc-sheet tc-context-sheet tc-skill-sheet ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'skill-view-title' }, focus: '[data-skill-close]',
-        backdrop: 'ignore', onEscape: () => { if (!current.saving) current.layer.close('escape'); },
-        onClose: () => { if (viewer === current) viewer = null; },
-        render: () => html`<div class="tc-sheet-head"><span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span><div class="tc-sheet-head-text"><h3 class="tc-sheet-title" id="skill-view-title">${row.name}</h3><span class="tc-small tc-muted">${providers.find(([key]) => key === current.provider)?.[1]} · ${row.source}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-skill-close aria-label="Close"${disabled(current.saving)}>${icon('x')}</button></div>
-          <div class="tc-sheet-body">
-            ${creating ? html`${inventory?.creationTargets?.length > 1 ? html`<label class="tc-label" for="skill-target">Location</label><select class="tc-select" id="skill-target"${disabled(current.saving)}>${inventory.creationTargets.map((target) => html`<option value="${target.id}"${current.target === target.id ? raw(' selected') : ''}>${target.name}</option>`)}</select><p class="tc-hint">Shared skills can be used by multiple providers. Editing or removing them affects every provider using the same files.</p>` : ''}<label class="tc-label" for="skill-slug">Folder name</label><input class="tc-input" id="skill-slug" data-key="skill-slug" value="${current.slug}" placeholder="my-skill" maxlength="64" autocapitalize="none" spellcheck="false"${disabled(current.saving)}><p class="tc-hint">Use lowercase letters, numbers and hyphens. The frontmatter name must match.</p>` : html`<div class="tc-skill-meta"><span class="tc-hint">Location</span><code>${current.data?.path || row.path}</code>${(current.data?.resolvedPath || row.resolvedPath) && (current.data?.resolvedPath || row.resolvedPath) !== row.path ? html`<span class="tc-hint">Linked target</span><code>${current.data?.resolvedPath || row.resolvedPath}</code>` : ''}</div>
-            <p class="tc-hint">${stateOf(row).text}${row.invocation === 'manual' ? ' · Manual invocation requested by the skill' : row.invocation === 'model-only' ? ' · User invocation disabled in frontmatter' : ''}. ${row.stateAuthority === 'user-policy' ? 'Native user policy checked by the managed provider. ' + row.effectiveStateText + '. Session rules can differ.' : row.native ? 'Listed by Codex in the managed setup environment.' : 'File found on disk; provider availability is unverified.'}</p>`}
-            ${!creating && row.origin ? html`<div class="tc-skill-meta"><span class="tc-hint">Installed from</span><code>${row.origin.source}</code></div><p class="tc-hint">${row.update?.status === 'available' ? 'An update is available. Review the source before replacing this installation, including any local edits.' : row.update?.status === 'current' ? 'Installed source snapshot is up to date. Local edits are preserved until you explicitly replace this folder.' : row.update?.status === 'error' ? 'Could not check for updates: ' + row.update.error : 'Use Check for updates in the skill list to check this repository.'}</p>` : ''}
-            ${!creating && row.stateReadOnlyReason ? html`<p class="tc-hint">${row.stateReadOnlyReason}</p>` : ''}
-            ${row.metadataError ? html`<p class="tc-hint tc-warning">${row.metadataError}</p>` : ''}
-            ${current.error ? html`<p class="tc-danger" role="alert">${current.error}</p>` : ''}
-            <div class="tc-editor-toolbar"><label class="tc-label" for="skill-content">Markdown${current.data && !current.editing ? ' · ' + formatBytes(current.data.bytes) : ''}</label><div class="tc-editor-tools">${current.editing ? html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-skill-upload title="Replace this draft from a Markdown file"${disabled(current.loading || current.saving || (!creating && !current.data))}>${icon('upload')}Upload</button>` : ''}<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-skill-download title="Download, including unsaved edits"${disabled(current.loading || current.saving || (!current.data && !creating))}>${icon('download')}Download</button><button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-skill-copy${disabled(current.loading || current.saving || (!current.data && !creating))}>${icon('copy')}Copy</button></div>${current.editing ? html`<input id="skill-file" type="file" accept=".md,text/markdown" hidden>` : ''}</div>
-            ${current.loading ? html`<p class="tc-muted" role="status">Reading Markdown…</p>` : current.data || creating ? html`
-              <textarea id="skill-content" data-key="skill-content" class="tc-input tc-input--area tc-editor-area"${current.editing ? raw(' aria-describedby="skill-editor-meta"') : raw(' readonly')}${disabled(current.saving)} spellcheck="false" rows="14">${current.draft}</textarea>
-              ${current.editing ? html`<div class="tc-editor-meta"><span id="skill-editor-meta" data-key="skill-editor-meta">${editorMeta()}</span><span>${creating ? 'Creates the skill in the selected location.' : 'Saving updates this file wherever it is used. Supporting files and symlinks stay in place.'}<span class="tc-desk-only"> Ctrl/⌘ S to save.</span></span></div>` : (current.data?.readOnlyReason || current.data?.removalError) ? html`<p class="tc-hint">${current.data.readOnlyReason || current.data.removalError}</p>` : ''}
-            ` : ''}
-          </div><div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-skill-close${disabled(current.saving)}>Close</button>
-          ${current.editing ? html`<button class="tc-btn tc-btn--primary" type="button" data-skill-save${disabled(current.loading || current.saving || (!creating && !current.data) || !isDirty() || (creating && !current.slug))}>${current.saving ? 'Saving…' : creating ? 'Add skill' : 'Save'}</button>` : html`${current.data?.canRemove ? html`<button class="tc-btn tc-btn--danger" type="button" data-skill-remove${disabled(current.saving)}>Remove…</button>` : ''}${row.origin && current.data?.canEdit ? html`<button class="tc-btn" type="button" data-skill-update>Review ${row.update?.status === 'available' ? 'update' : 'source'}</button>` : ''}${current.data?.canEdit ? html`<button class="tc-btn tc-btn--primary" type="button" data-skill-edit>Edit Markdown</button>` : ''}`}</div>`,
-      });
-      const syncEditor = () => {
-        const meta = current.layer.panel.querySelector('#skill-editor-meta');
-        if (meta) meta.textContent = editorMeta();
-        const save = current.layer.panel.querySelector('[data-skill-save]');
-        if (save) save.disabled = current.loading || current.saving || (!creating && !current.data) || !isDirty() || (creating && !current.slug);
-      };
-      current.layer.panel.addEventListener('input', (event) => {
-        if (event.target.id === 'skill-content') { current.draft = event.target.value; current.generated = false; syncEditor(); }
-        if (event.target.id === 'skill-slug') {
-          current.slug = event.target.value;
-          if (current.generated) { current.draft = template(current.slug); current.layer.panel.querySelector('#skill-content').value = current.draft; }
-          syncEditor();
-        }
-      });
-      current.layer.panel.addEventListener('keydown', (event) => {
-        if (event.target.id === 'skill-content' && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-          event.preventDefault();
-          current.layer.panel.querySelector('[data-skill-save]')?.click();
-        }
-      });
-      current.layer.panel.addEventListener('change', async (event) => {
-        if (event.target.id === 'skill-target') { current.target = event.target.value; return; }
-        if (event.target.id !== 'skill-file' || !event.target.files?.[0]) return;
-        const file = event.target.files[0]; event.target.value = ''; current.loading = true; current.error = null; current.layer.render();
-        try { const text = await readMarkdown(file); if (viewer !== current) return; current.draft = text; current.generated = false; }
-        catch (error) { if (viewer !== current) return; current.error = error.message; }
-        current.loading = false; current.layer.render();
-      });
-      current.layer.panel.addEventListener('click', async (event) => {
-        const button = event.target.closest('button');
-        if (!button || button.disabled) return;
-        if (button.hasAttribute('data-skill-close')) current.layer.close('close');
-        else if (button.hasAttribute('data-skill-copy')) Kit.copy(current.draft, button, 'Skill Markdown copied');
-        else if (button.hasAttribute('data-skill-download')) download();
-        else if (button.hasAttribute('data-skill-upload')) current.layer.panel.querySelector('#skill-file').click();
-        else if (button.hasAttribute('data-skill-update')) { current.layer.close('update'); importer.open(current.provider, { source: row.origin.source, name: row.origin.name }); }
-        else if (button.hasAttribute('data-skill-edit')) { current.editing = true; current.layer.render(); current.layer.panel.querySelector('#skill-content').focus(); }
-        else if (button.hasAttribute('data-skill-save') || button.hasAttribute('data-skill-remove')) {
-          const removing = button.hasAttribute('data-skill-remove');
-          if (current.saving || current.loading) return;
-          if (removing) {
-            const yes = await Kit.confirm({ title: 'Remove ' + row.name + '?', body: current.data.removalKind === 'directory' ? 'Removes this local skill folder and its supporting files. Other providers using this folder will lose it too.' : current.data.removalLinkedTarget ? 'Removes this installation entry. Linked target files are kept.' : 'Removes this skill Markdown file. Other files in the folder stay in place.', consequences: [{ icon: 'trash-2', text: current.data.removalPath }], confirm: 'Remove skill', tone: 'danger' });
-            if (!yes || viewer !== current || current.saving) return;
+        for (const skill of tracked) {
+          const epoch = epochs[skill.provider], inventory = inventories[skill.provider];
+          const current = inventory?.skills.find(row => row.id === skill.id);
+          if (errors[skill.provider] || current?.origin?.fingerprint !== skill.origin.fingerprint || current.origin.source !== skill.origin.source) continue;
+          const response = await api('/context/skills/check-update', { body: { provider: skill.provider, id: skill.id } });
+          if (epochs[skill.provider] !== epoch || inventories[skill.provider] !== inventory) continue;
+          const update = response.ok ? response.data.update : { ...skill.origin, status: 'error', error: response.error };
+          for (const data of Object.values(inventories)) for (const row of data.skills || []) {
+            if ((row.resolvedPath || row.path) === skill.key && row.origin?.fingerprint === skill.origin.fingerprint && row.origin.source === skill.origin.source) row.update = update;
           }
-          current.saving = true; current.error = null; current.layer.render();
-          const response = await api('/context/skills/' + (removing ? 'remove' : creating ? 'create' : 'save'), { body: { provider: current.provider, id, slug: current.slug, target: current.target, content: current.draft, revision: current.data?.revision, removalRevision: current.data?.removalRevision } });
-          current.saving = false;
-          if (!response.ok) {
-            if (viewer === current) { current.error = response.error; current.layer.render(); }
-            else Kit.toast('Skill change failed', { tone: 'danger', detail: response.error, action: { label: 'Download draft', run: download } });
-            return;
-          }
-          if (viewer === current) current.layer.close('saved');
-          Kit.toast(removing ? 'Removed local skill installation' : 'Saved skill');
-          await load(true);
+          rebuild(); paint();
         }
-      });
-      if (creating) return;
-      const response = await api('/context/skills/read?provider=' + encodeURIComponent(current.provider) + '&id=' + encodeURIComponent(id));
-      if (viewer !== current) return;
-      current.loading = false;
-      if (response.ok) { current.data = response.data; current.draft = response.data.content; current.original = response.data.content; current.editing = editing && Boolean(response.data.canEdit); }
-      else current.error = response.error;
-      current.layer.render();
+      } finally { checking = false; paint(); }
     };
-    return { content, actions, checkUpdates, setState, install: () => importer.open(provider || chooseDefault()), view: (id, editing = false) => open(id, editing), add: () => { if (inventory?.canCreate) return open(null, true, true); },
-      activate: () => { if (!inventory && !loading && !error) load(); },
-      refresh: () => load(true),
-      toggleBundled: () => {
-        hideBundled = !hideBundled;
-        try { localStorage.setItem(filterKey, String(hideBundled)); } catch { /* this session only */ }
-        render();
-      },
-      select: (id) => {
-        if (!providers.some(([key]) => key === id) || id === provider) return;
-        viewer?.layer.close('provider');
-        provider = id; inventory = null; loading = false; error = null; generation++;
-        load();
-      },
+    const updateBadge = skill => skill.update ? html`<span class="tc-badge${skill.update.status === 'available' ? ' tc-badge--ok' : skill.update.status === 'error' ? ' tc-badge--warn' : ''}" title="${skill.update.error || ''}">${skill.update.status === 'available' ? 'Update available' : skill.update.status === 'error' ? 'Update check failed' : 'Up to date'}</span>` : '';
+    const reviewSource = skill => importer.open({ source: skill.origin.source, names: [skill.origin.name], agents: [skill.provider], step: 2, mode: 'each' });
+    const skillBadges = skill => html`${updateBadge(skill)}${skill.packageManaged ? html`<span class="tc-tagline">${icon('lock')}Package${skill.packageSource ? html` <code>${skill.packageSource}</code>` : ''}</span>` : !Object.values(skill.byProvider).some(row => row.canEdit) ? html`<span class="tc-tagline">${icon('lock')}Read-only</span>` : ''}${skill.metadataError ? html`<span class="tc-badge tc-badge--warn" title="${skill.metadataError}">Check metadata</span>` : ''}`;
+    const readersLabel = root => {
+      const readers = (root.readers || []).filter(id => installed.includes(id));
+      const others = readers.filter(id => id !== root.owner);
+      return root.owner && others.length ? 'Also read by ' + M.listOf(others.map(S.nameOf)) : 'Read by ' + M.listOf(readers.map(S.nameOf));
+    };
+    const actions = () => html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.add">${icon('plus')}New skill</button><button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="skills.import">${icon('download')}Install from source…</button>`;
+    const agentMenu = trigger => Kit.menu(trigger, { label: 'Available to', items: [{ label: 'Any agent', radio: true, checked: !agent, run: () => { agent = ''; paint(); } }, ...columns().map(provider => ({ label: provider.name, radio: true, checked: agent === provider.id, run: () => { agent = provider.id; paint(); } }))] });
+    const groupClosed = group => collapsed.has(group.key) ? collapsed.get(group.key) : !query && !needsAttention && ['system', 'admin'].includes(group.root.scope);
+    const attentionNotice = skill => {
+      const problem = Object.values(skill.byProvider).find(row => row.error || row.metadataError);
+      return html`<div class="tc-notice tc-notice--warn tc-sk-skill-notice" role="status">${icon('triangle-alert')}<div class="tc-notice-body"><span class="tc-notice-title">${skill.name} may not load</span><span class="tc-notice-desc">${problem?.error || problem?.metadataError}</span></div>${Object.values(skill.byProvider).some(row => row.canEdit) ? html`<div class="tc-notice-actions"><button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.edit" data-id="${skill.key}">Fix in SKILL.md</button></div>` : ''}</div>`;
+    };
+    const table = filtered => html`<div class="tc-group tc-sk-table"><div class="tc-mx-scroll" tabindex="0" aria-label="Skills by agent"><div class="tc-mx" role="table" aria-label="Skills and agent settings" style="--mx-agent-count:${columns().length};--mx-cols:minmax(240px, 1fr) repeat(${columns().length}, 116px) 36px">
+      <div class="tc-mx-head" role="row"><span class="tc-mx-head-label" role="columnheader">Skill</span>${columns().map(provider => html`<div class="tc-mx-agent" role="columnheader"${!installed.includes(provider.id) ? raw(' data-uninstalled') : ''}><span class="tc-mx-agent-name">${mark(provider.id)}${provider.name}${errors[provider.id] ? html`<span class="tc-dot tc-dot--warn" title="${errors[provider.id]}" aria-label="Couldn’t read ${provider.name} skills"></span>` : ''}</span><span class="tc-mx-agent-kind">${loading.has(provider.id) ? 'Reading…' : installed.includes(provider.id) ? provider.control : 'Not installed'}</span></div>`)}<span class="tc-mx-more" role="columnheader">${installed.length < S.providers.length ? html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="skills.columns" aria-expanded="${String(showAll)}" aria-label="${showAll ? 'Hide agents that aren’t installed' : 'Show agents that aren’t installed'}">${showAll ? '−' : '+' + (S.providers.length - installed.length)}</button>` : ''}</span></div>
+      ${S.groups(filtered).map(group => html`<div role="rowgroup" data-key="skill-group-${group.key}"><div role="row"><div class="tc-mx-group" role="cell" aria-colspan="${columns().length + 2}"><button class="tc-mx-group-toggle" type="button" data-cmd="skills.group" data-id="${group.key}" aria-expanded="${String(!groupClosed(group))}">${icon(groupClosed(group) ? 'chevron-right' : 'chevron-down')}${group.label}</button><code title="${group.root.path}">${S.displayPath(group.root.path, library().home)}</code><span>·</span><span>${group.rows.length}</span><span>·</span><span class="tc-mx-readers" title="${(group.root.readers || []).map(S.nameOf).join(', ')}">${readersLabel(group.root)}</span><span class="tc-spacer"></span>${groupClosed(group) ? html`<span class="tc-mx-collapsed-names" title="${group.rows.map(row => row.name).join(', ')}">${group.rows.map(row => row.name).join(', ')}</span>` : installed.some(id => !(group.root.readers || []).includes(id)) ? html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="skills.copy-group" data-id="${group.key}">Copy to ${M.listOf(installed.filter(id => !(group.root.readers || []).includes(id)).map(S.nameOf))}…</button>` : ''}</div></div>
+        ${groupClosed(group) ? '' : group.rows.map(skill => html`<div class="tc-mx-row" role="row" data-key="skill-${skill.key}"${highlighted.has(skill.name) ? raw(' data-highlight') : ''}><div class="tc-mx-skill" role="cell"><div class="tc-mx-name"><button class="tc-skill-name" type="button" data-key="skill-name-${skill.key}" data-cmd="skills.view" data-id="${skill.key}">${skill.name}</button>${skillBadges(skill)}</div><p class="tc-mx-desc" title="${skill.description}">${skill.description}</p></div>${columns().map(provider => html`<div class="tc-cellwrap" role="cell" data-key="cell-${provider.id}">${availability(skill, provider.id)}</div>`)}<div class="tc-mx-actions" role="cell"><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--xs" type="button" data-key="skill-menu-${skill.key}" data-cmd="skills.menu" data-id="${skill.key}" aria-label="Actions for ${skill.name}">${icon('ellipsis')}</button></div></div>`)}</div>`)}
+    </div></div></div>`;
+    const phoneList = filtered => html`<div class="tc-sk-phone-list">${S.groups(filtered).map(group => html`<div class="tc-group tc-plist" data-key="phone-group-${group.key}"><div class="tc-plist-group"><button class="tc-mx-group-toggle" type="button" data-cmd="skills.group" data-id="${group.key}" aria-expanded="${String(!groupClosed(group))}">${group.label}</button><span>· ${group.rows.length}</span><span class="tc-spacer"></span><span>Read by ${(group.root.readers || []).filter(id => installed.includes(id)).length} agents</span></div>${groupClosed(group) ? '' : group.rows.map(skill => {
+      const readers = installed.filter(id => !errors[id] && S.available(skill.byProvider[id]));
+      const exceptions = installed.filter(id => skill.byProvider[id] && ['off', 'deny', 'disabled', 'ask', 'name-only', 'user-invocable-only'].includes(skill.byProvider[id].state)).map(id => S.state(skill.byProvider[id]).label + ' in ' + S.nameOf(id));
+      return html`<button class="tc-prow" type="button" data-key="phone-skill-${skill.key}" data-cmd="skills.view" data-id="${skill.key}"${highlighted.has(skill.name) ? raw(' data-highlight') : ''}><span class="tc-prow-name">${skill.name}${updateBadge(skill)}</span><span class="tc-prow-desc">${skill.description}</span><span class="tc-prow-agents"><span class="tc-agent-stack" aria-hidden="true">${readers.map(mark)}</span><span>${M.plural(readers.length, 'agent')}${exceptions.length ? ' · ' + exceptions.join(', ') : ''}</span></span>${icon('chevron-right')}</button>`;
+    })}</div>`)}</div>`;
+    const inventoryNotices = () => {
+      const failed = new Map();
+      for (const id of installed) if (errors[id]) failed.set(errors[id], [...(failed.get(errors[id]) || []), id]);
+      const notice = (title, description, tone = 'warn') => html`<div class="tc-notice tc-notice--${tone} tc-sk-provider-notice" role="status">${icon(tone === 'warn' ? 'triangle-alert' : 'info')}<div class="tc-notice-body"><span class="tc-notice-title">${title}</span><span class="tc-notice-desc">${description}</span></div></div>`;
+      return html`${[...failed].map(([error, ids]) => notice(ids.length === 1 ? S.nameOf(ids[0]) + ' skills are unavailable' : ids.length + ' agents’ skills are unavailable',
+        html`${ids.length > 1 ? html`${M.listOf(ids.map(S.nameOf))}<br>` : ''}${error}`))}
+        ${columns().flatMap(provider => [
+          ...[...(inventories[provider.id]?.nativeError ? [inventories[provider.id].nativeError] : []), ...(inventories[provider.id]?.warnings || [])].map(warning => notice(provider.name + ' skills need a look', warning)),
+          ...(showAll && inventories[provider.id]?.adapter?.detected === false ? [notice(provider.name + ' isn’t detected here', 'Adding, editing and importing skills still work.', 'info')] : []),
+        ])}`;
+    };
+    const body = () => {
+      const visibleRows = hideBundled ? rows.filter(row => row.scope !== 'system') : rows;
+      const hidden = rows.length - visibleRows.length;
+      const filtered = S.filter(agent && errors[agent] ? [] : visibleRows, { query, agent, needsAttention }), problems = visibleRows.filter(row => row.attention);
+      const failed = installed.some(id => errors[id]), scanning = Boolean(scan) || loading.size > 0;
+      const scannedAt = Math.min(...Object.values(inventories).map(inventory => inventory.scannedAt || Date.now()));
+      return html`<div class="tc-sk-toolbar"><label class="tc-sk-search">${icon('search')}<input class="tc-input" type="search" id="skill-search" data-key="skill-search" value="${query}" placeholder="Search ${rows.length || ''} skills" aria-label="Search skills"><kbd class="tc-kbd">/</kbd></label><div class="tc-sk-desktop-filters"><button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.filter" aria-haspopup="menu">Available to <span class="tc-btn-value">${agent ? S.nameOf(agent) : 'Any agent'}</span>${icon('chevron-down', 'tc-chev')}</button>${problems.length ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.attention" aria-pressed="${String(needsAttention)}"><span class="tc-dot tc-dot--warn"></span>Needs attention <span class="tc-tab-count">${problems.length}</span></button>` : ''}</div><span class="tc-spacer"></span><div class="tc-sk-desktop-actions">${actions()}</div></div>
+        <div class="tc-chipbar tc-sk-agent-chips" aria-label="Available to"><button class="tc-chip-btn" type="button" data-cmd="skills.agent" data-provider="" aria-pressed="${String(!agent)}">All <span class="tc-tab-count">${rows.length}</span></button>${columns().map(provider => html`<button class="tc-chip-btn" type="button" data-cmd="skills.agent" data-provider="${provider.id}" aria-pressed="${String(agent === provider.id)}">${mark(provider.id)}${provider.name}<span class="tc-tab-count">${rows.filter(row => !errors[provider.id] && S.available(row.byProvider[provider.id])).length}</span></button>`)}</div>
+        <div class="tc-sk-options"><label for="skill-hide-bundled">Hide bundled skills</label><button class="tc-switch tc-switch--sm" id="skill-hide-bundled" type="button" role="switch" aria-label="Hide bundled skills" aria-describedby="skill-filter-help" aria-checked="${String(hideBundled)}" data-cmd="skills.bundled"></button><span class="tc-hint" id="skill-filter-help">${hidden ? M.plural(hidden, 'skill') + ' hidden' : 'Filters this list only'}</span><button class="tc-btn tc-btn--sm tc-sk-other-agents" type="button" data-cmd="skills.columns" aria-expanded="${String(showAll)}"${!rows.length ? raw(' data-empty') : ''}>${showAll ? 'Hide other agents' : 'Show other agents'}</button><span class="tc-spacer"></span>${rows.some(row => row.origin) ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.check-updates"${disabled(scanning || checking)}>${checking ? 'Checking updates…' : 'Check for updates'}</button>` : ''}</div>
+        ${problems.length ? html`<button class="tc-sk-phone-notice" type="button" data-cmd="${problems.length === 1 ? 'skills.view' : 'skills.attention'}" data-id="${problems[0].key}" aria-pressed="${String(needsAttention)}">${icon('triangle-alert')}<span><strong>${problems.length === 1 ? problems[0].name + ' may not load' : problems.length + ' skills need attention'}</strong><span>${problems.length === 1 ? Object.values(problems[0].byProvider).find(row => row.metadataError || row.error)?.metadataError || 'Open the skill to review the problem.' : 'Review skills that may not load.'}</span></span>${icon('chevron-right')}</button>` : ''}
+        <div class="tc-sk-notices">${problems.slice(0, 3).map(attentionNotice)}${problems.length > 3 ? html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="skills.attention">and ${problems.length - 3} more</button>` : ''}${inventoryNotices()}</div>
+        ${!rows.length && scanning ? html`<div class="tc-group tc-sk-skeleton" role="status" aria-label="Reading skill inventories">${[1, 2, 3, 4].map(i => html`<div class="tc-row"><span class="tc-skeleton"></span><span class="tc-hint">${i === 1 ? 'Reading skills across your agents…' : ''}</span></div>`)}</div>` : !filtered.length ? html`<div class="tc-group tc-empty tc-sk-empty"><span class="tc-empty-media"><span class="tc-empty-icon">${icon('sparkles')}</span></span><span class="tc-empty-title">${rows.length ? 'No skills match these filters' : failed ? 'Skills couldn’t be read' : 'No skills yet'}</span><span class="tc-empty-desc">${rows.length ? 'Try another search or clear the library filters.' : failed ? 'Some agent inventories are unavailable. Retry the scan to check for skills.' : 'Add one, or install some from a source.'}</span><div class="tc-sk-empty-actions">${rows.length ? html`<button class="tc-btn" type="button" data-cmd="skills.clear">Clear filters</button>` : failed ? html`<button class="tc-btn" type="button" data-cmd="skills.refresh">Retry scan</button>` : actions()}</div></div>` : html`${table(filtered)}${phoneList(filtered)}`}
+        <div class="tc-sk-library-foot"><span>${icon('info', 'tc-icon--sm')}Changes apply to new sessions. A project’s own settings can still turn a skill off.</span><span class="tc-sk-scan-time" title="${Number.isFinite(scannedAt) ? M.absTime(scannedAt) : ''}">${scanning ? 'Scanning…' : Number.isFinite(scannedAt) ? 'Scanned ' + M.relTime(scannedAt, Date.now()) : ''}</span><button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="skills.refresh"${disabled(scanning)}>${icon('refresh-cw')}${scanning ? 'Scanning' : 'Rescan'}</button></div>
+        <div class="tc-sk-phone-actions">${actions()}</div>`;
+    };
+    const menu = (key, trigger) => {
+      const skill = rows.find(row => row.key === key); if (!skill) return;
+      Kit.menu(trigger, { label: skill.name + ' actions', items: [
+        { label: 'View', icon: 'file-text', run: () => inspector.open(key) },
+        ...(skill.canEdit ? [{ label: 'Edit SKILL.md', icon: 'pencil', run: () => inspector.open(key, true) }] : []),
+        ...(skill.origin ? [{ label: skill.update?.status === 'available' ? 'Review update…' : 'Review source…', icon: 'download', run: () => reviewSource(skill) }] : []),
+        { label: 'Copy path', icon: 'copy', run: () => Kit.copy(skill.path, trigger, 'Skill path copied') },
+        { label: 'Copy to…', icon: 'copy', run: () => importer.open({ source: S.directory(skill.path), names: [skill.name], step: 2 }) },
+        ...(skill.canRemove ? [{ sep: true }, { label: 'Remove…', icon: 'trash-2', danger: true, run: () => inspector.open(key, false).then(() => document.querySelector('[data-inspect-remove]')?.click()) }] : []),
+      ] });
+    };
+    return {
+      content: () => html`<div class="tc-skills-library" id="skill-library" data-key="skill-library" data-keep>${markup || (markup = body())}</div>`, actions,
+      activate: navigation => { if (!started || navigation && installed.join() !== S.providers.filter(provider => getStatus()?.harnesses?.some(row => row.id === provider.id && row.installed)).map(provider => provider.id).join()) return loadAll(); },
+      checkUpdates, toggleBundled: () => { hideBundled = !hideBundled; try { localStorage.setItem(filterKey, String(hideBundled)); } catch { /* this session only */ } paint(); },
+      count: () => rows.length, refresh: () => loadAll(true), setState, policyMenu, menu,
+      beforeNavigate: () => importer.closeForNavigation() ? inspector.close('route') : false,
+      view: (id, editing = false) => inspector.open(id, editing), add: async () => {
+        if (!started) await loadAll();
+        if (!Object.values(inventories).some(inventory => inventory.canCreate)) await loadProvider('claude');
+        if (!Object.values(inventories).some(inventory => inventory.canCreate)) { Kit.toast('Couldn’t find a writable skill folder', { tone: 'danger', detail: errors.claude || 'Check the agent home folder permissions and rescan.' }); return; }
+        return inspector.open(null, true, true);
+      }, install: async options => { if (!started) await loadAll(); return importer.open(options); },
+      search: value => { query = value; paint(); }, filter: agentMenu,
+      focusSearch: () => document.getElementById('skill-search')?.focus(),
+      select: value => { agent = value; paint(); }, attention: () => { needsAttention = !needsAttention; paint(); },
+      clear: () => { query = agent = ''; needsAttention = hideBundled = false; try { localStorage.setItem(filterKey, 'false'); } catch { /* this session only */ } paint(); const field = document.getElementById('skill-search'); if (field) field.value = ''; },
+      group: key => { const group = S.groups(rows).find(group => group.key === key); if (group) collapsed.set(key, !groupClosed(group)); paint(); },
+      columns: () => { showAll = !showAll; if (!showAll && !installed.includes(agent)) agent = ''; rebuild(); paint(); if (showAll) for (const provider of S.providers) if (!inventories[provider.id] && !loading.has(provider.id)) void loadProvider(provider.id); },
+      copy: (key, provider) => { const skill = rows.find(row => row.key === key); if (skill) importer.open({ source: S.directory(skill.path), names: [skill.name], agents: provider ? [provider] : undefined, step: 2 }); },
+      copyGroup: key => { const group = S.groups(rows).find(group => group.key === key); if (group) importer.open({ source: group.root.path, agents: installed.filter(id => !(group.root.readers || []).includes(id)), step: 2 }); },
+      paletteItems: () => [{ id: 'skills-install', label: 'Install skills from source…', desc: 'Preview and install skills into agent folders', icon: 'download', cmd: { cmd: 'skills.import' } }, { id: 'skills-new', label: 'New skill', desc: 'Write a local SKILL.md', icon: 'plus', cmd: { cmd: 'skills.add' } }, { id: 'skills-rescan', label: 'Rescan skills', desc: 'Refresh all agent inventories', icon: 'refresh-cw', cmd: { cmd: 'skills.refresh' } }, ...rows.map(row => ({ id: 'skill-' + row.key, quiet: true, label: row.name, desc: row.description, icon: 'file-text', cmd: { cmd: 'skills.view', id: row.key } }))],
     };
   };
-  return { create, stateOf };
+  return { create, stateOf: row => ({ text: S.state(row).label, tone: row.error ? 'warn' : S.available(row) ? 'ok' : '' }) };
 })();

@@ -2150,10 +2150,10 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/toolchains/install", "/toolchains/update", "/toolchains/uninstall", "/toolchains/cancel",
   "/auth/apikey/remove", "/auth/apikey", "/auth/signin", "/auth/session", "/auth/code", "/auth/cancel",
   "/source-control/signin", "/source-control/signout",
-  "/providers", "/updates/check",
+  "/providers", "/updates/check", "/context/skills/check-update",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info",
-  "/context/agents-md", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/check-update", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard", "/context/skills"];
+  "/context/agents-md", "/context/skills/reach", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard", "/context/skills"];
 
 // One background pass for the opt-in auto-updater. Checks are cheap and
 // always safe; installs run only when enabled, an update is known, and
@@ -2637,10 +2637,10 @@ const server = createServer(async (req, res) => {
     }
 
     // Skill discovery is on demand, never part of /status polling.
-    if (req.method === "GET" && (route === "/context/skills" || route === "/context/skills/read")) {
+    if (req.method === "GET" && (route === "/context/skills" || route === "/context/skills/read" || route === "/context/skills/reach")) {
       try {
         const params = raw.searchParams;
-        const result = route === "/context/skills/read"
+        const result = route === "/context/skills/reach" ? await skillsService.reach({ refresh: params.get("refresh") === "1" }) : route === "/context/skills/read"
           ? await skillsService.read(params.get("provider"), params.get("id"))
           : await skillsService.list(params.get("provider"), { refresh: params.get("refresh") === "1" });
         return sendJson(res, 200, result);

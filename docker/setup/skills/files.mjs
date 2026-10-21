@@ -30,8 +30,9 @@ async function packageNames(io, home, env) {
     if (bytes > 65536) return null;
     const value = JSON.parse(buffer.toString("utf8", 0, bytes));
     if (!value.skills || typeof value.skills !== "object" || Array.isArray(value.skills)) return null;
-    return new Set(Object.keys(value.skills));
-  } catch (error) { return error.code === "ENOENT" ? new Set() : null; }
+    return new Map(Object.entries(value.skills).map(([name, entry]) => [name,
+      typeof entry?.source === "string" && /^[\w.-]+\/[\w.-]+$/.test(entry.source) ? entry.source : null]));
+  } catch (error) { return error.code === "ENOENT" ? new Map() : null; }
   finally { await handle?.close(); }
 }
 
@@ -64,7 +65,9 @@ export async function localSkillPolicy({ provider, roots, home, env, io }) {
     else if (protectedTarget(row.resolvedPath)) reason = "System and plugin skill files are read-only.";
     else if (!packages) reason = "The skills package lock could not be checked; local changes are unavailable.";
     else if (packages.has(row.name) || packages.has(path.basename(path.dirname(row.path)))) reason = "This skill is tracked by the skills package manager.";
-    return { canEdit: !reason && !row.error, canRemove: !reason && !row.error, readOnlyReason: reason || row.error || null };
+    const packageName = [row.name, path.basename(path.dirname(row.path))].find(name => packages?.has(name));
+    return { canEdit: !reason && !row.error, canRemove: !reason && !row.error, readOnlyReason: reason || row.error || null,
+      packageManaged: Boolean(packageName), packageSource: packageName ? packages.get(packageName) : null };
   };
   return { root, rootFor, creationTargets, canCreate: creationTargets.length > 0, capabilities };
 }
@@ -96,7 +99,7 @@ export async function removalPlan(io, row, root) {
     : parentEntry.isSymbolicLink() ? "link" : "directory";
   const entry = kind === "file" ? row.path : parent;
   const actual = path.join(await io.realpath(path.dirname(entry)), path.basename(entry));
-  const parts = [];
+  const parts = [], fileList = [];
   let count = 0;
   const walk = async (file, relative, depth) => {
     if (++count > 1024 || depth > 12) throw fail("unsupported", "This skill contains too many files to remove through the console.");
@@ -104,6 +107,8 @@ export async function removalPlan(io, row, root) {
     // Moving the root changes its ctime; descendant ctimes stay stable and
     // catch in-place edits even when another tool restores the old mtime.
     parts.push([relative, stamp(stat) + (relative ? ":" + stat.ctimeMs : ""), stat.isSymbolicLink() ? await io.readlink(file) : ""]);
+    if (!stat.isDirectory()) fileList.push({ name: relative || path.basename(row.path), bytes: stat.size,
+      executable: stat.isFile() && Boolean(stat.mode & 0o111), linked: stat.isSymbolicLink() });
     if (!stat.isDirectory() || stat.isSymbolicLink()) return;
     for await (const child of await io.opendir(file)) {
       if (child.name === "SKILL.md" && relative !== "") throw fail("unsupported", "This folder contains another skill. Remove it directly to preserve the nested installation.");
@@ -112,7 +117,8 @@ export async function removalPlan(io, row, root) {
   };
   await walk(actual, "", 0);
   parts.sort((a, b) => a[0].localeCompare(b[0]));
-  return { kind, linked: kind === "link" || fileEntry.isSymbolicLink(), path: entry, actual, revision: digest(JSON.stringify(parts)), files: count };
+  fileList.sort((a, b) => a.name.localeCompare(b.name));
+  return { kind, linked: kind === "link" || fileEntry.isSymbolicLink(), path: entry, actual, revision: digest(JSON.stringify(parts)), files: count, fileList };
 }
 
 export function createSkillFileManager({ home, env, io, rootsFor, metadata, read, invalidate }) {
@@ -156,11 +162,24 @@ export function createSkillFileManager({ home, env, io, rootsFor, metadata, read
   };
   const removal = async (provider, row) => {
     const policy = await policyFor(provider);
-    if (!policy.capabilities(row).canRemove) return {};
+    const removable = policy.capabilities(row).canRemove;
     try {
-      const plan = await removalPlan(io, row, policy.rootFor(row));
-      return { removalRevision: plan.revision, removalPath: plan.path, removalKind: plan.kind, removalFiles: plan.files, removalLinkedTarget: plan.linked };
-    } catch (error) { return { canRemove: false, removalError: error.message }; }
+      // Read-only installations get bounded metadata too. Resolve only the
+      // already-approved Markdown location; never follow supporting-file links.
+      const inspected = removable ? row : { ...row, path: row.resolvedPath };
+      const root = removable ? policy.rootFor(row) : { path: path.dirname(path.dirname(inspected.path)) };
+      const plan = await removalPlan(io, inspected, root);
+      // Unlinking an installation only fingerprints its link. The inspector
+      // still describes the approved target's files, without following any
+      // links inside that folder or broadening removal authority.
+      let metadata = plan;
+      if (removable && plan.kind !== "directory" && row.path !== row.resolvedPath) {
+        try { metadata = await removalPlan(io, { ...row, path: row.resolvedPath }, { path: path.dirname(path.dirname(row.resolvedPath)) }); }
+        catch (error) { metadata = { fileList: null, error: error.message }; }
+      }
+      const files = metadata.fileList ? { files: metadata.fileList, fileCount: metadata.fileList.length } : { filesError: metadata.error };
+      return removable ? { ...files, removalRevision: plan.revision, removalPath: plan.path, removalKind: plan.kind, removalFiles: plan.files, removalLinkedTarget: plan.linked } : files;
+    } catch (error) { return { canRemove: false, removalError: removable ? error.message : null, filesError: error.message }; }
   };
   const remove = async (provider, id, revision, removalRevision) => {
     const initial = await current(provider, id, revision);

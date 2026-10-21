@@ -142,6 +142,7 @@ export async function resolveSkillSource(value, { home, metadata, env = process.
   const parsed = parseSkillSource(value, home), signal = AbortSignal.timeout(45000);
   const limits = SOURCE_LIMITS, files = [], warnings = [];
   let cleanup = async () => {}, total = 0, read;
+  const sourceInfo = { type: parsed.type, source: parsed.source || value, ref: parsed.ref || null };
   const add = (file) => { if (files.length >= limits.entries) throw fail("too_large", "The source has too many files; use a specific skill folder."); files.push(file); };
   try {
     if (parsed.type === "git") {
@@ -164,6 +165,10 @@ export async function resolveSkillSource(value, { home, metadata, env = process.
       }
       await git(["clone", "--depth", "1", "--no-checkout", ...(parsed.ref && !commit ? ["--branch", parsed.ref] : []), "--", parsed.source, repo]);
       if (commit) await git(["-C", repo, "fetch", "--depth", "1", "--", "origin", parsed.ref]);
+      const revision = await git(["-C", repo, "rev-parse", "--verify", (commit ? "FETCH_HEAD" : "HEAD") + "^{commit}"]);
+      const sha = revision.toString("utf8").trim();
+      if (/^[a-f0-9]{40,64}$/.test(sha)) sourceInfo.commit = sha;
+      sourceInfo.ref = parsed.ref;
       const tree = (await git(["-C", repo, "ls-tree", "-r", "-l", "-z", commit ? "FETCH_HEAD" : "HEAD", ...(parsed.subpath ? ["--", parsed.subpath] : [])])).toString("utf8");
       for (const entry of tree.split("\0").filter(Boolean)) {
         const match = /^(\d+) (\w+) ([a-f0-9]+)\s+(\d+|-)\t([\s\S]+)$/.exec(entry);
@@ -269,6 +274,6 @@ export async function resolveSkillSource(value, { home, metadata, env = process.
       if (preferredPaths?.has(entry.name)) foundPreferred = true;
     }
     if (!skills.length) throw fail(oversized ? "too_large" : "invalid", oversized ? "No matching skill could be imported. Skill Markdown must fit within 64 KiB; use a smaller skill or manage oversized skills directly." : parsed.filter ? "That skill was not found in this source." : "No valid SKILL.md files found. Choose a skill repository/folder or paste a direct Markdown link.");
-    return { source: value, sourceType: parsed.type, skills, warnings: [...new Set(warnings)].slice(0, 30) };
+    return { source: value, sourceInfo, sourceType: parsed.type, skills, warnings: [...new Set(warnings)].slice(0, 30) };
   } finally { await cleanup(); }
 }
