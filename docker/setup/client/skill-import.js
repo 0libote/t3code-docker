@@ -14,7 +14,7 @@ const T3SkillImport = (() => {
       const library = getLibrary();
       const view = { source: options.source || '', preview: null, skills: new Set(), agents: new Set(options.agents || library.installed), mode: 'fewest',
         railOpen: !Kit.isPhone(), step: 1, query: '', catalogQuery: '', expanded: new Set(), plan: null, result: null, replace: false, error: null, reading: false,
-        planning: false, installing: false, expired: false, generation: 0, planTimer: null, expiryTimer: null, planRequest: null, sourceRequest: null, closed: false, layer: null, metadata: '' };
+        planning: false, installing: false, retryInstall: false, expired: false, generation: 0, planTimer: null, expiryTimer: null, planRequest: null, sourceRequest: null, closed: false, layer: null, metadata: '' };
       active = view;
       const selectedSkills = () => (view.preview?.skills || []).filter(skill => view.skills.has(skill.name));
       const planner = () => S.placement([...view.agents], getLibrary().installed, getLibrary().roots, view.mode);
@@ -41,11 +41,15 @@ const T3SkillImport = (() => {
       const render = (step = false) => {
         if (view.closed) return;
         view.layer.render(); sync();
-        if (step) { view.layer.panel.querySelector('.tc-wizard-main').scrollTop = 0; view.layer.panel.querySelector(view.error ? '#skill-import-error' : '#skill-import-step-title')?.focus({ preventScroll: true }); }
+        if (step) {
+          // Desktop scrolls the main column; phones scroll the entire grid.
+          for (const scroller of view.layer.panel.querySelectorAll('.tc-wizard-main, .tc-wizard-grid')) scroller.scrollTop = 0;
+          view.layer.panel.querySelector(view.error ? '#skill-import-error' : '#skill-import-step-title')?.focus({ preventScroll: true });
+        }
         else if (!view.layer.panel.contains(document.activeElement) || document.activeElement.matches(':disabled')) view.layer.panel.focus({ preventScroll: true });
       };
       const invalidatePlan = (schedule = true) => {
-        view.generation++; view.plan = null; view.replace = false;
+        view.generation++; view.plan = null; view.replace = false; view.retryInstall = false;
         clearTimeout(view.planTimer);
         if (schedule && view.step === 2 && view.preview?.previewId && view.agents.size && view.skills.size && !view.expired) {
           view.planning = true;
@@ -128,18 +132,18 @@ const T3SkillImport = (() => {
       const agentRow = (provider, destination) => {
         const id = provider.id, selected = view.agents.has(id), duplicate = planner().duplicates.includes(id);
         const own = id === destination || planner().destinations.find(folder => folder.provider === destination)?.also.includes(id);
-        return html`<label class="tc-route-row"${!selected ? raw(' data-off') : ''}><input class="tc-checkbox" type="checkbox" data-import-agent="${id}"${checked(selected)}>${mark(id)}<span class="tc-row-main"><span class="tc-avail-name">${provider.name}</span><span class="tc-avail-note">${own ? 'Its own folder' : destination ? 'Reads ' + S.nameOf(destination) + '’s folder for compatibility' : 'Choose this agent to include it'}${duplicate ? '. Finds ' + planner().counts[id] + ' identical copies.' : ''}</span></span></label>`;
+        return html`<label class="tc-route-row"${!selected ? raw(' data-off') : ''}><input class="tc-checkbox" type="checkbox" data-import-agent="${id}"${checked(selected)}${disabled(view.installing || view.retryInstall)}>${mark(id)}<span class="tc-row-main"><span class="tc-avail-name">${provider.name}</span><span class="tc-avail-note">${own ? 'Its own folder' : destination ? 'Reads ' + S.nameOf(destination) + '’s folder for compatibility' : 'Choose this agent to include it'}${duplicate ? '. Finds ' + planner().counts[id] + ' identical copies.' : ''}</span></span></label>`;
       };
       const agentPicker = () => {
         const placement = planner(), groups = view.plan ? destinationGroups(placements()) : placement.destinations.map(destination => ({ key: destination.root?.path || destination.provider, provider: destination.provider, entries: [] }));
-        return html`<div class="tc-import-step-head"><div><h3 class="tc-step-title">Which agents get these skills?</h3><p class="tc-hint">Each copy goes where its agents already look.</p></div><div class="tc-seg" role="group" aria-label="Skill placement"><button type="button" data-import-mode="fewest" aria-pressed="${String(view.mode === 'fewest')}">Fewest copies</button><button type="button" data-import-mode="each" aria-pressed="${String(view.mode === 'each')}">A copy per agent</button></div></div>
+        return html`<div class="tc-import-step-head"><div><h3 class="tc-step-title">Which agents get these skills?</h3><p class="tc-hint">Each copy goes where its agents already look.</p></div><div class="tc-seg" role="group" aria-label="Skill placement"><button type="button" data-import-mode="fewest"${disabled(view.installing || view.retryInstall)} aria-pressed="${String(view.mode === 'fewest')}">Fewest copies</button><button type="button" data-import-mode="each"${disabled(view.installing || view.retryInstall)} aria-pressed="${String(view.mode === 'each')}">A copy per agent</button></div></div>
           <div class="tc-group tc-route-list">${groups.map(group => html`<div class="tc-route-group">${icon('folder')}<code>${S.displayPath(group.key.startsWith('blocked:') ? S.nameOf(group.provider) : group.key, library.home)}</code><span>·</span><span>${S.nameOf(group.provider)} folder</span><span class="tc-spacer"></span><span>${group.entries.some(entry => entry.action === 'blocked') ? 'Blocked' : group.entries.length ? M.plural(group.entries.filter(entry => entry.action === 'add').length, 'new', 'new') + (group.entries.some(entry => entry.action === 'replace') ? ' · ' + group.entries.filter(entry => entry.action === 'replace').length + ' replaces yours' : '') : view.planning ? 'Checking…' : ''}</span></div>${S.providers.filter(provider => view.agents.has(provider.id) && placement.assignments[provider.id] === group.provider).map(provider => agentRow(provider, group.provider))}${group.entries.filter(entry => entry.action === 'blocked').map(entry => html`<p class="tc-danger tc-import-blocked" role="alert">${entry.name}: ${entry.error}</p>`)}`)}
             ${S.providers.filter(provider => getLibrary().installed.includes(provider.id) && (!view.agents.has(provider.id) || placement.uncovered.includes(provider.id))).map(provider => agentRow(provider, null))}
             ${placement.uncovered.length ? html`<div class="tc-import-blocked" role="alert"><p class="tc-danger">No writable placement covers ${M.listOf(placement.uncovered.map(S.nameOf))}.</p><p class="tc-hint">Try a copy per agent to review its folder, or check its folder permissions.</p></div>` : ''}
             ${!getLibrary().installed.length ? html`<p class="tc-hint tc-import-empty">Install an agent from Agents in Setup, then reopen this installer to choose its folder.</p>` : !view.agents.size ? html`<p class="tc-hint tc-import-empty">Choose at least one agent above.</p>` : ''}
           </div>
-          ${replacements().length ? html`<label class="tc-import-consent"><input class="tc-checkbox" type="checkbox" data-import-replace${checked(view.replace)}><span><strong>${replacements().length === 1 ? 'Replace ' + replacements()[0].name + ' in ' + S.nameOf(replacements()[0].provider) + '’s folder' : 'Replace ' + replacements().length + ' existing skills'}</strong>${replacements().length > 1 ? html`<span class="tc-hint">${replacements().map(entry => entry.name + ' · ' + S.nameOf(entry.provider)).join(', ')}</span>` : ''}<span class="tc-hint">The folder becomes the source’s copy. Local edits and files the source no longer has are removed. Its visibility and permission settings stay.</span></span></label>` : ''}
-          ${view.error && !view.expired ? html`<button class="tc-btn tc-btn--sm" type="button" data-import-retry-plan${disabled(view.planning)}>Review destinations again</button>` : ''}`;
+          ${replacements().length ? html`<label class="tc-import-consent"><input class="tc-checkbox" type="checkbox" data-import-replace${checked(view.replace)}${disabled(view.installing || view.retryInstall)}><span><strong>${replacements().length === 1 ? 'Replace ' + replacements()[0].name + ' in ' + S.nameOf(replacements()[0].provider) + '’s folder' : 'Replace ' + replacements().length + ' existing skills'}</strong>${replacements().length > 1 ? html`<span class="tc-hint">${replacements().map(entry => entry.name + ' · ' + S.nameOf(entry.provider)).join(', ')}</span>` : ''}<span class="tc-hint">The folder becomes the source’s copy. Local edits and files the source no longer has are removed. Its visibility and permission settings stay.</span></span></label>` : ''}
+          ${view.error && !view.expired && !view.retryInstall ? html`<button class="tc-btn tc-btn--sm" type="button" data-import-retry-plan${disabled(view.planning)}>Review destinations again</button>` : ''}`;
       };
       const resultPage = () => html`<div class="tc-result-hero" data-state="${successful().length === results().length ? 'ok' : 'partial'}"><span class="tc-result-mark">${icon(successful().length === results().length ? 'check' : 'triangle-alert')}</span><div><h3>${successful().length === results().length ? M.plural(successful().length, 'copy', 'copies') + ' installed' : successful().length + ' of ' + results().length + ' copies installed'}</h3><p class="tc-hint">${successful().length === results().length ? 'Your agents can find them in their usual folders.' : M.listOf(results().filter(entry => entry.status === 'failed').map(entry => entry.name + ' for ' + S.nameOf(entry.provider))) + ' wasn’t written.'}</p></div></div>
         <div class="tc-group tc-destinations">${destinationGroups(results()).map(group => html`<div class="tc-dest-head">${icon('folder')}<code>${S.displayPath(group.key, library.home)}</code></div>${group.entries.map(entry => html`<div class="tc-dest-row" data-state="${entry.status === 'installed' ? 'ok' : 'failed'}">${icon(entry.status === 'installed' ? 'circle-check' : 'circle-alert')}<strong class="tc-dest-name">${entry.name}</strong>${entry.status === 'installed' ? html`<span class="tc-hint">${entry.action === 'replace' ? 'Replaced · settings kept' : 'Added'}</span>` : ''}${entry.status === 'failed' ? html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-import-review-again="${entry.provider}" data-import-name="${entry.name}">Review again</button><span class="tc-dest-note">${entry.error}</span>` : ''}${entry.warning ? html`<span class="tc-dest-note">${entry.warning}</span>` : ''}</div>`)}`)}</div>
@@ -166,18 +170,20 @@ const T3SkillImport = (() => {
         return html`<div class="tc-plan-source"><span class="tc-plan-label">Source</span><code>${view.preview?.sourceInfo?.source || view.source || 'Choose a source'}</code>${view.step === 2 ? html`<span class="tc-hint">${selectedSkills().map(skill => skill.name).join(', ') || 'No skills selected'}</span>` : ''}${view.preview?.previewId && view.step !== 3 ? html`<span class="tc-hint" title="${M.absTime(view.preview.expiresAt)}">${view.expired ? 'Snapshot expired' : view.preview.sourceInfo?.commit ? 'Snapshot of ' + view.preview.sourceInfo.commit.slice(0, 7) + ', held for 10 minutes' : 'Snapshot held for 10 minutes'}</span>` : ''}</div>
           ${summary}<p class="tc-plan-note tc-plan-bottom">${view.step === 1 ? 'What installs is exactly this snapshot. The source isn’t fetched again.' : view.step === 2 ? 'New skills start with each agent’s default setting. Agents load them in new sessions.' : 'Reinstall from source when you want to update these skills later.'}</p>`;
       };
+      const beforeUnload = event => { if (view.installing || view.retryInstall) { event.preventDefault(); event.returnValue = ''; } };
       const close = () => { if (!view.installing) view.layer.close('close'); };
       view.layer = Kit.open({ kind: 'center', panel: { class: 'tc-wizard tc-skill-import' + (Kit.isPhone() ? ' tc-sheet--bottom' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'skill-import-title' },
         focus: '#skill-source', backdrop: 'ignore', onEscape: close,
-        onClose: () => { view.closed = true; if (active === view) active = null; clearTimeout(view.planTimer); clearTimeout(view.expiryTimer); void discard(view.preview?.previewId); },
+        onClose: () => { window.removeEventListener('beforeunload', beforeUnload); view.closed = true; if (active === view) active = null; clearTimeout(view.planTimer); clearTimeout(view.expiryTimer); void discard(view.preview?.previewId); },
         render: () => html`<div class="tc-wizard-head"><span class="tc-tile tc-tile--icon tc-tile--lg">${icon('download')}</span><div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="skill-import-title">Install from source</h2><span class="tc-small tc-muted">Copies skills into your agents’ folders. Nothing in them runs here.</span></div><ol class="tc-steps" aria-label="Installation steps">${['Skills', 'Agents', 'Install'].flatMap((label, index) => [index ? html`<li class="tc-step-line"${view.step > index ? raw(' data-done') : ''} aria-hidden="true"></li>` : '', html`<li class="tc-step" data-state="${view.step === index + 1 ? 'active' : view.step > index + 1 ? 'done' : 'pending'}"${view.step === index + 1 ? raw(' aria-current="step"') : ''}><span class="tc-step-mark">${view.step > index + 1 ? icon('check') : index + 1}</span><span>${label}</span></li>`])}</ol><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-import-close aria-label="Close installation"${disabled(view.installing)}>${icon('x')}</button></div>
           <div class="tc-wizard-grid"><div class="tc-wizard-main" aria-busy="${String(view.reading || view.planning || view.installing)}"><h3 id="skill-import-step-title" class="tc-sr" tabindex="-1">${view.step === 1 ? 'Choose skills' : view.step === 2 ? 'Choose agents and folders' : 'Installation results'}</h3>
-            ${view.error ? html`<div class="tc-notice tc-notice--danger" role="alert" id="skill-import-error" tabindex="-1"><div class="tc-notice-body"><span class="tc-notice-title">Couldn’t finish this step</span><span class="tc-notice-desc">${view.error}</span></div></div>` : ''}
+            ${view.error ? html`<div class="tc-notice tc-notice--danger" role="alert" id="skill-import-error" tabindex="-1"><div class="tc-notice-body"><span class="tc-notice-title">Couldn’t finish this step</span><span class="tc-notice-desc">${view.error}${view.retryInstall ? html`<br>The outcome is unconfirmed. Retry this same plan to recover its result safely; it won’t install a second copy.` : ''}</span></div></div>` : ''}
             ${view.expired ? html`<div class="tc-notice tc-notice--warn" role="status"><div class="tc-notice-body"><span class="tc-notice-title">This snapshot expired</span><span class="tc-notice-desc">Read the source again to review current files before installing.</span></div><button class="tc-btn tc-btn--sm" type="button" data-import-reread>Read source again</button></div>` : ''}
             ${view.step === 1 ? skillPicker() : view.step === 2 ? agentPicker() : resultPage()}
             ${view.reading || view.planning || view.installing ? html`<p class="tc-hint tc-import-progress" role="status"><span class="tc-spinner" aria-hidden="true"></span>${view.installing ? 'Installing the reviewed snapshot…' : view.planning ? 'Checking destinations…' : 'Reading source… You can close while this finishes.'}</p>` : ''}
           </div><div class="tc-wizard-rail-wrap"${view.railOpen ? raw(' data-open') : ''}><button class="tc-wizard-rail-toggle" type="button" data-import-rail aria-controls="skill-import-plan" aria-expanded="${String(view.railOpen)}">Install plan · ${view.step === 3 ? successful().length + ' installed' : view.skills.size + ' skills'}${icon('chevron-down')}</button><aside class="tc-wizard-rail" id="skill-import-plan" aria-label="Install plan">${planRail()}</aside></div></div>
-          <div class="tc-wizard-foot">${view.step !== 3 ? html`<span class="tc-hint tc-wizard-keyboard"><kbd class="tc-kbd">${/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'}</kbd><kbd class="tc-kbd">↵</kbd>${view.step === 2 ? 'to install' : 'to continue'}</span><span class="tc-spacer"></span>` : ''}${view.step === 3 ? html`<button class="tc-btn tc-btn--ghost" type="button" data-import-show>Show in library</button><span class="tc-spacer"></span><button class="tc-btn tc-btn--primary" type="button" data-import-close>Done</button>` : html`${view.step === 2 ? html`<button class="tc-btn" type="button" data-import-back${disabled(view.installing)}>Back</button>` : html`<button class="tc-btn tc-btn--ghost" type="button" data-import-close>Close</button>`}<button class="tc-btn tc-btn--primary" type="button" data-import-next${disabled(view.step === 1 ? view.reading || !view.preview?.previewId || !view.skills.size || view.expired : !canInstall())}>${view.installing ? 'Installing' : view.step === 1 ? html`Choose agents ${icon('arrow-right')}` : 'Install ' + M.plural(copies(), 'copy', 'copies')}</button>`}</div>` });
+          <div class="tc-wizard-foot">${view.step !== 3 ? html`<span class="tc-hint tc-wizard-keyboard"><kbd class="tc-kbd">${/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'}</kbd><kbd class="tc-kbd">↵</kbd>${view.step === 2 ? 'to install' : 'to continue'}</span><span class="tc-spacer"></span>` : ''}${view.step === 3 ? html`<button class="tc-btn tc-btn--ghost" type="button" data-import-show>Show in library</button><span class="tc-spacer"></span><button class="tc-btn tc-btn--primary" type="button" data-import-close>Done</button>` : html`${view.step === 2 ? html`<button class="tc-btn" type="button" data-import-back${disabled(view.installing || view.retryInstall)}>Back</button>` : html`<button class="tc-btn tc-btn--ghost" type="button" data-import-close>Close</button>`}<button class="tc-btn tc-btn--primary" type="button" data-import-next${disabled(view.step === 1 ? view.reading || !view.preview?.previewId || !view.skills.size || view.expired : !canInstall())}>${view.installing ? 'Installing' : view.retryInstall ? 'Retry installation' : view.step === 1 ? html`Choose agents ${icon('arrow-right')}` : 'Install ' + M.plural(copies(), 'copy', 'copies')}</button>`}</div>` });
+      window.addEventListener('beforeunload', beforeUnload);
       view.layer.panel.addEventListener('input', event => {
         if (event.target.id === 'skill-source') {
           view.source = event.target.value;
@@ -188,6 +194,7 @@ const T3SkillImport = (() => {
       });
       view.layer.panel.addEventListener('paste', event => { if (event.target.id === 'skill-source') setTimeout(() => { if (!view.closed) void preview(event.target.value); }, 0); });
       view.layer.panel.addEventListener('change', event => {
+        if (view.installing || view.retryInstall) return;
         if (event.target.hasAttribute('data-import-skill')) { const name = event.target.getAttribute('data-import-skill'); event.target.checked ? view.skills.add(name) : view.skills.delete(name); invalidatePlan(false); }
         if (event.target.hasAttribute('data-import-all')) { const select = event.target.checked; for (const skill of filteredSkills()) select ? view.skills.add(skill.name) : view.skills.delete(skill.name); invalidatePlan(false); }
         if (event.target.hasAttribute('data-import-agent')) { const id = event.target.getAttribute('data-import-agent'); event.target.checked ? view.agents.add(id) : view.agents.delete(id); invalidatePlan(); }
@@ -200,8 +207,15 @@ const T3SkillImport = (() => {
         view.installing = true; view.error = null; render();
         const response = await api('/context/skills/install', { body: { previewId: view.preview.previewId, planId: view.plan.planId, replace: view.replace } });
         view.installing = false;
-        if (response.ok) { clearTimeout(view.expiryTimer); view.result = response.data; view.step = 3; Kit.announce(successful().length + ' of ' + results().length + ' skill copies installed'); }
-        else { view.error = response.error; invalidatePlan(false); if (/expired/i.test(response.error)) view.expired = true; }
+        if (response.ok) { view.retryInstall = false; clearTimeout(view.expiryTimer); view.result = response.data; view.step = 3; Kit.announce(successful().length + ' of ' + results().length + ' skill copies installed'); }
+        else {
+          view.error = response.error;
+          // The server caches a plan's result. A lost response must retry that
+          // same plan, not replan an operation that may already have committed.
+          view.retryInstall = !response.status || response.status >= 500;
+          if (!view.retryInstall) invalidatePlan(false);
+          if (/expired/i.test(response.error)) { view.expired = true; invalidatePlan(false); }
+        }
         if (view.closed) { Kit.toast(response.ok ? 'Skill installation finished' : 'Skill installation failed', { tone: response.ok ? undefined : 'danger', detail: response.error }); }
         else render(true);
         if (response.ok) await refresh();
@@ -233,10 +247,13 @@ const T3SkillImport = (() => {
         else if (button.hasAttribute('data-import-show')) { const names = successful().map(entry => entry.name); view.layer.close('library'); if (location.hash !== '#instructions/skills') location.hash = '#instructions/skills'; showInLibrary(names); }
       });
       view.metadata = JSON.stringify([getLibrary().installed, getLibrary().roots]);
-      view.reconcileMetadata = () => { if (view.step === 2) invalidatePlan(); render(); };
+      view.reconcileMetadata = () => { if (view.step === 2 && !view.installing && !view.retryInstall) invalidatePlan(); render(); };
       if (options.source) void preview(options.source, true);
     };
-    return { open, repaint: () => {
+    return { open, closeForNavigation: () => {
+      if (active?.installing) { Kit.announce('Wait for the installation result before leaving this page'); return false; }
+      active?.layer.close('route'); return true;
+    }, repaint: () => {
       if (!active || active.closed) return;
       const metadata = JSON.stringify([getLibrary().installed, getLibrary().roots]);
       if (metadata !== active.metadata) {

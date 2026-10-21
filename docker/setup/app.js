@@ -1565,12 +1565,13 @@
   const instructionsPreview = { signature: null, content: '', error: null, loading: false, generation: 0 };
   const loadInstructionsPreview = async (force = false) => {
     const file = state.status?.context?.agentsMd;
-    if (file?.error) { instructionsPreview.generation++; instructionsPreview.loading = false; instructionsPreview.content = ''; instructionsPreview.error = file.error; return; }
-    if (!file?.present) { instructionsPreview.generation++; instructionsPreview.loading = false; instructionsPreview.content = ''; instructionsPreview.signature = null; return; }
+    if (file?.error) { instructionsPreview.generation++; instructionsPreview.loading = false; instructionsPreview.content = ''; instructionsPreview.error = file.error; instructionsPreview.signature = null; return; }
+    if (!file?.present) { instructionsPreview.generation++; instructionsPreview.loading = false; instructionsPreview.content = ''; instructionsPreview.error = null; instructionsPreview.signature = null; return; }
     const signature = file.revision || String(file.bytes) + ':' + String(file.modifiedAt || '');
     if (!force && (instructionsPreview.loading || instructionsPreview.signature === signature)) return;
     const generation = ++instructionsPreview.generation;
     instructionsPreview.loading = true; instructionsPreview.error = null; instructionsPreview.signature = signature;
+    render();
     const response = await api('/context/agents-md');
     if (generation !== instructionsPreview.generation) return;
     instructionsPreview.loading = false;
@@ -1614,7 +1615,7 @@
         ${view.error ? notice('danger', 'circle-alert', 'Couldn’t read the instructions', view.error) : ''}
         <div class="tc-ins-grid"><section class="tc-ins-section"><div class="tc-ins-section-head"><h2 class="tc-insp-label">Shared instructions</h2><span class="tc-hint">${M.contextAgentsMdRow(s).readers.length ? 'Read by ' + M.listOf(M.contextAgentsMdRow(s).readers) : 'No agents set to Shared'}</span></div><div class="tc-group">
           ${view.present ? html`<div class="tc-doc-head"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('file-text')}</span><div class="tc-row-main"><strong>AGENTS.md</strong><span class="tc-hint" title="${M.absTime(s.context?.agentsMd?.modifiedAt)}">${M.formatBytes(view.bytes)}${s.context?.agentsMd?.modifiedAt ? ' · saved ' + M.relTime(s.context.agentsMd.modifiedAt, now()) : ''}</span></div>${!view.error ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-cmd="context.menu" aria-label="Shared instructions actions">${icon('ellipsis')}</button><button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="context.edit">${icon('pencil')}Edit</button>` : html`<span class="tc-badge tc-badge--warn">Unavailable</span>`}</div>
-            <div class="tc-doc-preview tc-code-fade">${instructionsPreview.loading ? html`<p class="tc-hint" role="status">Reading shared instructions…</p>` : instructionsPreview.error ? notice('warn', 'triangle-alert', 'Preview unavailable', instructionsPreview.error) : T3SkillInspector.code(instructionsPreview.content.split('\n').slice(0, 18).join('\n'))}</div>
+            <div class="tc-doc-preview tc-code-fade">${instructionsPreview.loading ? html`<p class="tc-hint" role="status">Reading shared instructions…</p>` : instructionsPreview.error ? notice('warn', 'triangle-alert', 'Preview unavailable', instructionsPreview.error, html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="context.preview.retry">Retry preview</button>`) : T3SkillInspector.code(instructionsPreview.content.split('\n').slice(0, 18).join('\n'))}</div>
             <div class="tc-card-foot"><code>${T3SkillModel.displayPath(s.context?.agentsMd?.path || '', s.paths?.volume)}</code><span class="tc-spacer"></span><span>On the state volume</span></div>` : html`<div class="tc-empty tc-empty--compact tc-ins-empty">${emptyIcon('file-text')}<span class="tc-empty-title">No shared instructions yet</span><span class="tc-empty-desc">Write them once and every agent set to Shared reads them.</span><button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="context.edit">${icon('pencil')}Write AGENTS.md</button></div>`}
         </div></section><section class="tc-ins-section"><div class="tc-ins-section-head"><h2 class="tc-insp-label">What each agent reads</h2></div><div class="tc-group">
           ${rows.length ? html`<div class="tc-list">${rows.map(contextProviderRow)}</div>`
@@ -1653,7 +1654,18 @@
     const filename = provider === 'claude' ? 'CLAUDE.md' : 'AGENTS.md';
     const title = provider ? providerName + '’s ' + filename : 'Shared AGENTS.md';
     const readers = M.contextAgentsMdRow(state.status).readers;
-    const isDirty = () => !contextEditor.loading && !contextEditor.readError && contextEditor.content !== contextEditor.original;
+    const isDirty = () => !contextEditor.readError && contextEditor.content !== contextEditor.original;
+    const beforeUnload = event => { if (contextEditor.saving || isDirty()) { event.preventDefault(); event.returnValue = ''; } };
+    const close = async () => {
+      if (contextEditor.saving) { Kit.announce('Wait for instructions to finish saving before leaving'); return false; }
+      if (isDirty()) {
+        const confirmed = await Kit.confirm({ title: 'Discard these instruction changes?', body: 'Your unsaved changes will be lost. You can keep editing and download a copy first.', confirm: 'Discard draft', tone: 'danger' });
+        if (!confirmed || contextEditor.layer !== layer) return false;
+      }
+      if (contextEditor.layer !== layer) return false;
+      layer.close('cancel'); return true;
+    };
+    contextEditor.requestClose = close;
     const editorMeta = () => contextEditor.loading ? 'Loading…'
       : M.formatBytes(new TextEncoder().encode(contextEditor.content).length) + ' · ' + (isDirty() ? 'Unsaved changes' : contextEditor.revision ? 'Saved' : 'New file');
     contextEditor.layer = Kit.open({
@@ -1661,8 +1673,9 @@
       panel: { tag: 'div', class: 'tc-sheet tc-context-sheet ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'cx-title' },
       returnTo: trigger,
       backdrop: 'ignore',
+      onEscape: () => { void close(); },
       render: () => html`
-        <div class="tc-sheet-head">${provider ? tile({ mark: provider }, 'lg') : html`<span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span>`}<div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="cx-title">${title}</h2><span class="tc-small tc-muted">${provider ? 'Only ' + providerName + ' reads this file' : readers.length ? 'Read by ' + M.listOf(readers) : 'For every agent set to read it'}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
+        <div class="tc-sheet-head">${provider ? tile({ mark: provider }, 'lg') : html`<span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('book-open')}</span>`}<div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="cx-title">${title}</h2><span class="tc-small tc-muted">${provider ? 'Only ' + providerName + ' reads this file' : readers.length ? 'Read by ' + M.listOf(readers) : 'For every agent set to read it'}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close"${contextEditor.saving ? raw(' disabled') : ''}>${icon('x')}</button></div>
         <div class="tc-sheet-body">
           ${contextEditor.error ? notice('danger', 'circle-alert', 'Could not load or save instructions', contextEditor.error) : ''}
           ${provider && contextEditor.path ? html`<span class="tc-hint tc-context-path" title="${contextEditor.path}">${contextEditor.path}</span>` : ''}
@@ -1670,17 +1683,18 @@
           <textarea class="tc-input tc-input--area tc-editor-area" id="cx-input" data-key="cx-input" aria-describedby="cx-meta"${contextEditor.loading || contextEditor.saving || contextEditor.readError ? raw(' disabled') : ''} rows="14" spellcheck="false" placeholder="${provider ? '# ' + providerName + ' instructions\n\nWrite guidance only ' + providerName + ' should follow.' : '# Instructions\n\nWrite guidance every agent reading this file should follow.'}">${contextEditor.content}</textarea>
           <div class="tc-editor-meta"><span id="cx-meta" data-key="cx-meta">${editorMeta()}</span><span>${provider ? 'Saving updates this file wherever it is used. Symlinks stay in place.' : 'Agents with a file of their own keep it.'}<span class="tc-desk-only"> Ctrl/⌘ S to save.</span></span></div>
         </div>
-        <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close">Cancel</button><button class="tc-btn tc-btn--primary" type="button" data-sheet="save"${!isDirty() || contextEditor.saving ? raw(' disabled') : ''}>${contextEditor.saving ? 'Saving…' : 'Save'}</button></div>`,
+        <div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-sheet="close"${contextEditor.saving ? raw(' disabled') : ''}>Cancel</button><button class="tc-btn tc-btn--primary" type="button" data-sheet="save"${!isDirty() || contextEditor.loading || contextEditor.saving ? raw(' disabled') : ''}>${contextEditor.saving ? 'Saving…' : 'Save'}</button></div>`,
       focus: '#cx-input',
-      onClose: () => { contextEditor.layer = null; },
+      onClose: () => { window.removeEventListener('beforeunload', beforeUnload); contextEditor.layer = null; contextEditor.requestClose = null; },
     });
     const layer = contextEditor.layer;
     const panel = layer.panel;
+    window.addEventListener('beforeunload', beforeUnload);
     const syncEditor = () => {
       const meta = panel.querySelector('#cx-meta');
       if (meta) meta.textContent = editorMeta();
       const save = panel.querySelector('[data-sheet="save"]');
-      if (save) save.disabled = !isDirty() || contextEditor.saving;
+      if (save) save.disabled = !isDirty() || contextEditor.loading || contextEditor.saving;
     };
     panel.addEventListener('change', async (e) => {
       if (e.target.id !== 'cx-file' || !e.target.files?.[0]) return;
@@ -1713,14 +1727,14 @@
     });
     panel.addEventListener('click', async (e) => {
       const action = e.target.closest('[data-sheet]');
-      if (!action) return;
+      if (!action || action.disabled) return;
       const what = action.getAttribute('data-sheet');
-      if (what === 'close') contextEditor.layer.close('cancel');
+      if (what === 'close') await close();
       else if (what === 'upload') panel.querySelector('#cx-file').click();
       else if (what === 'download') downloadMarkdown(filename, contextEditor.content);
       else if (what === 'copy') Kit.copy(contextEditor.content, action, filename + ' copied');
       else if (what === 'save') {
-        if (!isDirty() || contextEditor.saving) return;
+        if (!isDirty() || contextEditor.loading || contextEditor.saving) return;
         contextEditor.saving = true;
         contextEditor.error = null;
         contextEditor.layer.render();
@@ -1827,10 +1841,11 @@
     return route && PAGES[route] ? route : 'overview';
   };
   const go = (route) => {
-    if (location.hash === '#' + route) show(route, true);
+    if (location.hash === '#' + route) void navigateFromHash(true);
     else location.hash = route;
   };
   let first = true;
+  let shownHash = location.hash, navigationTask = null, navigationVersion = 0;
   const show = (route, focus) => {
     const changed = route !== state.route || first;
     state.route = route;
@@ -1848,12 +1863,27 @@
       Kit.announce(titleOf(route));
       if (focus) $('main').focus({ preventScroll: true });
     }
-    first = false;
+    first = false; shownHash = location.hash;
     if (route === 'ports' && !state.ports) loadPorts();
     if (route === 'instructions' && state.contextTab === 'skills' && state.status) skillsUI.activate(true);
     if (route === 'instructions' && state.contextTab === 'instructions' && state.status) void loadInstructionsPreview(true);
   };
-  window.addEventListener('hashchange', () => show(routeFromHash(), keyboardNav));
+  const navigateFromHash = async focus => {
+    const version = ++navigationVersion;
+    // Back/forward can arrive while a discard confirmation is open. Share the
+    // decision, then apply only the latest destination; cancelled navigation
+    // keeps the old route, tab and draft together.
+    if (!navigationTask) navigationTask = (async () => {
+      if (contextEditor.layer && !await contextEditor.requestClose()) return false;
+      return skillsUI.beforeNavigate();
+    })();
+    const allowed = await navigationTask;
+    if (version !== navigationVersion) return;
+    navigationTask = null;
+    if (!allowed) { history.replaceState(null, '', shownHash || location.pathname + location.search); return; }
+    show(routeFromHash(), focus);
+  };
+  window.addEventListener('hashchange', () => { void navigateFromHash(keyboardNav); });
   let keyboardNav = false;
 
   // ---------------------------------------------------------------- theme --
@@ -3666,6 +3696,7 @@
       const hash = '#instructions' + (a.value === 'skills' ? '/skills' : '');
       if (location.hash !== hash) location.hash = hash;
     },
+    'context.preview.retry': () => loadInstructionsPreview(true),
     'context.edit': (a, el) => openContextEditor(el),
     'context.menu': (a, el) => Kit.menu(el, { label: 'Shared instructions actions', items: [
       { label: 'Upload…', icon: 'upload', run: async () => { await openContextEditor(el); if (!contextEditor.loading && !contextEditor.readError) contextEditor.layer?.panel.querySelector('#cx-file')?.click(); } },

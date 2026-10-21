@@ -1131,3 +1131,10 @@ html.tc-locked { overflow: hidden; }
 }
 /* Beat the shell's paragraph margin reset so the rail note stays at its foot. */
 .tc-wizard-rail > .tc-plan-bottom { margin-top: auto; }
+
+/* Keep recovery instructions readable on the tinted notice surfaces. */
+.tc-skill-import .tc-notice-desc,
+.tc-skill-inspector .tc-notice-desc,
+.tc-sk-notices .tc-notice-desc,
+.tc-doc-preview .tc-notice-desc,
+.tc-context-sheet .tc-notice-desc { opacity: 1; }

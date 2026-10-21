@@ -58,12 +58,14 @@ const createSkillsFixtures = ({ partial = false } = {}) => {
           action: inventories[provider].skills.some(row => row.name === name && row.source === 'Provider') ? 'replace' : 'add' };
       }));
       preview.plan = { ok: true, planId: 'fixture-plan-' + (++serial), canInstall: true, destinations };
+      preview.result = null;
       return answer(preview.plan);
     }
     if (at('/install')) {
       const preview = previews.get(input.previewId);
       if (!preview?.plan || preview.plan.planId !== input.planId) return answer({ ok: false, error: 'Review destinations again.' }, 409);
-      return answer({ ok: true, results: preview.plan.destinations.map((entry, index) => partial && index === preview.plan.destinations.length - 1 ? { ...entry, status: 'failed', error: 'The folder changed after review. Existing files were kept.' } : { ...entry, status: 'installed' }) });
+      preview.result ||= { ok: true, results: preview.plan.destinations.map((entry, index) => partial && index === preview.plan.destinations.length - 1 ? { ...entry, status: 'failed', error: 'The folder changed after review. Existing files were kept.' } : { ...entry, status: 'installed' }) };
+      return answer(preview.result);
     }
     return answer({ ok: true });
   };

@@ -23,6 +23,7 @@ const T3SkillInspector = (() => {
       const row = () => getLibrary().rows.find(row => row.key === key) || skill;
       const detail = () => view.data || row();
       const dirty = () => view.draft !== view.original || (creating && Boolean(view.slug));
+      const beforeUnload = event => { if (view.saving || view.editing && dirty()) { event.preventDefault(); event.returnValue = ''; } };
       const filename = () => ((creating ? view.slug : skill.name) || 'skill').replace(/[^a-z0-9-]/gi, '-').slice(0, 64) + '.md';
       const download = () => downloadMarkdown(filename(), view.draft);
       view.close = async reason => {
@@ -51,9 +52,9 @@ const T3SkillInspector = (() => {
         const current = row(), installed = getLibrary().installed;
         return html`<section class="tc-insp-section"><div class="tc-insp-label">Available to<span class="tc-spacer"></span><span class="tc-hint">${installed.filter(id => !getLibrary().errors[id] && S.available(current.byProvider[id])).length} of ${installed.length} agents</span></div>
           <div class="tc-group tc-avail">${S.providers.filter(provider => installed.includes(provider.id)).sort((a, b) => Number(Boolean(current.byProvider[b.id])) - Number(Boolean(current.byProvider[a.id]))).map(provider => {
-            const found = current.byProvider[provider.id];
-            return html`<div class="tc-avail-row" data-reach="${found ? 'found' : 'none'}"><span class="tc-tile tc-tile--mark" aria-hidden="true">${raw(T3C.agentMark(provider.id))}</span><div class="tc-row-main"><span class="tc-avail-name">${provider.name}</span>${!found ? html`<span class="tc-avail-note">Not in a folder ${provider.name} reads</span>` : found.effectiveStateText ? html`<span class="tc-avail-note">${found.effectiveStateText}</span>` : ''}</div>
-              ${found ? availability(current, provider.id, true) : html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-inspect-copy-to="${provider.id}">Copy to ${provider.name}</button>`}</div>`;
+            const found = current.byProvider[provider.id], unavailable = getLibrary().errors[provider.id];
+            return html`<div class="tc-avail-row" data-reach="${unavailable ? 'unknown' : found ? 'found' : 'none'}"><span class="tc-tile tc-tile--mark" aria-hidden="true">${raw(T3C.agentMark(provider.id))}</span><div class="tc-row-main"><span class="tc-avail-name">${provider.name}</span>${unavailable ? html`<span class="tc-avail-note">Couldn’t check this agent’s skills</span>` : !found ? html`<span class="tc-avail-note">Not in a folder ${provider.name} reads</span>` : found.effectiveStateText ? html`<span class="tc-avail-note">${found.effectiveStateText}</span>` : ''}</div>
+              ${unavailable ? html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-inspect-rescan${disabled(view.loading || view.saving)}>Rescan</button>` : found ? availability(current, provider.id, true) : html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-inspect-copy-to="${provider.id}"${disabled(view.loading || view.saving)}>Copy to ${provider.name}</button>`}</div>`;
           })}</div><p class="tc-hint">Each setting is the agent’s own and applies to new sessions.</p></section>`;
       };
       const renderEditor = () => html`<section class="tc-insp-section"><div class="tc-editor-toolbar"><label class="tc-insp-label" for="skill-content">SKILL.md</label><div class="tc-editor-tools">
@@ -72,13 +73,14 @@ const T3SkillInspector = (() => {
       view.layer = Kit.open({ kind: 'sheet', returnTo: document.activeElement,
         panel: { class: 'tc-sheet tc-skill-inspector' + (Kit.isPhone() ? ' tc-sheet--bottom' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'skill-view-title' },
         focus: '[data-inspect-close]', backdrop: 'ignore', onEscape: () => { void view.close('escape'); },
-        onClose: () => { if (active === view) active = null; },
+        onClose: () => { window.removeEventListener('beforeunload', beforeUnload); if (active === view) active = null; },
         render: () => html`<div class="tc-insp-head"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('file-text')}</span><div class="tc-insp-title"><h2 id="skill-view-title">${creating ? 'New skill' : skill.name}</h2><div class="tc-insp-meta">${creating ? 'Write instructions for your agents' : html`${skill.groupLabel}<span>·</span>${detail()?.canEdit ? 'Editable' : 'Read-only'}${view.data?.files ? html`<span>·</span>${T3Model.plural(view.data.files.length, 'file')}` : ''}${view.data ? html`<span>·</span>${bytes(view.data.bytes)}` : ''}`}</div></div><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-inspect-close aria-label="Close skill inspector"${disabled(view.saving)}>${icon('x')}</button></div>
           <div class="tc-insp-body" aria-busy="${String(view.loading || view.saving)}">
             ${view.error ? html`<div class="tc-notice tc-notice--danger" role="alert">${icon('circle-alert')}<div><strong>${view.data || creating ? 'Couldn’t complete this change' : 'Couldn’t read this skill'}</strong><p>${view.error}</p></div></div>` : ''}
             ${creating ? html`<section class="tc-insp-section"><label class="tc-label" for="skill-target">Location</label><select class="tc-select" id="skill-target"${disabled(view.saving)}>${targets.map(target => html`<option value="${target.value}"${target.value === view.target ? raw(' selected') : ''}>${S.nameOf(target.provider)} · ${target.name}</option>`)}</select><p class="tc-hint">Other agents may read this folder too. Shared file changes affect everyone using it.</p><label class="tc-label" for="skill-slug">Folder name</label><input class="tc-input tc-mono" id="skill-slug" data-key="skill-slug" value="${view.slug}" placeholder="my-skill" maxlength="64" spellcheck="false" autocapitalize="none"${disabled(view.saving)}><p class="tc-hint">Lowercase letters, numbers and hyphens. The frontmatter name must match.</p></section>` : html`<p class="tc-insp-desc">${skill.description}</p>${renderAvailability()}${renderLocations()}${renderFiles()}`}
             ${renderEditor()}
           </div><div class="tc-sheet-foot tc-insp-foot">${footer()}</div>` });
+      window.addEventListener('beforeunload', beforeUnload);
       const syncEditor = () => {
         const save = view.layer.panel.querySelector('[data-inspect-save]');
         if (save) save.disabled = view.loading || view.saving || (creating && !view.slug.trim());
@@ -107,7 +109,7 @@ const T3SkillInspector = (() => {
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && view.editing) { event.preventDefault(); view.layer.panel.querySelector('[data-inspect-save]')?.click(); }
       });
       const act = async (action, button) => {
-        if (action === 'data-inspect-rescan') { view.layer.close('refresh'); await refresh(); return; }
+        if (action === 'data-inspect-rescan') { if (await view.close('refresh')) await refresh(); return; }
         if (action === 'data-inspect-menu') {
           Kit.menu(button, { label: 'Skill actions', items: [
             { label: 'Copy path', icon: 'copy', run: () => act('data-inspect-copy-path') },
@@ -123,8 +125,8 @@ const T3SkillInspector = (() => {
         if ((action === 'data-inspect-upload')) { view.layer.panel.querySelector('#skill-file').click(); return; }
         if ((action === 'data-inspect-edit')) { view.editing = true; repaint(); view.layer.panel.querySelector('#skill-content')?.focus(); return; }
         if ((action === 'data-inspect-copy-to') || (action === 'data-inspect-reinstall')) {
-          const agent = button.getAttribute('data-inspect-copy-to');
-          view.layer.close('copy');
+          const agent = action === 'data-inspect-copy-to' ? button.getAttribute('data-inspect-copy-to') : null;
+          if (!await view.close('copy')) return;
           getLibrary().install({ source: agent ? S.directory(detail().path) : detail().packageSource || '', names: agent ? [skill.name] : undefined, agents: agent ? [agent] : undefined, step: agent ? 2 : 1 }); return;
         }
         const remove = (action === 'data-inspect-remove');
@@ -157,7 +159,7 @@ const T3SkillInspector = (() => {
       repaint();
       if (view.editing) view.layer.panel.querySelector('#skill-content')?.focus();
     };
-    return { open, repaint };
+    return { open, repaint, close: reason => active ? active.close(reason) : true };
   };
   return { create, code };
 })();

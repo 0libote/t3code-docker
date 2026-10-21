@@ -6,6 +6,8 @@ tab (`#instructions/skills`). A two-column overview shows a safe text preview of
 AGENTS.md beside the per-agent source choices. The instruction editor is centered
 on desktop and opens as a bottom sheet on phones. Uploading a Markdown file
 replaces the draft; only **Save** applies it. Downloads include unsaved edits.
+Closing or leaving with unsaved edits asks before discarding them. Browser reloads
+warn while edits or a save are pending, and navigation waits for a save to finish.
 
 The canonical file lives at `$T3CODE_HOME/setup/context/AGENTS.md`, on the state
 volume. Saving writes it atomically with mode `0600`; initial creation links
@@ -18,7 +20,8 @@ missing native files:
 | OpenCode | `~/.config/opencode/AGENTS.md` | `XDG_CONFIG_HOME` (config root) |
 
 The shared file's header says which agents read it. Its actions menu offers
-upload, download and delete; the preview refreshes only when its revision changes. Under **What each agent
+upload, download and delete; the preview refreshes when its revision changes or
+when you retry a failed preview. Under **What each agent
 reads**, each agent has one choice of three:
 
 - **Shared AGENTS.md** uses the global file, so subsequent global edits reach
@@ -155,6 +158,8 @@ revisions, missing targets and retargeted links. A failed save retains the draft
 for download. Save uses a temporary file and atomic rename, with serialization
 per resolved target. An external writer can still race between the final check
 and rename; this is not a filesystem transaction with other applications.
+Closing, changing pages or copying to another agent asks before discarding a
+skill draft. Saving keeps the editor open until its result arrives.
 
 Removal requires confirmation and both a file revision and a bounded supporting
 tree fingerprint. A changed supporting file invalidates the confirmation.
@@ -245,6 +250,12 @@ no write authority: the plan/install APIs still validate every destination.
 Closing discards the snapshot; a late response is discarded too. Snapshots expire
 after ten minutes and require reading/reviewing the source again. Closing is
 blocked only during publication. `Ctrl/⌘+Enter` advances the current step.
+Publication also freezes the reviewed choices. If the connection drops or the
+service returns a server error, **Retry installation** repeats the same reviewed
+request to retrieve its recorded result. It does not create a new plan or repeat
+successful writes. Choices stay fixed until the outcome is known; closing the
+wizard remains available once the request has finished. A server restart or an
+expired snapshot requires reading the source again.
 
 Imports create independent local copies in these native global locations:
 

@@ -12,8 +12,27 @@ const base = process.argv[2] || 'http://127.0.0.1:23780/__setup/';
 const key = process.argv[3] || 'dev';
 const output = process.env.T3_SKILLS_UI_OUTPUT || '/tmp/t3-skills-ui-audit';
 fs.mkdirSync(output, { recursive: true });
-const deferred = () => { let resolve; const promise = new Promise((done, reject) => { const timer = setTimeout(() => reject(new Error('Timed out waiting for a fixture gate')), 15000); timer.unref(); resolve = () => { clearTimeout(timer); done(); }; }); return { promise, resolve }; };
+const deferred = (timeoutMs = 15000) => { let resolve; const promise = new Promise((done, reject) => { const timer = setTimeout(() => reject(new Error('Timed out waiting for a fixture gate')), timeoutMs); timer.unref(); resolve = () => { clearTimeout(timer); done(); }; }); return { promise, resolve }; };
 const visible = (target, selector) => target.locator(selector).filter({ visible: true });
+const checkNoticeContrast = async notice => {
+  const ratio = await notice.evaluate(element => {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext('2d'), parents = [];
+    for (let node = element; node; node = node.parentElement) parents.unshift(node);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 1, 1);
+    for (const node of parents) { ctx.fillStyle = getComputedStyle(node).backgroundColor; ctx.fillRect(0, 0, 1, 1); }
+    const background = ctx.getImageData(0, 0, 1, 1).data;
+    const style = getComputedStyle(element); ctx.globalAlpha = Number(style.opacity); ctx.fillStyle = style.color; ctx.fillRect(0, 0, 1, 1);
+    const foreground = ctx.getImageData(0, 0, 1, 1).data;
+    const luminance = rgb => [...rgb].slice(0, 3).map(value => {
+      value /= 255; return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+    const a = luminance(background), b = luminance(foreground);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  });
+  assert(ratio >= 4.5, `recovery text contrast ${ratio.toFixed(2)}:1 must be at least 4.5:1`);
+  return ratio;
+};
 const checkSelect = async (page, select, theme) => {
   await select.focus();
   const normal = await select.evaluate(control => {
@@ -41,8 +60,8 @@ const checkSelect = async (page, select, theme) => {
       const api = createSkillsFixtures(), status = statusFor('skills'), errors = [], writes = [], gets = {};
       page.setDefaultTimeout(8000);
       page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.message); });
-      let stateGate, stateStarted, planGate, planStarted, sourceGate, sourceStarted, readGate, readStarted, installGate, installStarted;
-      let stateFail = false, saveFail = false, partial = false, blocked = false, expire = false, providerError = null;
+      let stateGate, stateStarted, planGate, planStarted, sourceGate, sourceStarted, readGate, readStarted, installGate, installStarted, saveGate, saveStarted, reachGate, reachStarted;
+      let stateFail = false, saveFail = false, partial = false, blocked = false, expire = false, providerError = null, loseInstallResponse = false;
       await page.route('**/*', async route => {
         const request = route.request(), url = new URL(request.url()), method = request.method();
         const input = method === 'POST' ? request.postDataJSON() : {};
@@ -50,7 +69,7 @@ const checkSelect = async (page, select, theme) => {
         if (url.pathname.includes('/context/skills')) {
           if (method === 'GET') gets[url.pathname + url.search] = (gets[url.pathname + url.search] || 0) + 1;
           else writes.push({ path: url.pathname, input });
-          if (at('/skills') && url.searchParams.get('provider') === providerError) return route.fulfill({ status: 503, json: { ok: false, error: 'Fixture agent is temporarily unavailable' } });
+          if (at('/skills') && (providerError === 'all' || url.searchParams.get('provider') === providerError)) return route.fulfill({ status: 503, json: { ok: false, error: 'Fixture agent is temporarily unavailable' } });
           if (at('/state')) {
             if (stateGate) { stateStarted.resolve(); await stateGate.promise; stateGate = null; }
             if (stateFail) return route.fulfill({ status: 409, json: { ok: false, error: 'Settings changed outside the console. Rescan before trying again.' } });
@@ -59,12 +78,19 @@ const checkSelect = async (page, select, theme) => {
           if (at('/read') && readGate) { readStarted.resolve(); await readGate.promise; readGate = null; }
           if (at('/source') && sourceGate) { sourceStarted.resolve(); await sourceGate.promise; sourceGate = null; }
           if (at('/plan') && planGate) { planStarted.resolve(); await planGate.promise; planGate = null; }
+          if (at('/save') && saveGate) { saveStarted.resolve(); await saveGate.promise; saveGate = null; }
+          if (at('/reach') && reachGate) { reachStarted.resolve(); await reachGate.promise; reachGate = null; }
           if (at('/save') && saveFail) return route.fulfill({ status: 409, json: { ok: false, error: 'The skill changed outside the console. Your draft is kept.' } });
         }
         let response = api.respond(method, url, input);
+        if (response && at('/reach') && reachStarted) {
+          response = structuredClone(response);
+          response.body.roots[0].paths = [...(response.body.roots[0].paths || []), '/fixture/additional-alias'];
+        }
         if (response && at('/source') && expire) response.body.expiresAt = Date.now() + 1000;
         if (response && at('/plan') && blocked) { response.body.canInstall = false; response.body.destinations[0] = { ...response.body.destinations[0], action: 'blocked', error: 'This folder is read-only' }; }
         if (response && at('/install') && partial) response.body.results[0] = { ...response.body.results[0], status: 'failed', error: 'Fixture disk is temporarily full' };
+        if (response && at('/install') && loseInstallResponse) { loseInstallResponse = false; return route.abort('connectionreset'); }
         if (!response && at('/status')) response = { body: status };
         if (!response && at('/ports')) response = { body: portsFor('ready') };
         if (!response && at('/providers')) response = { body: fixture('providers.json') };
@@ -114,6 +140,7 @@ const checkSelect = async (page, select, theme) => {
         await target.locator('[data-cmd="skills.agent"][data-provider=""]').click();
       }
       await shot('library');
+      await checkNoticeContrast(visible(target, '.tc-sk-notices .tc-notice-desc, .tc-sk-phone-notice > span > span').first());
       const deep = () => visible(target, '[data-cmd="skills.view"]').filter({ hasText: 'deep-research' });
       await deep().click();
       await target.locator('.tc-insp-body .tc-code').waitFor();
@@ -122,13 +149,57 @@ const checkSelect = async (page, select, theme) => {
       assert.equal(await target.locator('.tc-files li').count(), 3);
       await checkSelect(page, target.getByRole('combobox', { name: /Claude Code visibility/ }), theme);
       await shot('inspector');
+      if (width < 768) {
+        await target.locator('[data-inspect-menu]').click();
+        await target.getByRole('menuitem', { name: 'Reinstall from source…', exact: true }).click();
+        await target.locator('#skill-source').waitFor();
+        assert.equal(await target.locator('#skill-source').inputValue(), '', 'a local skill does not invent a remembered origin');
+        assert.equal(await target.evaluate(() => document.activeElement.id), 'skill-source');
+        await close();
+        await deep().click(); await target.locator('.tc-insp-body .tc-code').waitFor();
+      }
       await target.locator('[data-inspect-edit]').click();
       const draft = '---\nname: deep-research\ndescription: A reviewed draft\n---\nUnsaved draft survives status refresh.';
       await target.locator('#skill-content').fill(draft);
       await target.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await page.waitForTimeout(250);
       assert.equal(await target.locator('#skill-content').inputValue(), draft);
+      assert(await target.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true }))), 'a dirty skill warns before a browser reload');
+      await navigate('overview');
+      await target.getByRole('alertdialog').waitFor();
+      await target.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+      await target.waitForFunction(() => location.hash === '#instructions/skills');
+      assert.equal(await target.locator('#skill-content').inputValue(), draft, 'cancelled history navigation preserves the tab and draft');
+      if (width === 1440 && theme === 'light') {
+        await navigate('overview'); await target.getByRole('alertdialog').waitFor();
+        await navigate('agents');
+        assert.equal(await target.getByRole('alertdialog').count(), 1, 'rapid history changes share one discard decision');
+        await target.getByRole('button', { name: 'Discard draft', exact: true }).click();
+        await target.waitForFunction(() => document.body.dataset.consoleRoute === 'agents');
+        await navigate('instructions/skills');
+        await deep().click(); await target.locator('.tc-insp-body .tc-code').waitFor();
+        await target.locator('[data-inspect-edit]').click(); await target.locator('#skill-content').fill(draft);
+      }
+      await target.locator('[data-inspect-copy-to=codex]').click();
+      await target.getByRole('alertdialog').waitFor();
+      await shot('draft-protection');
+      await target.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+      assert.equal(await target.locator('#skill-content').inputValue(), draft, 'canceling a copy transition preserves the editor');
+      assert.equal(await target.locator('.tc-skill-import').count(), 0);
+      await target.locator('[data-inspect-copy-to=codex]').click();
+      await target.getByRole('button', { name: 'Discard draft', exact: true }).click();
+      await target.locator('[data-import-agent=codex]').waitFor();
+      await close();
+      await deep().click(); await target.locator('.tc-insp-body .tc-code').waitFor();
+      await target.locator('[data-inspect-edit]').click(); await target.locator('#skill-content').fill(draft);
+      if (width === 1440 && theme === 'light') { saveGate = deferred(); saveStarted = deferred(); }
       saveFail = true; await target.locator('[data-inspect-save]').click();
+      if (saveGate) {
+        await saveStarted.promise;
+        assert(await target.locator('[data-inspect-copy-to=codex]').isDisabled(), 'a save cannot be abandoned through Copy to');
+        await page.keyboard.press('Escape'); assert(await target.locator('.tc-skill-inspector').isVisible());
+        saveGate.resolve();
+      }
       await target.getByRole('alert').filter({ hasText: 'Your draft is kept' }).waitFor();
       assert.equal(await target.locator('#skill-content').inputValue(), draft);
       await page.keyboard.press('Escape');
@@ -155,8 +226,17 @@ const checkSelect = async (page, select, theme) => {
         providerError = 'grok'; await visible(target, '[data-cmd="skills.refresh"]').click();
         await target.getByText('Fixture agent is temporarily unavailable', { exact: true }).waitFor();
         assert(await target.getByRole('button', { name: 'OpenCode permission for deep-research: Allowed', exact: true }).isEnabled());
+        await deep().click(); await target.locator('.tc-insp-body .tc-code').waitFor();
+        assert.equal(await target.locator('.tc-avail-row[data-reach=unknown]').count(), 1, 'failed discovery is unknown, not a missing installation');
+        await close();
         providerError = null; await visible(target, '[data-cmd="skills.refresh"]').click();
         await target.getByText('Fixture agent is temporarily unavailable', { exact: true }).waitFor({ state: 'hidden' });
+        providerError = 'all'; await page.reload();
+        await target.getByText('Skills couldn’t be read', { exact: true }).waitFor();
+        await shot('discovery-failure');
+        assert.equal(await target.getByText('No skills yet', { exact: true }).count(), 0, 'discovery failures must not masquerade as an empty library');
+        providerError = null; await target.getByRole('button', { name: 'Retry scan', exact: true }).click();
+        await target.locator('.tc-mx-row').first().waitFor();
         await target.locator('[data-cmd="skills.columns"]').click();
         await target.waitForFunction(() => document.querySelectorAll('.tc-mx-agent').length === 7);
         assert.equal(await target.locator('.tc-mx-agent[data-uninstalled]').count(), 2);
@@ -178,6 +258,14 @@ const checkSelect = async (page, select, theme) => {
         readGate.resolve(); await page.waitForTimeout(100);
         assert.equal(await target.locator('#skill-content').inputValue(), draft);
         await page.keyboard.press('Escape'); await target.getByRole('button', { name: 'Discard draft', exact: true }).click();
+      }
+      const recoverResponse = width === 390;
+      if (recoverResponse) {
+        // Hold a scan that began before the wizard, while its cached library
+        // remains usable. Let its metadata arrive only during publication.
+        reachGate = deferred(30000); reachStarted = deferred();
+        await visible(target, '[data-cmd="skills.refresh"]').click();
+        await reachStarted.promise;
       }
       await target.locator('#skill-search').fill('design');
       await openSource();
@@ -224,15 +312,53 @@ const checkSelect = async (page, select, theme) => {
         partial = true;
         installGate = deferred(); installStarted = deferred();
       }
+      const plannedBeforeInstall = writes.filter(write => write.path.endsWith('/plan')).length;
+      if (recoverResponse) {
+        loseInstallResponse = true; installGate = deferred(); installStarted = deferred();
+      }
       await next().click();
       if (installGate) {
         await installStarted.promise;
         assert(await target.locator('[data-import-close]').isDisabled());
+        assert(await target.locator('[data-import-agent=claude]').isDisabled(), 'publication freezes its selections');
         await page.keyboard.press('Escape');
         assert(await target.locator('.tc-skill-import').isVisible(), 'publication cannot be dismissed halfway through');
+        await navigate('overview');
+        await target.waitForFunction(() => location.hash === '#instructions/skills');
+        assert(await target.locator('.tc-skill-import').isVisible(), 'history navigation cannot abandon publication');
+        if (recoverResponse) {
+          // Model an initial inventory scan finishing after publication starts.
+          // The background completion must not clear the in-flight plan ID.
+          reachGate.resolve();
+          await target.waitForFunction(() => {
+            const button = document.querySelector('.tc-sk-library-foot [data-cmd="skills.refresh"]');
+            return button && !button.disabled && button.textContent.trim() === 'Rescan';
+          });
+        }
         installGate.resolve();
       }
+      if (recoverResponse) {
+        await target.getByRole('button', { name: 'Retry installation', exact: true }).waitFor();
+        await target.waitForFunction(() => {
+          const error = document.querySelector('#skill-import-error')?.getBoundingClientRect();
+          const grid = document.querySelector('.tc-wizard-grid')?.getBoundingClientRect();
+          return error && grid && error.top >= grid.top - 1 && error.bottom <= grid.bottom + 1;
+        });
+        assert(await target.locator('[data-import-agent=claude]').isDisabled(), 'keep the uncertain operation tied to its reviewed plan');
+        assert(await target.locator('[data-import-back]').isDisabled());
+        console.log('Recovery text contrast', theme, (await checkNoticeContrast(target.locator('#skill-import-error .tc-notice-desc'))).toFixed(2) + ':1');
+        await shot('retry-installation');
+        await next().click();
+        const attempts = writes.filter(write => write.path.endsWith('/install')).slice(-2);
+        assert.deepEqual(attempts[0].input, attempts[1].input, 'recover the original idempotent request');
+        assert.equal(writes.filter(write => write.path.endsWith('/plan')).length, plannedBeforeInstall);
+      }
       await target.locator('.tc-result-hero').waitFor();
+      await target.waitForFunction(() => {
+        const result = document.querySelector('.tc-result-hero')?.getBoundingClientRect();
+        const grid = document.querySelector('.tc-wizard-grid')?.getBoundingClientRect();
+        return result && grid && result.top >= grid.top - 1 && result.bottom <= grid.bottom + 1;
+      });
       await shot('result');
       if (partial) {
         assert.equal(await target.locator('[data-import-review-again]').count(), 1);

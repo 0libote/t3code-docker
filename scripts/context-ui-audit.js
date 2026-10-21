@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
  await page.addInitScript(mode => localStorage.setItem('t3-console-theme', mode), theme);
  const providerModes = {claude:'separate',codex:'separate',opencode:'separate'};
  let oversizedStatus = false;
+ let previewFail = true;
  const oversizedError = 'Instructions are too large to edit (64 KiB maximum). Edit the file directly to reduce its size.';
  const errors=[];page.on('pageerror', e=>errors.push(e.message));
  await page.route('**/status', async route => {
@@ -30,6 +31,9 @@ const assert = require('node:assert/strict');
    }
    await route.fulfill({json:status});
  });
+ await page.route('**/context/agents-md', route => route.request().method() === 'GET'
+   ? route.fulfill({status:previewFail ? 503 : 200,json:previewFail ? {ok:false,error:'Temporary preview read failure'} : {ok:true,content:'# Preview instructions',revision:'preview-revision'}})
+   : route.fallback());
  await page.goto(base);
  if (await page.locator('input[type="password"]').isVisible()) {
    await page.locator('input[type="password"]').fill(key);
@@ -38,6 +42,10 @@ const assert = require('node:assert/strict');
  }
  await page.goto(base + (embedded ? '?embed=t3&theme=' + theme : '') + '#instructions');
  await page.locator('[data-cmd="context.edit"]').waitFor();
+ await page.getByRole('button',{name:'Retry preview',exact:true}).waitFor();
+ previewFail = false;
+ await page.getByRole('button',{name:'Retry preview',exact:true}).click();
+ await page.locator('.tc-doc-preview .tc-code').filter({hasText:'# Preview instructions'}).waitFor();
  assert.equal(await page.locator('html').getAttribute('data-theme'),theme);
  assert.equal(await page.locator('#page-instructions .tc-ins-section').count(),2);
  assert.equal(await page.getByRole('tab',{name:'Instructions',exact:true}).getAttribute('aria-selected'),'true');
@@ -99,10 +107,29 @@ const assert = require('node:assert/strict');
  await page.getByRole('button',{name:'Save',exact:true}).click();
  await saving;
  assert.equal(await page.locator('#cx-input').isDisabled(),true);
+ assert.equal(await page.locator('[data-sheet="close"]:disabled').count(),2);
+ await page.keyboard.press('Escape');
+ assert.equal(await page.locator('#cx-input').count(),1,'an in-flight save keeps its editor open');
+ await page.evaluate(() => { location.hash = 'overview'; });
+ await page.waitForFunction(() => location.hash === '#instructions');
+ assert.equal(await page.locator('#cx-input').count(),1,'history navigation cannot abandon a save');
  releaseFailedSave();
  await page.getByText('Shared instructions changed since opening',{exact:true}).waitFor();
  assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
+ assert(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload',{cancelable:true}))), 'unsaved instructions warn before reload');
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ await page.getByRole('alertdialog').waitFor();
+ await page.getByRole('alertdialog').getByRole('button',{name:'Cancel',exact:true}).click();
+ assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
+ await page.evaluate(() => { location.hash = 'instructions/skills'; });
+ await page.getByRole('alertdialog').waitFor();
+ await page.getByRole('alertdialog').getByRole('button',{name:'Cancel',exact:true}).click();
+ await page.waitForFunction(() => location.hash === '#instructions');
+ assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
+ await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Discard draft',exact:true}).click();
+ await page.locator('#cx-input').waitFor({state:'hidden'});
+ assert(await page.evaluate(() => window.dispatchEvent(new Event('beforeunload',{cancelable:true}))), 'closing the editor removes its reload guard');
  // All existing provider files are discoverable, editable and saved explicitly.
  await page.route('**/context/agents-md?provider=*', async route => {
    const provider = new URL(route.request().url()).searchParams.get('provider');
