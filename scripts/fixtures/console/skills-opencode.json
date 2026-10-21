@@ -1,395 +1,740 @@
 {
- "ok": true,
- "provider": "opencode",
- "canCreate": true,
- "creationTargets": [
-  {
-   "id": "provider",
-   "name": "Provider folder",
-   "path": "/home/t3/.config/opencode/skills"
-  },
-  {
-   "id": "shared",
-   "name": "Shared .agents folder",
-   "path": "/home/t3/.agents/skills"
-  }
- ],
- "providers": [
-  {
-   "id": "claude",
-   "name": "Claude Code"
-  },
-  {
-   "id": "codex",
-   "name": "Codex"
-  },
-  {
-   "id": "opencode",
-   "name": "OpenCode"
-  },
-  {
-   "id": "cursor",
-   "name": "Cursor"
-  },
-  {
-   "id": "grok",
-   "name": "Grok Build"
-  },
-  {
-   "id": "muse",
-   "name": "Muse Code"
-  }
- ],
- "skills": [
-  {
-   "id": "c65165914350173b5d928c87c76c8389",
-   "path": "/home/t3/.claude/skills/synced/account/built-in-browser/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/built-in-browser/SKILL.md",
-   "name": "built-in-browser",
-   "description": "Read this skill before the first step that uses the built-in browser, the browser pane inside the Claude desktop app (also called the in-app browser, the browser pane, Claude's browser, or \"your own browser\"), whose tools are named mcp__Claude_Browser__* when the session runs in the desktop app and mcp__remote-devices__Claude_Browser__* when a cloud session is linked to the person's computer; before those tools are turned on there may be a single enable__mcp__remote-devices__Claude_Browser tool instead. It covers the pane's persistent sign-ins, tabs and preview_start, reading pages as text, site approvals, what the pane cannot open, and what to do when it cannot be reached. It is not for Claude in Chrome (mcp__claude-in-chrome__* tools), which has its own skill, and it does not decide which browser to use.",
-   "source": "Claude compatibility",
-   "scope": "user",
-   "state": "allow",
-   "native": false,
-   "bytes": 6529,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: Allowed",
-   "policyKey": "built-in-browser",
-   "effectiveStateText": "Build agent: Allowed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
+  "ok": true,
+  "provider": "opencode",
+  "canCreate": true,
+  "creationTargets": [
     {
-     "value": "allow",
-     "label": "Allowed"
+      "id": "provider",
+      "name": "Provider folder",
+      "path": "/home/t3/.config/opencode/skills"
     },
     {
-     "value": "ask",
-     "label": "Ask before use"
-    },
-    {
-     "value": "deny",
-     "label": "Denied"
+      "id": "shared",
+      "name": "Shared .agents folder",
+      "path": "/home/t3/.agents/skills"
     }
-   ],
-   "nativePolicyVersion": "2.0.32",
-   "stateRevision": "fa0bd9a8c7f327cf0c4fe54992d334a94fbbd9db3236fbb0c453ac463d080436",
-   "canEdit": false,
-   "canRemove": false,
-   "readOnlyReason": "Manage this installation through its source provider or package manager."
-  },
-  {
-   "id": "64498f3658b3ab6582cf76bbe511aa7b",
-   "path": "/home/t3/.claude/skills/synced/account/chrome-browser/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/chrome-browser/SKILL.md",
-   "name": "chrome-browser",
-   "description": "Read this skill before the first step that uses Claude in Chrome, the browser extension whose tools are named mcp__claude-in-chrome__* (also called Chrome, the browser extension, or the external browser) and which acts in the person's real Chrome with their own sign-ins; before those tools are turned on there may be a single enable__mcp__claude-in-chrome tool instead. It covers loading the tools in one ToolSearch call, checking the person's open tabs and working in a new tab, site permissions, GIF recordings, console logs, dialogs to avoid, and when to stop and ask. It is not for the built-in browser (mcp__Claude_Browser__* or mcp__remote-devices__Claude_Browser__* tools), which has its own skill, and it does not decide which browser to use.",
-   "source": "Claude compatibility",
-   "scope": "user",
-   "state": "allow",
-   "native": false,
-   "bytes": 5881,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: Allowed",
-   "policyKey": "chrome-browser",
-   "effectiveStateText": "Build agent: Allowed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
+  ],
+  "skills": [
     {
-     "value": "allow",
-     "label": "Allowed"
+      "id": "3d751c7c5431c46cc5817938f7be367c",
+      "path": "/home/t3/.claude/skills/built-in-browser/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/built-in-browser/SKILL.md",
+      "name": "built-in-browser",
+      "description": "Read this skill before the first step that uses the built-in browser, the browser pane inside the Claude desktop app: sign-ins, tabs and site approvals.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 2048,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-built-in-browser",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
     },
     {
-     "value": "ask",
-     "label": "Ask before use"
+      "id": "f2aa4a0155b20ec5683a73ee140bd99f",
+      "path": "/home/t3/.claude/skills/chrome-browser/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/chrome-browser/SKILL.md",
+      "name": "chrome-browser",
+      "description": "Read this skill before the first step that uses Claude in Chrome, the browser extension that acts in your real Chrome with your own sign-ins.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 2135,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-chrome-browser",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
     },
     {
-     "value": "deny",
-     "label": "Denied"
+      "id": "a58cd5c1fce3ef6fc61db4c3066d22bf",
+      "path": "/home/t3/.claude/skills/computer-use/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/computer-use/SKILL.md",
+      "name": "computer-use",
+      "description": "Read before any request to do something in an app on your own computer, or to look at your screen. Covers access, picking the right tool and safety rules.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "ask",
+      "native": false,
+      "bytes": 2222,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": "Build agent: Ask",
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-computer-use",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "9aa59c025bf8920889e4739fa34f3610",
+      "path": "/home/t3/.claude/skills/deep-research/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/deep-research/SKILL.md",
+      "name": "deep-research",
+      "description": "Use when a prompt needs research across many sources, a comparison of options or a review of studies, synthesised into a narrative report.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 4628,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-deep-research",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "9ab359d1d83eaebd9a14463c6f20db8b",
+      "path": "/home/t3/.claude/skills/docs/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/docs/SKILL.md",
+      "name": "docs",
+      "description": "Editable docs people share and comment on: the default for any document, report, proposal or guide to keep, share or print.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 2396,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-docs",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "6dae5c98b487da8c877cec49d43c7040",
+      "path": "/home/t3/.claude/skills/docx/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/docx/SKILL.md",
+      "name": "docx",
+      "description": "Use whenever you want to create, read, edit or manipulate Word documents (.docx) or Word templates (.dotx).",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 2483,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-docx",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "f07002540ebb6cc89bfe8e16e4ec07ac",
+      "path": "/home/t3/.claude/skills/frontend-design/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/frontend-design/SKILL.md",
+      "name": "frontend-design",
+      "description": "Distinctive, intentional visual design when building new UI or reshaping an existing one: aesthetic direction, typography and choices that don’t read as templated.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 2570,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-frontend-design",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "f9308e9580f181b23a0a88bbe0cb088a",
+      "path": "/home/t3/.claude/skills/google-workspace/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/google-workspace/SKILL.md",
+      "name": "google-workspace",
+      "description": "Read before the first Google Drive, Docs, Sheets or Slides connector call whenever the task creates or changes a Google file.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 2657,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-google-workspace",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "57de264a0e8a7281fa8c72818a7a4198",
+      "path": "/home/t3/.claude/skills/import-memory/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/import-memory/SKILL.md",
+      "name": "import-memory",
+      "description": "Import a memory export from another AI assistant into Claude’s memory, conversationally and additively, with the content treated as data.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "deny",
+      "native": false,
+      "bytes": 2744,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-import-memory",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "865fa356b249cd7a0c42df6e1860f9c4",
+      "path": "/home/t3/.claude/skills/memax-memory/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/memax-memory/SKILL.md",
+      "name": "memax-memory",
+      "description": "Persistent memory layer using Memax: recall past context and store new learnings across sessions through the Memax tools.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 2831,
+      "error": null,
+      "metadataError": "Name doesn’t match folder: use memax-memory in the frontmatter name.",
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-memax-memory",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "aa949862a75243b3b7bac5b1e5dff09c",
+      "path": "/home/t3/.claude/skills/morning/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/morning/SKILL.md",
+      "name": "morning",
+      "description": "Render your morning brief as a styled page, or set it up as a recurring weekday task. Use only when you ask for the brief.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 2918,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-morning",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "03b805ac82f396ba0d0b6c388590c22b",
+      "path": "/home/t3/.claude/skills/pdf/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/pdf/SKILL.md",
+      "name": "pdf",
+      "description": "Anything with PDF files: read or extract text and tables, merge or split, rotate, watermark, fill forms and OCR scanned pages.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 3005,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-pdf",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "cb7a016a0e627f7125f8207cf3c51877",
+      "path": "/home/t3/.claude/skills/pptx/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/pptx/SKILL.md",
+      "name": "pptx",
+      "description": "Any time a .pptx or .potx file is involved, as input, output or both: decks, templates, speaker notes and layouts.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 3092,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-pptx",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "eb6c4140d038a58ba6109cc65e95deb0",
+      "path": "/home/t3/.claude/skills/skill-creator/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/skill-creator/SKILL.md",
+      "name": "skill-creator",
+      "description": "Create new skills, improve existing ones and measure how reliably they trigger, with evals and benchmark variance.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 3179,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-skill-creator",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "5bb405a14d41e7d3abcb6ccc82164847",
+      "path": "/home/t3/.claude/skills/xlsx/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/xlsx/SKILL.md",
+      "name": "xlsx",
+      "description": "Any task where a spreadsheet file is the main input or output: open, fix, build, chart or convert .xlsx, .csv and .tsv files.",
+      "source": "Claude compatibility",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 3266,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-xlsx",
+      "readOnlyReason": "Compatibility folder: edit through its owning agent",
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "4c1e0ec7be32a74085807b2275288106",
+      "path": "/home/t3/.agents/skills/find-skills/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.agents/skills/find-skills/SKILL.md",
+      "name": "find-skills",
+      "description": "Helps discover and install agent skills when you ask how to do something, look for a skill, or want to extend what an agent can do.",
+      "source": "Shared .agents",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 3353,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": false,
+      "canRemove": false,
+      "revision": "fixture-file-find-skills",
+      "readOnlyReason": "Managed by the skills CLI; reinstall from its source",
+      "packageManaged": true,
+      "packageSource": "vercel-labs/skills"
+    },
+    {
+      "id": "f9867ecfffebdfe0353225cf393caf32",
+      "path": "/home/t3/.agents/skills/commit-style/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.agents/skills/commit-style/SKILL.md",
+      "name": "commit-style",
+      "description": "House rules for commit messages: an imperative subject under 72 characters, a wrapped body that says why, and no trailers.",
+      "source": "Shared .agents",
+      "scope": "user",
+      "state": "allow",
+      "native": false,
+      "bytes": 3440,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "allow",
+          "label": "Allowed"
+        },
+        {
+          "value": "ask",
+          "label": "Ask before use"
+        },
+        {
+          "value": "deny",
+          "label": "Denied"
+        }
+      ],
+      "stateRevision": "fixture-state-opencode",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.config/opencode/opencode.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-commit-style",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
     }
-   ],
-   "nativePolicyVersion": "2.0.32",
-   "stateRevision": "a170f8c721323993aa939e992e10cd0d2f07f450e05461f466dfc422343a1013",
-   "canEdit": false,
-   "canRemove": false,
-   "readOnlyReason": "Manage this installation through its source provider or package manager."
-  },
-  {
-   "id": "0464a0d8e41e8ef1ffaf46723c2b8afd",
-   "path": "/home/t3/.claude/skills/synced/account/computer-use/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/computer-use/SKILL.md",
-   "name": "computer-use",
-   "description": "Read this skill before the first step of any request to do something in an app on the person's own computer (Notes, Finder, System Settings, any desktop app), to look at their screen, or for \"computer use\". Computer use (desktop control) lets Claude take screenshots of the person's desktop and control it with clicks, typing and scrolling through the Claude desktop app; its tools are named mcp__computer-use__* when the session runs in the desktop app and mcp__remote-devices__computer_* when a cloud session is linked to the person's computer; before computer use is turned on for a conversation there may be no such tools, only an enable__mcp__remote-devices__computer tool, which turns it on. It covers turning it on, picking the right tool, the access flow, and the safety rules for tiered apps, links and financial actions. It is not for websites, which go through Claude in Chrome or the built-in browser and their own skills.",
-   "source": "Claude compatibility",
-   "scope": "user",
-   "state": "allow",
-   "native": false,
-   "bytes": 9269,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: Allowed",
-   "policyKey": "computer-use",
-   "effectiveStateText": "Build agent: Allowed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
+  ],
+  "roots": [
     {
-     "value": "allow",
-     "label": "Allowed"
+      "path": "/home/t3/.claude/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills",
+      "source": "Claude compatibility",
+      "scope": "user"
     },
     {
-     "value": "ask",
-     "label": "Ask before use"
+      "path": "/home/t3/.config/opencode/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.config/opencode/skills",
+      "source": "Provider",
+      "scope": "user"
     },
     {
-     "value": "deny",
-     "label": "Denied"
+      "path": "/home/t3/.agents/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.agents/skills",
+      "source": "Shared .agents",
+      "scope": "user"
     }
-   ],
-   "nativePolicyVersion": "2.0.32",
-   "stateRevision": "b86b8c852135dc02d93fdd848ce02feb8045b1c5c97e2020fdf506b114febe94",
-   "canEdit": false,
-   "canRemove": false,
-   "readOnlyReason": "Manage this installation through its source provider or package manager."
-  },
-  {
-   "id": "ea2a2973c7691e905d729cd2d24371b3",
-   "path": "/home/t3/.claude/skills/synced/account/deep-research/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/deep-research/SKILL.md",
-   "name": "deep-research",
-   "description": "Use this skill when the user's prompt requires (1) researching a topic across multiple sources, comparing options or alternatives, analyzing trends or history, understanding markets or industries, or reviewing literature or studies and (2) synthesizing that research into a comprehensive, narrative report. If you're planning to search the web or internal knowledge bases, consider using this skill. This skill coordinates research subagents, so use it only when you have a tool for spawning subagents (the Agent or Task tool); otherwise, research the question directly.",
-   "source": "Claude compatibility",
-   "scope": "user",
-   "state": "allow",
-   "native": false,
-   "bytes": 13132,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: Allowed",
-   "policyKey": "deep-research",
-   "effectiveStateText": "Build agent: Allowed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "allow",
-     "label": "Allowed"
-    },
-    {
-     "value": "ask",
-     "label": "Ask before use"
-    },
-    {
-     "value": "deny",
-     "label": "Denied"
-    }
-   ],
-   "nativePolicyVersion": "2.0.32",
-   "stateRevision": "5d06f761c5bebe335019e063191517897f8fba75828d44a599fe615033b17928",
-   "canEdit": false,
-   "canRemove": false,
-   "readOnlyReason": "Manage this installation through its source provider or package manager."
-  },
-  {
-   "id": "fe2393477daaaa6e48f0cb3e57f22484",
-   "path": "/home/t3/.claude/skills/synced/account/docs/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/docs/SKILL.md",
-   "name": "docs",
-   "description": "docs (editable docs people share and comment on; the default for any document, named as a doc or not: a document, report, proposal, resume, cover letter, letter, contract, policy, form, template, worksheet, essay, handbook, guide, how-to, cheat sheet, SOP or other writing to keep, share, collaborate on, send, submit, print or sign; a doc exports to Word, PDF, Markdown or Google Docs, so needing a file to send, attach, upload, submit or print is no reason to pick Word, and a file nobody asked for is a doc, not Word; a plan, comparison, summary or notes asked in chat stays in chat; a pasted claude.ai artifact link may be a doc: check with docs tools first; Word or another file format named, tracked changes wanted, or a .docx to change or use as a template → that format's skill): making one → if no docs-connector instructions are in context, call its `guide` (topic.instructions) first; then create the doc (headings only, no body) before any search, file read or plan, even with files attached.",
-   "source": "Claude compatibility",
-   "scope": "user",
-   "state": "allow",
-   "native": false,
-   "bytes": 1249,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: Allowed",
-   "policyKey": "docs",
-   "effectiveStateText": "Build agent: Allowed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "allow",
-     "label": "Allowed"
-    },
-    {
-     "value": "ask",
-     "label": "Ask before use"
-    },
-    {
-     "value": "deny",
-     "label": "Denied"
-    }
-   ],
-   "nativePolicyVersion": "2.0.32",
-   "stateRevision": "9d3b3a6b5bc162edd285458573d2827f1bedd479e9e4a61a95ee82212b56c4c7",
-   "canEdit": false,
-   "canRemove": false,
-   "readOnlyReason": "Manage this installation through its source provider or package manager."
-  },
-  {
-   "id": "437327fd4bfa6406d33ccfa1f9578552",
-   "path": "/home/t3/.claude/skills/synced/account/docx/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/docx/SKILL.md",
-   "name": "docx",
-   "description": "Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx) or Word templates (.dotx). Triggers include: any mention of Microsoft Word Documents, such as 'Word doc', 'word document', '.docx', '.dotx', 'microsoft doc'. Also use when extracting or reorganizing content from .docx or .dotx files, inserting or replacing images in documents, find-and-replace in Word files, working with tracked changes or comments, or converting content into a polished Word document. If the user asks for a deliverable as a Word or .docx file (to download, email or print), use this skill. However, if they ask for a document, page, report, memo, or notes WITHOUT naming a file format and the session offers Claude's own dedicated document or page skill or connector, use that instead, even if they will email or print it. Do NOT use for PDFs, spreadsheets, Google Docs, or coding unrelated to document generation.",
-   "source": "Claude compatibility",
-   "scope": "user",
-   "state": "allow",
-   "native": false,
-   "bytes": 7639,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: Allowed",
-   "policyKey": "docx",
-   "effectiveStateText": "Build agent: Allowed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "allow",
-     "label": "Allowed"
-    },
-    {
-     "value": "ask",
-     "label": "Ask before use"
-    },
-    {
-     "value": "deny",
-     "label": "Denied"
-    }
-   ],
-   "nativePolicyVersion": "2.0.32",
-   "stateRevision": "f39a5014d663391ea11a366f2735eb5670e3eaf3da9fa8b79701e52b2ce1fbff",
-   "canEdit": false,
-   "canRemove": false,
-   "readOnlyReason": "Manage this installation through its source provider or package manager."
-  },
-  {
-   "id": "155fa16b072fe2992c40198e652473ef",
-   "path": "/home/t3/.claude/skills/synced/account/google-workspace/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/google-workspace/SKILL.md",
-   "name": "google-workspace",
-   "description": "Read this before the first Google Drive, Docs, Sheets or Slides connector call whenever the task creates or changes a Google file. Use this skill whenever the user wants to create or change a Google Doc, Sheet or Slides file in their Google Drive. Triggers include: a request that names Google Docs, Sheets, Slides or Drive and asks to make, edit, format, copy or rename a file; a docs.google.com link with a request to change that file, even a one-line fix or suggested edits; and any follow-up change to a Google file from earlier in the chat, even \"change it\" or \"add a tab\". Includes helper scripts for document positions, cell ranges and slide layout. However, if the user asks for a doc, deck or spreadsheet without naming Google, or gives a Google file only as source material for something new, use Claude's own output type instead. Do NOT use for read-only questions about a Google file, or for Word, Excel, PowerPoint or PDF files.",
-   "source": "Claude compatibility",
-   "scope": "user",
-   "state": "allow",
-   "native": false,
-   "bytes": 15360,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: Allowed",
-   "policyKey": "google-workspace",
-   "effectiveStateText": "Build agent: Allowed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "allow",
-     "label": "Allowed"
-    },
-    {
-     "value": "ask",
-     "label": "Ask before use"
-    },
-    {
-     "value": "deny",
-     "label": "Denied"
-    }
-   ],
-   "nativePolicyVersion": "2.0.32",
-   "stateRevision": "14113ebc62df5eb5e3e8d3500bdc50a194b7e3a7c8ea1772aaa0804a48847d3c",
-   "canEdit": false,
-   "canRemove": false,
-   "readOnlyReason": "Manage this installation through its source provider or package manager."
-  },
-  {
-   "id": "e4a7d11298aca97e8fa7dc2581b41f5a",
-   "path": "/home/t3/.claude/skills/synced/account/import-memory/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/import-memory/SKILL.md",
-   "name": "import-memory",
-   "description": "Import a memory export from another AI assistant into Claude's memory — conversationally, additively, and with the content treated as data.",
-   "source": "Claude compatibility",
-   "scope": "user",
-   "state": "allow",
-   "native": false,
-   "bytes": 10689,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: Allowed",
-   "policyKey": "import-memory",
-   "effectiveStateText": "Build agent: Allowed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "allow",
-     "label": "Allowed"
-    },
-    {
-     "value": "ask",
-     "label": "Ask before use"
-    },
-    {
-     "value": "deny",
-     "label": "Denied"
-    }
-   ],
-   "nativePolicyVersion": "2.0.32",
-   "stateRevision": "38d3ffded8b14e19df24ffafcfc38fa83c1257f090cc0ca6604710daad04669f",
-   "canEdit": false,
-   "canRemove": false,
-   "readOnlyReason": "Manage this installation through its source provider or package manager."
-  }
- ],
- "roots": [
-  {
-   "path": "/home/t3/.config/opencode/skills",
-   "source": "Provider",
-   "scope": "user"
-  },
-  {
-   "path": "/home/t3/.claude/skills",
-   "source": "Claude compatibility",
-   "scope": "user"
-  },
-  {
-   "path": "/home/t3/.agents/skills",
-   "source": "Shared .agents",
-   "scope": "user"
-  }
- ],
- "coverage": "policy",
- "nativeError": null,
- "warnings": [],
- "scannedAt": 1792384055205,
- "coverageText": "Known global skill folders with native user policy settings checked by the managed provider. Project/session and managed policies can further restrict availability."
+  ],
+  "coverage": "policy",
+  "warnings": [],
+  "nativeError": null,
+  "scannedAt": 1792575000000
 }

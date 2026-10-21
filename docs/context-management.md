@@ -2,7 +2,8 @@
 
 **Setup → Instructions & skills** edits the shared AGENTS.md and each agent's
 own instruction file, on its **Instructions** tab; skills are on its **Skills**
-tab (`#instructions/skills`). The editor is centered
+tab (`#instructions/skills`). A two-column overview shows a safe text preview of
+AGENTS.md beside the per-agent source choices. The instruction editor is centered
 on desktop and opens as a bottom sheet on phones. Uploading a Markdown file
 replaces the draft; only **Save** applies it. Downloads include unsaved edits.
 
@@ -16,7 +17,8 @@ missing native files:
 | Codex | `~/.codex/AGENTS.md` | `CODEX_HOME` |
 | OpenCode | `~/.config/opencode/AGENTS.md` | `XDG_CONFIG_HOME` (config root) |
 
-The shared file's row says which agents read it. Under **What each agent
+The shared file's header says which agents read it. Its actions menu offers
+upload, download and delete; the preview refreshes only when its revision changes. Under **What each agent
 reads**, each agent has one choice of three:
 
 - **Shared AGENTS.md** uses the global file, so subsequent global edits reach
@@ -71,22 +73,40 @@ Skills and source imports are described below.
 
 ## Global skill inventory
 
-The **Skills** section provides inventory and basic local file management.
-Select Claude Code, Codex,
-OpenCode, Cursor, Grok Build, Muse Code or Antigravity to inspect known global skill folders.
-Nested `SKILL.md` files, compatibility directories, shared files and broken
-links remain distinct installations. OpenCode's flat global Markdown files
-are included too. Environment overrides for Claude, Codex, XDG and Grok roots
-are honored.
+The **Skills** tab is one library across installed Claude Code, Codex,
+OpenCode, Cursor, Grok Build, Muse Code and Antigravity agents. Each physical
+`SKILL.md` is one row, joined by resolved path, with one column per installed
+agent. A name appearing in two different folders remains two installations.
+The `+N` header button reveals agents that are not installed. On phones, the
+matrix becomes a grouped list with available-agent chips and a fixed install bar.
 
-Each skill is one row: its name and description, and one control. Pressing the
-name opens the skill, with its raw Markdown, where it lives, **Edit** and
-**Remove**, in a desktop dialog or phone sheet. Copy and
-download preserve its text; skill Markdown is not rendered as HTML or executed.
+Groups identify the owning folder, its actual path, and the other agents that
+read it. System/admin groups start collapsed. Search matches names and
+descriptions; **Available to** and **Needs attention** filters combine with it.
+Metadata problems explain what may prevent a skill loading and link to its editor.
+Each agent's policy belongs to that column: saving disables that column's other
+controls while other agents stay usable. A failed write explains the error and
+refreshes only that agent.
+
+A skill name opens a 520px side inspector, or a bottom sheet on a phone. It shows
+per-agent availability, actual and linked locations, bounded file metadata,
+and a read-only text view with line numbers. **Found** means the file is in a
+folder the agent reads; that agent does not report which skills it loads.
+It does not assert that a live session has loaded the skill. Native state that
+cannot be changed shows a lock and its reason.
+
+The file list reports names, sizes and executable bits without reading supporting
+file bodies or following their links. It is limited to 1,024 entries and 12 levels;
+nested installations or unreadable trees show a reason instead of an incomplete
+list. Linked installations describe the approved target while removal still only
+unlinks the installation. Read-only package, compatibility and system skills can
+be inspected without gaining edit/removal authority. Copy and download preserve
+Markdown as text; it is never rendered as HTML or executed.
+
 Metadata uses a pinned vendored YAML parser, including quoted names and folded
-descriptions. Parse problems, missing targets and oversized files stay visible.
-Content reads are limited to 64 KiB, frontmatter to 16 KiB. Local scans are
-bounded by entry count, depth, skill count, total bytes and elapsed time.
+descriptions. Parse problems, name/folder mismatches, missing targets and oversized
+files stay visible. Content reads are limited to 64 KiB, frontmatter to 16 KiB.
+Local scans are bounded by entries, depth, skill count, bytes and elapsed time.
 Truncated or unavailable locations produce visible scan messages.
 
 The managed Codex executable is queried through its App Server using only
@@ -98,21 +118,24 @@ fall back to the local list with a reason. Custom T3 provider binaries,
 environments and project/session overrides may produce different inventories.
 
 Claude and OpenCode supplement known-folder discovery with native user policies
-and runtime metadata, as described below. Cursor, Grok and Muse still show
-**Unverified** availability. Plugin inventories and configured extra locations
+and runtime metadata, as described below. Cursor, Grok, Muse and Antigravity show
+**Found** with a discovery-only explanation. Plugin inventories and configured extra locations
 are outside the basic known-folder inventory.
 
-Inventory loads when the Skills tab opens or its agent changes. **Refresh skills**
-rescans after external changes. Concurrent requests share a lookup and results
+Inventories load in parallel when the Skills tab opens. **Rescan** refreshes all
+installed agents after external changes. One failed provider leaves the others usable. Concurrent requests share a lookup and results
 are cached for 15 seconds; regular `/status` polling does not scan skills.
 Bodies load separately through authenticated, discovered-installation IDs.
+`GET /context/skills/read` adds `files: [{ name, bytes, executable, linked }]`
+and `fileCount` (or `filesError` if inspection is bounded/unavailable); the numeric
+`removalFiles` field and opaque removal revision keep their existing meanings.
 Details refuse a link retargeted after discovery. No skill files, provider
 settings or persistence mappings change during inventory reads. Native Codex
 startup may maintain its own system-skill cache as usual.
 
 ### Add, edit and remove local skills
 
-All seven providers' own user skill folders support **Add skill**,
+All seven providers' own user skill folders support **New skill**,
 **Edit** and **Remove**. Add accepts a portable folder name and raw Markdown,
 including upload/paste. The frontmatter name must match the new folder name.
 Existing installation names are never overwritten; new files use mode `0600`.
@@ -157,7 +180,7 @@ cover Markdown changes; provider policies can still apply to package-owned skill
 ### Install skills from sources
 
 **Install from source** opens a desktop dialog or phone sheet. Enter a source,
-preview its skills and supporting files, select skills/providers, then review
+review its skills and supporting files, choose agents and destination folders, then review
 the exact destination folders before installing. A single discovered skill is
 selected automatically; collections require a selection. Existing folders are
 never implicitly overwritten. Replacement requires an explicit checkbox and
@@ -184,12 +207,44 @@ Supported inputs include:
 - Direct HTTP(S) `SKILL.md` URLs, including GitHub file links. Only that Markdown
   file is imported; use a repository/folder to include scripts and references.
 - An absolute folder/file path, or `~/...`, **inside the container**. Markdown
-  upload/paste remains available in **Add skill** for files on your phone/computer.
+  upload/paste remains available in **New skill** for files on your phone/computer.
 - HTML catalog pages with GitHub, GitLab or skills.sh links. AgenticSkills'
   `/skills` listing also exposes its skill-detail links. Search those links,
   choose a detail page, then choose its repository/folder link. HTML and site
   scripts are never rendered or executed. This is link discovery from the
   supplied page, not a maintained or endorsed catalog.
+
+The three steps keep one reviewed snapshot throughout:
+
+1. **Skills:** read a source, filter/select skills, inspect its files and safe text,
+   and see installed/update badges. Git previews identify their resolved commit.
+2. **Agents:** choose **Fewest copies** or **A copy per agent**, review destination
+   groups, side effects and blocked paths, and explicitly consent to replacements.
+   Changing any choice clears the old plan and consent immediately. Late plan
+   responses cannot enable installation of a different selection.
+3. **Install:** inspect per-copy results, including warnings and partial failures.
+   **Review again** reviews a failed destination using the same snapshot, without
+   repeating successful writes. **Show in library** highlights the installed names.
+
+**Fewest copies** checks all subsets of at most seven writable, installed agents'
+own folders. It minimizes physical folders, then agents reading duplicate copies,
+then prefers agents' own folders. With Claude, Codex, OpenCode, Cursor and Grok
+selected, it uses Claude's and Codex's folders; Cursor can find both identical
+copies. The rail states that side effect and any unselected agents whose
+compatibility paths can also find the copies. These are discovery facts, not a
+promise about precedence or how many copies an agent loads into a session.
+[Cursor's documentation](https://prod.cursor.com/help/customization/skills)
+confirms the compatibility folders but does not specify duplicate-name resolution;
+the planner retains the handoff's ordering rather than guessing runtime behavior.
+New skills use each agent's defaults; the result does not claim Codex enabled them.
+
+The reach map comes from authenticated `GET /context/skills/reach`. It uses the
+same seven-provider roots and environment overrides as discovery, joins aliases
+by resolved path, and reports readers and writable owning providers. It grants
+no write authority: the plan/install APIs still validate every destination.
+Closing discards the snapshot; a late response is discarded too. Snapshots expire
+after ten minutes and require reading/reviewing the source again. Closing is
+blocked only during publication. `Ctrl/⌘+Enter` advances the current step.
 
 Imports create independent local copies in these native global locations:
 
@@ -215,7 +270,7 @@ refuses retargeted roots. Compatibility discovery can expose a selected provider
 skills to other providers too. Imports leave provider settings alone: existing
 visibility/permission/enablement rules still apply. Availability is verified for
 Claude/Codex/OpenCode through the existing inventory integrations; the other
-providers retain **Unverified** availability. Start a new conversation to load
+providers retain **Found** with a discovery-only explanation. Start a new conversation to load
 changes. Custom provider environments and older runtime versions may differ.
 Native path references: [Cursor skills](https://cursor.com/docs/skills),
 [Grok skill locations](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/08-skills.md),
@@ -275,7 +330,10 @@ Writes stage a complete folder beside the destination. A replacement parks and
 rechecks the previous tree before publishing; failure restores it when the
 original path is available, otherwise the error identifies the preserved backup.
 Separate provider writes can partially succeed; results identify each success or
-failure. Retrying the same completed plan returns its recorded result. A process
+failure. Retrying the same completed plan returns its recorded result. After a
+partial failure, explicitly reviewing again creates a new plan/revision against
+the original immutable snapshot and invalidates the old plan ID. A successful
+completed plan cannot be reviewed/replayed as another installation. A process
 crash can leave hidden `.t3-skill-import-*` staging or `.t3-skill-backup-*` recovery
 folders, which discovery ignores. External processes can still race the final
 filesystem checks; this is not a cross-application transaction.
@@ -311,7 +369,11 @@ can remain in existing conversations, and project/session settings may differ.
 ### Claude visibility and OpenCode permissions
 
 Claude's **Visibility** menu, in each skill's row, preserves all four native `skillOverrides` states:
-On, Name only, Manual only and Off. The console edits only the selected name in
+On, Name only, Manual only and Off. These mean name + description, name only,
+manual invocation only, and hidden from both Claude and the slash menu. The
+[official visibility reference](https://code.claude.com/docs/en/skills#override-skill-visibility-from-settings)
+documents those states; the metadata-only native smoke test checks them against
+Claude Code 2.1.305 without a model turn. The console edits only the selected name in
 the resolved user `settings.json`, requires strict JSON, and preserves unrelated
 settings, file mode and symlinks. Claude silently ignores commented settings
 files, so JSONC is rejected here. Controls require the tested 2.1 interface

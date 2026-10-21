@@ -69,6 +69,12 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   const get = (route) => fetch(base + route, { headers: { "x-t3-setup-key": "skills-fixture-key" } });
   const post = (route, body, headers = {}) => fetch(base + route, { method: "POST", headers: { "x-t3-setup-key": "skills-fixture-key", "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   assert.equal((await fetch(base + "/context/skills?provider=claude")).status, 401);
+  assert.equal((await fetch(base + "/context/skills/reach")).status, 401);
+  const reach = await (await get("/context/skills/reach")).json();
+  assert.equal(reach.ok, true);
+  assert.equal(reach.home, home);
+  assert.deepEqual(reach.roots.find(root => root.owner === "claude").readers, ["claude", "opencode", "cursor", "grok", "muse"]);
+  assert(reach.roots.every(root => !("content" in root)));
   assert.equal((await fetch(base + "/context/skills/read?provider=claude&id=" + "a".repeat(32))).status, 401);
   assert.equal((await get("/context/skills?provider=__proto__")).status, 400);
   assert.equal((await get("/context/skills")).status, 400);
@@ -97,6 +103,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   const row = result.skills[0]; assert.equal(row.name, "one"); assert.ok(!("content" in row));
   const readPath = "/context/skills/read?provider=claude&id=" + row.id;
   assert.equal((await (await get(readPath + "&path=" + encodeURIComponent(other))).json()).content, markdown);
+  assert.deepEqual((await (await get(readPath)).json()).files.map(file => file.name), ["SKILL.md"]);
   assert.equal((await get("/context/skills/read?provider=claude&id=" + encodeURIComponent(other))).status, 400);
   assert.equal((await get("/context/skills/read?provider=claude&id=" + "0".repeat(32))).status, 404);
   const changed = markdown.replace("name: one", "name: changed"); await fs.writeFile(file, changed);

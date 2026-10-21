@@ -51,6 +51,59 @@ test("edits preserve supporting files, permission bits and user symlink chains",
   await assert.rejects(f.service.save("claude", before.id, before.revision, markdown("linked", "Stale")), { code: "conflict" });
 });
 
+test("detail metadata lists bounded files, marks scripts and never follows supporting links", async (t) => {
+  const f = await fixture(t);
+  await f.put(".claude/skills/review/SKILL.md", markdown("review"));
+  const script = await f.put(".claude/skills/review/scripts/check.sh", "never execute this");
+  await fs.chmod(script, 0o755);
+  await f.put("external/private.txt", "not part of the skill");
+  await fs.symlink(path.join(f.home, "external"), path.join(f.home, ".claude/skills/review/references"));
+  const detail = await f.read("claude", "review");
+  assert.deepEqual(detail.files.map(file => file.name), ["references", "scripts/check.sh", "SKILL.md"].sort((a, b) => a.localeCompare(b)));
+  assert.equal(detail.fileCount, 3);
+  assert.equal(detail.files.find(file => file.name === "references").linked, true);
+  assert.equal(detail.files.find(file => file.name === "references").executable, false);
+  assert.equal(detail.files.find(file => file.name === "scripts/check.sh").executable, true);
+  assert(detail.files.every(file => !("content" in file)));
+  // Compatibility and package readers have the same metadata, no removal token.
+  const readOnly = await f.read("cursor", "review");
+  assert.deepEqual(readOnly.files, detail.files);
+  assert.equal(readOnly.canRemove, false); assert.equal(readOnly.removalRevision, undefined);
+  await f.put(".agents/.skill-lock.json", JSON.stringify({ version: 3, skills: { review: { source: "owner/repo" } } }));
+  const tracked = await f.read("claude", "review");
+  assert.equal(tracked.packageSource, "owner/repo"); assert.deepEqual(tracked.files, detail.files);
+  await f.put(".claude/skills/review/nested/SKILL.md", markdown("nested"));
+  const bounded = await f.read("claude", "review");
+  assert.match(bounded.filesError, /another skill/); assert.equal(bounded.files, undefined);
+});
+
+test("linked installations describe the approved target without changing unlink authority", async (t) => {
+  const f = await fixture(t);
+  const target = await f.put("external/review/SKILL.md", markdown("review"));
+  await f.put("external/review/reference.md", "Supporting file");
+  await fs.mkdir(path.join(f.home, ".claude/skills"), { recursive: true });
+  await fs.symlink(path.dirname(target), path.join(f.home, ".claude/skills/review"));
+  const detail = await f.read("claude", "review");
+  assert.equal(detail.removalKind, "link"); assert.equal(detail.fileCount, 2);
+  assert(detail.files.some(file => file.name === "reference.md"));
+  await f.service.remove("claude", detail.id, detail.revision, detail.removalRevision);
+  assert.equal(await fs.readFile(target, "utf8"), markdown("review"));
+});
+
+test("file metadata respects entry/depth limits even for read-only installations", async (t) => {
+  const f = await fixture(t);
+  await f.put(".codex/skills/.system/large/SKILL.md", markdown("large"));
+  const directory = path.join(f.home, ".codex/skills/.system/large");
+  await Promise.all(Array.from({ length: 1024 }, (_, i) => fs.writeFile(path.join(directory, "reference-" + i), "metadata only")));
+  const large = await f.read("codex", "large");
+  assert.match(large.filesError, /too many files/); assert.equal(large.files, undefined);
+  assert.equal(large.canEdit, false); assert.equal(large.canRemove, false);
+  await f.put(".claude/skills/deep/SKILL.md", markdown("deep"));
+  await f.put(".claude/skills/deep/" + "nested/".repeat(13) + "reference.md", "metadata only");
+  const deep = await f.read("cursor", "deep");
+  assert.match(deep.filesError, /too many files/); assert.equal(deep.files, undefined);
+});
+
 test("external changes and concurrent saves reject stale drafts", async (t) => {
   const f = await fixture(t);
   const file = await f.put(".claude/skills/one/SKILL.md", markdown("one"));
