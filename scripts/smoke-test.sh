@@ -618,6 +618,10 @@ check "the Context editor retains drafts and handles loading and failed saves" c
 skills_editor_works() {
   [ "$HAS_BROWSER" -eq 1 ] || return 0
   docker cp scripts/skills-ui-audit.js "$NAME:/tmp/skills-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker exec "$NAME" mkdir -p /tmp/lib /tmp/fixtures || return 1
+  docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/lib/skills-fixtures.cjs "$NAME:/tmp/lib/skills-fixtures.cjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/fixtures/console "$NAME:/tmp/fixtures/" >/dev/null 2>&1 || return 1
   docker exec -e CHROME_PATH=/usr/bin/chromium \
     -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
     "$NAME" node /tmp/skills-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1

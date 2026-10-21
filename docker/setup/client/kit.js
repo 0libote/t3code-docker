@@ -296,7 +296,7 @@ const Kit = (() => {
   // ---------------------------------------------------------------- menus --
   const menuItems = (items) => items.map((item, i) => item.sep
     ? html`<hr class="tc-menu-sep">`
-    : html`<button class="${cx('tc-menu-item', item.danger && 'tc-menu-item--danger')}" role="menuitem" type="button" data-menu-index="${i}"${item.disabled ? raw(' disabled') : ''}>${icon(item.icon)}<span class="tc-menu-item-text">${item.label}</span>${item.shortcut ? html`<span class="tc-menu-item-shortcut">${item.shortcut}</span>` : ''}</button>`);
+    : html`<button class="${cx('tc-menu-item', item.danger && 'tc-menu-item--danger')}" role="${item.radio ? 'menuitemradio' : 'menuitem'}"${item.radio ? html` aria-checked="${String(Boolean(item.checked))}"` : ''} type="button" data-menu-index="${i}"${item.disabled ? raw(' disabled') : ''}>${item.radio ? icon('check', 'tc-menu-check') : icon(item.icon)}<span class="tc-menu-item-text">${item.description ? html`<strong>${item.label}</strong><span class="tc-menu-item-description">${item.description}</span>` : item.label}</span>${item.shortcut ? html`<span class="tc-menu-item-shortcut">${item.shortcut}</span>` : ''}</button>`);
 
   const wireMenu = (layer, items) => {
     const buttons = () => [...layer.panel.querySelectorAll('.tc-menu-item:not([disabled])')];
@@ -328,9 +328,10 @@ const Kit = (() => {
    * with a title row and a full-width Cancel on a phone.
    *
    *   head   {title, sub, tile: markup}  (the sheet's title row; the popover's label)
-   *   items  [{label, icon, danger, run} | {sep: true}]
+   *   items  [{label, icon, danger, run, radio?, checked?, description?} | {sep: true}]
+   *   footer escaped Kit markup for settings paths or other contextual help
    */
-  const menu = (trigger, { label, head, items }) => {
+  const menu = (trigger, { label, head, items, footer }) => {
     const current = top();
     if (current && current.kind === 'menu' && current.returnTo === trigger) { current.close('toggle'); return null; }
     if (isPhone()) {
@@ -341,7 +342,7 @@ const Kit = (() => {
         returnTo: trigger,
         render: () => html`
           <div class="tc-sheet-head tc-menu-head">${head && head.tile ? head.tile : ''}<div class="tc-menu-head-text"><h2 class="tc-sheet-title" id="${titleId}">${(head && head.title) || label}</h2>${head && head.sub ? html`<span class="tc-small tc-muted">${head.sub}</span>` : ''}</div></div>
-          <div class="tc-sheet-actions">${menuItems(items)}</div>
+          <div class="tc-sheet-actions">${menuItems(items)}${footer ? html`<div class="tc-menu-foot">${footer}</div>` : ''}</div>
           <div class="tc-sheet-cancel"><button class="tc-btn tc-btn--block tc-btn--lg" type="button" data-menu-cancel>Cancel</button></div>`,
         backdrop: 'close',
       });
@@ -358,7 +359,7 @@ const Kit = (() => {
       backdrop: false,
       returnTo: trigger,
       panel: { class: 'tc-menu', role: 'menu', 'aria-label': label },
-      render: () => html`${head && head.title ? html`<div class="tc-menu-label">${head.title}${head.sub ? ' · ' + head.sub : ''}</div>` : ''}${menuItems(items)}`,
+      render: () => html`${head && head.title ? html`<div class="tc-menu-label">${head.title}${head.sub ? ' · ' + head.sub : ''}</div>` : ''}${menuItems(items)}${footer ? html`<div class="tc-menu-foot">${footer}</div>` : ''}`,
       onClose: () => trigger.setAttribute('aria-expanded', 'false'),
     });
     // 4px under the trigger, right edges aligned; above it if there is no room.

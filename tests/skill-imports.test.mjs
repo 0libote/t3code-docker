@@ -38,6 +38,30 @@ test("preview and destination review do not write provider homes; install uses t
   await assert.rejects(fs.stat(path.join(f.home, ".agents/.skill-lock.json")), { code: "ENOENT" });
 });
 
+test("a partial result can review failed destinations again using the same immutable snapshot", async (t) => {
+  let failCodex = true;
+  const io = { ...fs, rename: async (from, to) => {
+    if (failCodex && path.basename(from).startsWith(".t3-skill-import-") && to.includes(".codex")) throw new Error("Temporary write failure");
+    return fs.rename(from, to);
+  } };
+  const f = await fixture(t, { io });
+  const preview = await f.preview(), plan = await f.plan(preview.previewId, ["claude", "codex"]);
+  assert(preview.expiresAt > preview.createdAt);
+  const result = await f.service.installImport(preview.previewId, plan.planId);
+  assert.deepEqual(result.results.map(entry => entry.status), ["installed", "failed"]);
+  assert.deepEqual(await f.service.installImport(preview.previewId, plan.planId), result, "an unreviewed retry never repeats successful writes");
+  await fs.writeFile(f.source, markdown("Later source changes must not be used"));
+  failCodex = false;
+  const retry = await f.plan(preview.previewId, ["codex"]);
+  assert.notEqual(retry.planId, plan.planId);
+  await assert.rejects(f.service.installImport(preview.previewId, plan.planId), { code: "conflict" });
+  const installed = await f.service.installImport(preview.previewId, retry.planId);
+  assert.equal(installed.results[0].status, "installed");
+  assert.equal(await fs.readFile(path.join(f.home, ".codex/skills/review/SKILL.md"), "utf8"), markdown());
+  assert.equal(await fs.readFile(path.join(f.home, ".claude/skills/review/SKILL.md"), "utf8"), markdown());
+  await assert.rejects(f.plan(preview.previewId), { code: "conflict" });
+});
+
 test("reimport explicitly replaces the whole folder and supports stale-content rejection", async (t) => {
   const f = await fixture(t); let preview = await f.preview(), plan = await f.plan(preview.previewId);
   await f.service.installImport(preview.previewId, plan.planId);

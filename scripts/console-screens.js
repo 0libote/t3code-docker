@@ -57,6 +57,7 @@ const sizes = list("sizes", Object.keys(SIZES));
 const themes = list("themes", ["light", "dark"]);
 const scenarios = list("scenarios", ["ready", "setup", "attention"]);
 const withOverlays = args.includes("--overlays");
+const withSkillOverlays = args.includes("--skill-overlays");
 
 // The overlays worth a picture: how to reach each from a loaded console. Each
 // returns false when the scenario has nothing to open.
@@ -81,6 +82,40 @@ const OVERLAYS = [
   }],
 ];
 
+// The same rendered flows as the handoff, with the shared seven-agent data.
+const skillSource = async (target) => {
+  await target.evaluate(() => { location.hash = 'instructions/skills'; });
+  await target.locator('[data-cmd="skills.import"]').filter({ visible: true }).click();
+  await target.locator('#skill-source').fill('vercel-labs/skills');
+  await target.locator('#skill-source').press('Enter');
+  await target.locator('[data-import-all]').check();
+};
+const skillAgents = async target => {
+  await skillSource(target);
+  await target.locator('[data-import-next]').click();
+  await target.locator('[data-import-replace]').waitFor();
+  await target.locator('[data-import-replace]').check();
+};
+const SKILL_OVERLAYS = [
+  ['skill-policy', async (target, page) => {
+    if (page.viewportSize().width < 1024) return false;
+    await target.evaluate(() => { location.hash = 'instructions/skills'; });
+    await target.getByRole('button', { name: 'Claude Code visibility for deep-research: Name only', exact: true }).click();
+    await target.getByRole('menuitemradio', { name: /Name only/ }).waitFor(); return true;
+  }],
+  ['skill-inspector', async target => {
+    await target.evaluate(() => { location.hash = 'instructions/skills'; });
+    await target.locator('[data-cmd="skills.view"]').filter({ visible: true, hasText: 'deep-research' }).click();
+    await target.locator('.tc-insp-body .tc-code').waitFor(); return true;
+  }],
+  ['skill-source', async target => { await skillSource(target); await target.locator('[data-import-files=frontend-design]').click(); return true; }],
+  ['skill-agents', async target => { await skillAgents(target); return true; }],
+  ['skill-result', async target => {
+    await skillAgents(target); await target.locator('[data-import-replace]').check();
+    await target.locator('[data-import-next]').click(); await target.locator('.tc-result-hero').waitFor(); return true;
+  }],
+];
+
 // -------------------------------------------------------------- driving --
 const overflow = () => {
   const out = [];
@@ -99,7 +134,7 @@ const overflow = () => {
         const size = SIZES[sizeName];
         const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, deviceScaleFactor: size.scale, colorScheme: theme, reducedMotion: "reduce" });
         const page = await context.newPage();
-        await routeConsole(page, { status: () => statusFor(scenario), ports: () => portsFor(scenario) });
+        await routeConsole(page, { status: () => statusFor(scenario), ports: () => portsFor(scenario), skillOptions: { partial: withSkillOverlays } });
         const url = new URL(BASE);
         if (size.embed) { url.searchParams.set("embed", "t3"); url.searchParams.set("theme", theme); }
         const target = size.embed ? await framed(page, url.href) : page;
@@ -112,7 +147,7 @@ const overflow = () => {
           else await page.screenshot({ path: file, fullPage: true });
           for (const issue of await target.evaluate(overflow)) problems.push(`${scenario} ${sizeName} ${theme} ${route}: ${issue}`);
         }
-        if (withOverlays) for (const [name, open] of OVERLAYS) {
+        for (const [name, open] of [...(withOverlays ? OVERLAYS : []), ...(withSkillOverlays ? SKILL_OVERLAYS : [])]) {
           await page.keyboard.press("Escape").catch(() => {});
           await target.evaluate(() => window.scrollTo(0, 0));
           if (!(await open(target, page))) continue;
