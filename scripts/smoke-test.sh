@@ -163,6 +163,26 @@ assert disk["availableBytes"] >= 0
 '
 }
 check "storage CLI reads filesystem space" storage_cli_has_disk
+storage_cache_paths_protect_tools() {
+  docker exec -i -u t3 "$NAME" node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import * as fs from 'node:fs/promises';
+import { checkCachePath } from '/opt/t3-harness/storage/system.mjs';
+const home = await fs.mkdtemp(path.join(os.tmpdir(), 'storage-path-smoke-'));
+try {
+  const options = { userHome: home, stateRoot: path.join(home, '.t3'), workspace: path.join(home, 'workspace') };
+  for (const relative of ['go', 'go/src/project', 'go/bin', '.bun', '.bun/bin']) {
+    assert.equal((await checkCachePath(path.join(home, relative), options)).safe, false, relative);
+  }
+  for (const relative of ['go/pkg/mod', '.bun/install/cache']) {
+    assert.equal((await checkCachePath(path.join(home, relative), options)).safe, true, relative);
+  }
+} finally { await fs.rm(home, { recursive: true, force: true }); }
+NODE
+}
+check "cache cleanup protects Go and Bun projects and installed tools" storage_cache_paths_protect_tools
 check "provider integration ships" "docker exec $NAME test -r /opt/t3-provider/cli.mjs"
 
 # T3 Code enforces a minimum `gh` at runtime: too old and it reports "GitHub

@@ -1,6 +1,7 @@
 // Linux filesystem/process adapters. No shell interpolation, no commands in
 // polling responses, and no arbitrary paths accepted by cleanup endpoints.
 import path from "node:path";
+import os from "node:os";
 import { promises as fs } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -104,9 +105,9 @@ export async function detectCaches({ env, userHome, run }) {
   const bunBin = await executableOnPath("bun", env);
   const miseBin = await executableOnPath("mise", env);
   const denoBin = await executableOnPath("deno", env);
-  const query = async (bin, args) => {
+  const query = async (bin, args, cwd = userHome) => {
     if (!bin) return null;
-    const result = await run([bin, ...args], { env: safeEnv, cwd: userHome, timeoutMs: 15_000 });
+    const result = await run([bin, ...args], { env: safeEnv, cwd, timeoutMs: 15_000 });
     const value = result.code === 0 && !result.error ? result.stdout.trim() : "";
     return path.isAbsolute(value) ? path.resolve(value) : null;
   };
@@ -121,10 +122,19 @@ export async function detectCaches({ env, userHome, run }) {
   };
   const defaultCache = (part) => path.join(env.XDG_CACHE_HOME || path.join(userHome, ".cache"), part);
   const bunHome = env.BUN_INSTALL && path.isAbsolute(env.BUN_INSTALL) ? path.resolve(env.BUN_INSTALL) : path.join(userHome, ".bun");
+  const queryBunCache = async () => {
+    if (!bunBin) return null;
+    // Bun requires a project even to report its global cache directory.
+    const project = await fs.mkdtemp(path.join(os.tmpdir(), "t3-storage-bun-"));
+    try {
+      await fs.writeFile(path.join(project, "package.json"), '{"private":true}\n');
+      return await query(bunBin, ["pm", "cache"], project);
+    } finally { await fs.rm(project, { recursive: true, force: true }); }
+  };
   const [go, gomod, npm, uv, bun, mise, denoInfo] = await Promise.all([
     query(goBin, ["env", "GOCACHE"]), query(goBin, ["env", "GOMODCACHE"]),
     query(npmBin ? nodeBin : null, [npmBin, "config", "get", "cache"]),
-    query(uvBin, ["cache", "dir"]), query(bunBin, ["pm", "cache"]), query(miseBin, ["cache", "path"]),
+    query(uvBin, ["cache", "dir"]), queryBunCache(), query(miseBin, ["cache", "path"]),
     queryJson(denoBin, ["info", "--json"]),
   ]);
   const miseDir = mise || (env.MISE_CACHE_DIR && path.isAbsolute(env.MISE_CACHE_DIR) ? path.resolve(env.MISE_CACHE_DIR) : null);
@@ -140,8 +150,8 @@ export async function detectCaches({ env, userHome, run }) {
       unavailable: !npmBin ? "Install Node/npm to clean this cache." : !npm ? "npm cache settings could not be read. Refresh or check your npm configuration." : null },
     uv: { path: uv || defaultCache("uv"), executable: uv ? uvBin : null,
       unavailable: install(uvBin, "uv") || (!uv ? "uv cache settings could not be read. Refresh or check your uv configuration." : null) },
-    bun: { path: bun || path.join(bunHome, "install", "cache"), executable: bunBin,
-      unavailable: install(bunBin, "Bun") },
+    bun: { path: bun || path.join(bunHome, "install", "cache"), executable: bun ? bunBin : null,
+      unavailable: install(bunBin, "Bun") || (!bun ? "Bun cache settings could not be read. Refresh or check your Bun configuration." : null) },
     mise: { path: miseDir || defaultCache("mise"), executable: miseBin,
       unavailable: install(miseBin, "mise") },
     deno: { path: deno || defaultCache("deno"), executable: deno ? denoBin : null,
@@ -150,13 +160,13 @@ export async function detectCaches({ env, userHome, run }) {
 }
 
 /** Only ordinary cache directories under known cache roots can be cleaned.
- * Bun keeps its install cache under ~/.bun and Go keeps modules under ~/go;
- * both are tool-owned locations cleaned only by those tools' own commands.
+ * Only the cache subtrees of ~/.bun and ~/go are eligible; their bin/src
+ * directories contain installed tools and projects.
  * Symlink components and custom locations are visible but never auto-cleaned. */
 export async function checkCachePath(target, { userHome, cacheHome, stateRoot, workspace, io = fs }) {
   if (!path.isAbsolute(target)) return { safe: false, reason: "This cache has a custom location. Clean it from a terminal." };
   const cacheRoots = [cacheHome, path.join(userHome, ".cache"), path.join(userHome, ".npm"),
-    path.join(userHome, ".bun"), path.join(userHome, "go")].filter((p) => p && inside(userHome, p));
+    path.join(userHome, ".bun/install/cache"), path.join(userHome, "go/pkg/mod")].filter((p) => p && inside(userHome, p));
   if (!cacheRoots.some((root) => inside(root, target)) || target === userHome
       || inside(stateRoot, target) || inside(workspace, target)) {
     return { safe: false, reason: "This cache is outside the managed cache locations. Clean it from a terminal." };

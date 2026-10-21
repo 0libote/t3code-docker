@@ -51,7 +51,7 @@ const cacheCommand = (id, detected, scratch) => {
     case "gomod": return { argv: [detected.gomod.executable, "clean", "-modcache"], env: { GOMODCACHE: detected.gomod.path } };
     case "npm": return { argv: [detected.npm.executable, ...(detected.npm.argsPrefix || []), "cache", "clean", "--force", "--cache", detected.npm.path] };
     case "uv": return { argv: [detected.uv.executable, "cache", "clean"], env: { UV_CACHE_DIR: detected.uv.path } };
-    case "bun": return { argv: [detected.bun.executable, "pm", "cache", "rm"], cwd: scratch };
+    case "bun": return { argv: [detected.bun.executable, "pm", "cache", "rm"], cwd: scratch, env: { BUN_INSTALL_CACHE_DIR: detected.bun.path } };
     case "mise": return { argv: [detected.mise.executable, "-y", "cache", "clear"] };
     case "deno": return { argv: [detected.deno.executable, "clean"], env: { DENO_DIR: detected.deno.path } };
     default: return null;

@@ -4,7 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { promises as fs } from "node:fs";
 import { createStorageManager } from "../docker/harness/storage/manager.mjs";
-import { checkCachePath, measureStorage, buildsOrInstallsRunning } from "../docker/harness/storage/system.mjs";
+import { checkCachePath, measureStorage, buildsOrInstallsRunning, detectCaches } from "../docker/harness/storage/system.mjs";
 import { DEFAULT_POLICY, GB, readPolicy, writeStorageJson } from "../docker/harness/storage/policy.mjs";
 import { runStorageCli } from "../docker/harness/storage/cli.mjs";
 
@@ -105,6 +105,61 @@ test("a build that starts during measurement stops cleanup", async (t) => {
   const result = await f.manager.clean(["go"]);
   assert.equal(result.ok, false); assert.equal(f.calls.length, 0);
   assert.equal(f.manager.snapshot().operation.state, "failed");
+});
+
+test("Go and Bun cache permissions exclude projects and installed tools", async (t) => {
+  const f = await fixture(t);
+  for (const relative of ["go", "go/src/project", "go/bin", ".bun", ".bun/bin"]) {
+    const target = path.join(f.home, relative);
+    await fs.mkdir(target, { recursive: true });
+    const sentinel = path.join(target, "keep"); await fs.writeFile(sentinel, "project or tool");
+    const manager = createStorageManager({ ...f.base, detectCaches: async () => ({ gomod: { path: target, executable: "/bin/go" } }) });
+    t.after(() => manager.stop());
+    assert.equal((await manager.clean(["gomod"])).code, "unavailable", relative);
+    assert.equal(await fs.readFile(sentinel, "utf8"), "project or tool");
+  }
+  for (const relative of ["go/pkg/mod", ".bun/install/cache"]) {
+    assert.equal((await checkCachePath(path.join(f.home, relative), { userHome: f.home, stateRoot: path.join(f.home, ".t3"), workspace: f.workspace })).safe, true);
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test("Bun discovery uses a disposable project and refuses an unreadable cache configuration", async (t) => {
+  const f = await fixture(t), bin = path.join(f.root, "bin"), outside = path.join(f.root, "outside");
+  await fs.mkdir(bin); await fs.writeFile(path.join(bin, "bun"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  const env = { ...f.env, PATH: bin, BUN_INSTALL_CACHE_DIR: outside };
+  let project;
+  const detected = await detectCaches({ env, userHome: f.home, run: async (argv, options) => {
+    if (argv[0] !== path.join(bin, "bun")) return { code: 1, stdout: "" };
+    project = options.cwd;
+    assert.notEqual(project, f.home);
+    assert.equal(JSON.parse(await fs.readFile(path.join(project, "package.json"), "utf8")).private, true);
+    return { code: 0, stdout: options.env.BUN_INSTALL_CACHE_DIR + "\n" };
+  } });
+  assert.equal(detected.bun.path, outside);
+  await assert.rejects(fs.stat(project), { code: "ENOENT" });
+  const manager = createStorageManager({ ...f.base, detectCaches: async () => detected });
+  t.after(() => manager.stop());
+  assert.equal((await manager.clean(["bun"])).code, "unavailable");
+  assert.equal(f.calls.length, 0);
+  const failed = await detectCaches({ env, userHome: f.home, run: async () => ({ code: 1, stdout: "" }) });
+  assert.equal(failed.bun.executable, null);
+  assert.match(failed.bun.unavailable, /settings could not be read/);
+});
+
+test("Bun cleanup pins the validated cache even if ambient configuration differs", async (t) => {
+  const f = await fixture(t), target = path.join(f.home, ".bun/install/cache"), outside = path.join(f.root, "outside");
+  for (const directory of [target, outside]) { await fs.mkdir(directory, { recursive: true }); await fs.writeFile(path.join(directory, "keep"), "cache data"); }
+  const manager = createStorageManager({ ...f.base, env: { ...f.env, BUN_INSTALL_CACHE_DIR: outside },
+    detectCaches: async () => ({ bun: { path: target, executable: "/bin/bun" } }),
+    run: async (argv, options) => {
+      assert.equal(options.env.BUN_INSTALL_CACHE_DIR, target);
+      await fs.rm(options.env.BUN_INSTALL_CACHE_DIR, { recursive: true });
+      return { code: 0, stdout: "" };
+    } });
+  t.after(() => manager.stop());
+  assert.equal((await manager.clean(["bun"])).ok, true);
+  assert.equal(await fs.readFile(path.join(outside, "keep"), "utf8"), "cache data");
 });
 
 test("failed or partial scans preserve the previous trustworthy inventory", async (t) => {

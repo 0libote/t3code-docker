@@ -32,6 +32,10 @@ linked or external cache locations. A custom cache outside managed home cache
 folders must be cleaned from a terminal. Operation results survive service
 restarts.
 
+Bun discovery uses a disposable project and cleanup is pinned to the checked
+cache directory. Only `~/.bun/install/cache` and `~/go/pkg/mod` are eligible
+under those tool homes; their parent, `bin`, and `src` directories are protected.
+
 **Settings**, under the caches, controls two independent policies:
 
 - **Automatic cache cleanup** starts off. When enabled, each cache over its own
