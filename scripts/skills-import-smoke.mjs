@@ -13,9 +13,14 @@ try {
   const env = { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: path.join(home, ".claude"), CODEX_HOME: path.join(home, ".codex"),
     XDG_CONFIG_HOME: path.join(home, ".config"), XDG_DATA_HOME: path.join(home, ".local/share"), XDG_STATE_HOME: path.join(home, ".local/state"), XDG_CACHE_HOME: path.join(home, ".cache") };
   for (const key of Object.keys(env)) if (/TOKEN|API_KEY|OPENCODE_CONFIG|OPENCODE_PERMISSION/.test(key)) delete env[key];
-  const source = path.join(home, "source/import-check"); await fs.mkdir(path.join(source, "scripts"), { recursive: true });
+  const source = path.join(home, "source"), published = path.join(source, "skills/import-check"), adapter = path.join(source, ".openclaw/skills/import-check");
+  await fs.mkdir(path.join(published, "scripts"), { recursive: true }); await fs.mkdir(adapter, { recursive: true });
   const markdown = (version) => `---\nname: import-check\ndescription: Disposable native import fixture\n---\nVersion ${version}.\n`;
-  const writeSource = async (version) => { await fs.writeFile(path.join(source, "SKILL.md"), markdown(version)); await fs.writeFile(path.join(source, "scripts/check.sh"), "#!/bin/sh\nexit " + version + "\n", { mode: 0o700 }); };
+  const writeSource = async (version) => {
+    await fs.writeFile(path.join(published, "SKILL.md"), markdown(version));
+    await fs.writeFile(path.join(published, "scripts/check.sh"), "#!/bin/sh\nexit " + version + "\n", { mode: 0o700 });
+    await fs.writeFile(path.join(adapter, "SKILL.md"), markdown(version) + "Agent-specific variant.\n");
+  };
   await writeSource(1);
   const options = { home, env, getHarness: async (id) => id === provider ? { runnable: true, executable } : null };
   let service = createSkillsService(options);

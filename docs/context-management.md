@@ -288,6 +288,12 @@ Native path references: [Cursor skills](https://cursor.com/docs/skills),
 [Muse skills](https://meta-models.github.io/muse-code-sdk/next/guides/extend/skills/),
 and [Antigravity skills](https://antigravity.google/docs/skills).
 
+When a repository publishes the same skill name in `skills/` and an agent-specific
+folder such as `.openclaw/skills/`, preview prefers the published copy and warns
+which variant was skipped. Name selectors use the same precedence. Paste a
+specific folder link to choose another variant. Duplicate names within the same
+discovery priority still require a specific folder.
+
 Re-importing the source is the update flow: review a fresh snapshot and explicitly
 replace each existing local folder, including removed/renamed supporting files.
 The console does not remember origins, schedule updates or maintain a source

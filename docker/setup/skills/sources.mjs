@@ -222,25 +222,20 @@ export async function resolveSkillSource(value, { home, metadata, env = process.
       read = async (file) => file.data;
     }
     total = 0;
-    const skills = [], names = new Set(); let oversized = false;
-    let candidates = files.filter((file) => path.posix.basename(file.name) === "SKILL.md"), preferredPaths = null, foundPreferred = false;
+    const skills = [], names = new Map(); let oversized = false, foundPreferred = false;
     // Match normal library discovery before falling back to arbitrary layouts.
     // Otherwise a tool repo's private workflows/examples become install picks
-    // alongside its published skills. Explicit name/folder sources still work.
-    if (!parsed.filter) {
-      const prefix = parsed.type === "git" && parsed.subpath ? parsed.subpath + "/" : "";
-      const preferred = candidates.filter((file) => {
-        const relative = file.name.slice(prefix.length), parts = relative.split("/");
-        return file.name.startsWith(prefix) && (parts.length <= 2 || parts[0] === "skills" || (parts[0].startsWith(".") && parts[1] === "skills"));
-      });
-      if (preferred.length) {
-        preferredPaths = new Set(preferred.map((file) => file.name));
-        candidates = [...preferred, ...candidates.filter((file) => !preferredPaths.has(file.name))];
-      }
-    }
-    for (const entry of candidates) {
-      if (foundPreferred && !preferredPaths.has(entry.name)) break;
-      if (skills.length >= limits.skills) throw fail("too_large", "The source contains too many skills; use a specific folder.");
+    // alongside its published skills. Published copies also precede agent variants
+    // of the same name, including when a name selector is supplied.
+    const prefix = parsed.type === "git" && parsed.subpath ? parsed.subpath + "/" : "";
+    const candidates = files.filter((file) => path.posix.basename(file.name) === "SKILL.md").map((entry) => {
+      const parts = entry.name.slice(prefix.length).split("/");
+      const priority = !entry.name.startsWith(prefix) ? 2 : parts.length <= 2 || parts[0] === "skills" ? 0
+        : parts[0].startsWith(".") && parts[1] === "skills" ? 1 : 2;
+      return { entry, priority };
+    }).sort((a, b) => a.priority - b.priority);
+    for (const { entry, priority } of candidates) {
+      if (!parsed.filter && foundPreferred && priority === 2) break;
       // A large unrelated skill must not prevent selecting a portable sibling.
       // Check sizes before opening; an oversized selected folder still errors.
       if (entry.size > limits.markdownBytes) {
@@ -251,10 +246,15 @@ export async function resolveSkillSource(value, { home, metadata, env = process.
       const content = raw.toString("utf8"), info = metadata(content, path.posix.basename(path.posix.dirname(entry.name)));
       if (info.metadataError || !portable(info.name)) { warnings.push("Skipped " + entry.name + ": " + (info.metadataError || "Use a portable skill name of 1–64 lowercase letters, numbers and single hyphens.")); continue; }
       if (parsed.filter && info.name !== parsed.filter) continue;
-      if (names.has(info.name)) throw fail("conflict", "The source contains duplicate skill names. Use a specific skill folder.");
       const directory = path.posix.dirname(entry.name), prefix = directory === "." ? "" : directory + "/";
       const children = files.filter((file) => file.name.startsWith(prefix));
       if (children.some((file) => file !== entry && path.posix.basename(file.name) === "SKILL.md")) { warnings.push("Skipped " + info.name + ": its folder contains another skill; use the inner skills instead."); continue; }
+      const previous = names.get(info.name);
+      if (previous) {
+        if (priority === previous.priority) throw fail("conflict", "The source contains duplicate skill names. Use a specific skill folder.");
+        warnings.push("Skipped " + entry.name + ": skill " + info.name + " is already provided by " + previous.path + "."); continue;
+      }
+      if (skills.length >= limits.skills) throw fail("too_large", "The source contains too many skills; use a specific folder.");
       const treeEntries = new Set(["."]);
       for (const file of children) {
         const relative = file.name.slice(prefix.length), parts = relative.split("/");
@@ -270,8 +270,8 @@ export async function resolveSkillSource(value, { home, metadata, env = process.
         if (data.length > limits.fileBytes || total + data.length > limits.bytes) throw fail("too_large", "Source contents grew beyond the preview limit. Preview a smaller folder.");
         total += data.length; copied.push({ name, data, mode: file.mode });
       }
-      names.add(info.name); skills.push({ name: info.name, description: info.description, content, files: copied });
-      if (preferredPaths?.has(entry.name)) foundPreferred = true;
+      names.set(info.name, { priority, path: entry.name }); skills.push({ name: info.name, description: info.description, content, files: copied });
+      if (priority < 2) foundPreferred = true;
     }
     if (!skills.length) throw fail(oversized ? "too_large" : "invalid", oversized ? "No matching skill could be imported. Skill Markdown must fit within 64 KiB; use a smaller skill or manage oversized skills directly." : parsed.filter ? "That skill was not found in this source." : "No valid SKILL.md files found. Choose a skill repository/folder or paste a direct Markdown link.");
     return { source: value, sourceInfo, skills, warnings: [...new Set(warnings)].slice(0, 30) };
