@@ -116,3 +116,14 @@ test('enablement cannot report success if trust disappears during verification',
   const row = (await service.listHooks()).hooks[0];
   await assert.rejects(service.setHook(row.id, row.revision, 'enable'), { code: 'conflict' });
 });
+
+test('reviewing one plugin preserves the hooks of other installed plugins', async t => {
+  const f = await fixture(t);
+  f.hooks.push({ ...f.hook, key: '/other/hooks.json:session_start:0:0', sourcePath: '/other/hooks.json', pluginId: 'other-tools@local' });
+  const before = await f.service.listHooks(); assert.equal(before.hooks.length, 2);
+  const selected = before.hooks.find(hook => hook.pluginId === 'demo@local');
+  const updated = await f.service.setHook(selected.id, selected.revision, 'trust');
+  assert.equal(updated.hooks.find(hook => hook.pluginId === 'demo@local').trustStatus, 'trusted');
+  assert.equal(updated.hooks.find(hook => hook.pluginId === 'other-tools@local').trustStatus, 'untrusted');
+  assert.equal(f.writes.length, 1); assert.equal(f.writes[0].key, f.hook.key);
+});

@@ -19,8 +19,8 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
       page.setDefaultTimeout(8000);
       await page.addInitScript(value => localStorage.setItem('t3-console-theme', value), theme);
       const api = createSkillsFixtures(), errors = [], writes = [];
-      api.inventories.codex.skills.push({ ...api.inventories.codex.skills[0], id: 'ponytail-plugin-skill', name: 'ponytail', source: 'Plugin', scope: 'user', pluginId: 'ponytail@local',
-        path: '/home/t3/.codex/plugins/cache/ponytail/skills/ponytail/SKILL.md', resolvedPath: '/home/t3/.codex/plugins/cache/ponytail/skills/ponytail/SKILL.md',
+      api.inventories.codex.skills.push({ ...api.inventories.codex.skills[0], id: 'review-plugin-skill', name: 'review-tools:review-changes', source: 'Plugin', scope: 'user', pluginId: 'review-tools@fixtures',
+        path: '/home/t3/.codex/plugins/cache/review-tools/skills/review-changes/SKILL.md', resolvedPath: '/home/t3/.codex/plugins/cache/review-tools/skills/review-changes/SKILL.md',
         canEdit: false, canRemove: false, canToggle: false, canSetState: false, stateReadOnlyReason: 'Managed through the plugin' });
       let reads = 0, getGate, getStarted, saveGate, saveStarted, failRead = false, failSave = false, empty = false;
       page.on('pageerror', error => errors.push(error.message));
@@ -52,12 +52,13 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
       await target.locator('[data-cmd="skills.hooks"]').click();
       const sheet = target.locator('.tc-skill-hooks'), first = () => sheet.locator('[data-hook="fixture-hook-0"]');
       await first().waitFor(); assert.equal(await sheet.locator('.tc-hook').count(), 3);
+      assert.equal(await sheet.getByRole('heading', { level: 3 }).count(), 2, 'Hooks are grouped by installed plugin');
       assert.match(await sheet.innerText(), /Changed · needs review/); assert.match(await sheet.innerText(), /Disabled/);
       await page.screenshot({ path: path.join(output, `${theme}-${width}${embedded ? '-embedded' : ''}-hooks.png`) });
       assert(await sheet.evaluate(el => el.scrollWidth <= el.clientWidth + 1));
       await first().getByRole('button', { name: 'Review and trust…' }).click();
       const confirm = target.getByRole('alertdialog'); await confirm.waitFor();
-      assert.match(await confirm.innerText(), /activate.js/); await confirm.getByRole('button', { name: 'Cancel' }).click();
+      assert.match(await confirm.innerText(), /session-start.js/); await confirm.getByRole('button', { name: 'Cancel' }).click();
       assert.equal(writes.length, 0); assert(await first().getByRole('button', { name: 'Review and trust…' }).evaluate(el => el === document.activeElement));
       saveGate = deferred(); saveStarted = deferred();
       await first().getByRole('button', { name: 'Review and trust…' }).click(); await confirm.getByRole('button', { name: 'Trust this hook', exact: true }).click();
@@ -65,6 +66,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
       assert(await sheet.getByRole('button', { name: 'Done', exact: true }).isDisabled());
       assert(await target.evaluate(() => { const event = new Event('beforeunload', { cancelable: true }); dispatchEvent(event); return event.defaultPrevented; }));
       saveGate.resolve(); await first().getByText('Trusted', { exact: true }).waitFor(); assert.equal(writes.length, 1);
+      assert.equal(api.hooks[2].enabled, false, 'Trusting one plugin leaves other plugins unchanged');
       await first().getByRole('button', { name: 'Disable hook' }).click(); await first().getByText('Disabled', { exact: true }).waitFor();
       await first().getByRole('button', { name: 'Enable hook…' }).click(); await confirm.getByRole('button', { name: 'Enable hook', exact: true }).click();
       await first().getByText('Enabled', { exact: true }).waitFor();
@@ -85,9 +87,12 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
       failRead = false; empty = true; await target.locator('.tc-skill-hooks').getByRole('button', { name: 'Refresh', exact: true }).click();
       await target.getByText('No installed Codex plugins with hooks were found.', { exact: false }).waitFor();
       await target.locator('.tc-skill-hooks').getByRole('button', { name: 'Done', exact: true }).click(); empty = false;
-      const skill = target.locator(width < 640 ? '.tc-prow' : '.tc-skill-name').filter({ hasText: 'ponytail' }); await skill.click();
+      const skill = target.locator(width < 640 ? '.tc-prow' : '.tc-skill-name').filter({ hasText: 'review-tools:review-changes' }); await skill.click();
       await target.getByRole('button', { name: 'Review plugin hooks…' }).click(); await target.locator('.tc-skill-hooks .tc-hook').first().waitFor();
+      assert.equal(await target.locator('.tc-skill-hooks .tc-hook').count(), 2, 'The inspector limits review to its owning plugin');
       assert(await target.locator('.tc-skill-hooks').getByRole('button', { name: 'All plugins' }).isVisible());
+      await target.locator('.tc-skill-hooks').getByRole('button', { name: 'All plugins' }).click();
+      assert.equal(await target.locator('.tc-skill-hooks .tc-hook').count(), 3);
       await page.keyboard.press('Escape'); await target.locator('.tc-skill-hooks').waitFor({ state: 'hidden' });
       assert(await target.getByRole('button', { name: 'Review plugin hooks…' }).isVisible());
       assert.deepEqual(errors, []); console.log('Plugin hooks UI passed:', theme, width, embedded ? 'embedded' : 'standalone');

@@ -15,9 +15,9 @@ const createSkillsFixtures = ({ partial = false } = {}) => {
   const inventories = Object.fromEntries(['claude', 'codex', 'opencode', 'cursor', 'grok', 'muse', 'antigravity'].map(id => [id, read('skills-' + id)]));
   const previews = new Map();
   const hooks = ['sessionStart', 'userPromptSubmit', 'subagentStart'].map((eventName, index) => ({
-    id: 'fixture-hook-' + index, revision: 'fixture-hook-revision-' + index, pluginId: 'ponytail@local', eventName,
-    sourcePath: '/home/t3/.codex/plugins/cache/ponytail/hooks/hooks.json', handlerType: 'command',
-    command: 'node "/home/t3/.codex/plugins/cache/ponytail/hooks/' + ['activate', 'track', 'subagent'][index] + '.js"',
+    id: 'fixture-hook-' + index, revision: 'fixture-hook-revision-' + index, pluginId: (index === 2 ? 'workspace-tools' : 'review-tools') + '@fixtures', eventName,
+    sourcePath: '/home/t3/.codex/plugins/cache/' + (index === 2 ? 'workspace-tools' : 'review-tools') + '/hooks/hooks.json', handlerType: 'command',
+    command: 'node "/home/t3/.codex/plugins/cache/' + (index === 2 ? 'workspace-tools' : 'review-tools') + '/hooks/' + ['session-start', 'prompt-check', 'prepare-context'][index] + '.js"',
     matcher: index ? null : 'startup|resume|clear|compact', timeoutSec: 15, async: false,
     trustStatus: index === 1 ? 'modified' : index === 2 ? 'trusted' : 'untrusted', enabled: index !== 2, isManaged: false, readOnlyReason: null,
   }));

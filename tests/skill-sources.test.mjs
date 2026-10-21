@@ -154,8 +154,11 @@ test("repository discovery prefers published skills over private workflow instru
 test("published skills take precedence over agent-specific copies without mixing their files", async (t) => {
   const f = await fixture(t), root = path.join(f.home, "library");
   const published = markdown("review", "Published instructions"), adapter = markdown("review", "Agent-specific instructions");
-  await f.put("library/.openclaw/skills/review/SKILL.md", adapter);
-  await f.put("library/.openclaw/skills/review/adapter.md", "Agent-only supporting file");
+  const agents = ['.claude', '.cursor', '.openclaw', '.example-agent'];
+  for (const agent of agents) {
+    await f.put('library/' + agent + '/skills/review/SKILL.md', adapter);
+    await f.put('library/' + agent + '/skills/review/adapter.md', 'Agent-only supporting file');
+  }
   await f.put("library/.openclaw/skills/extra/SKILL.md", markdown("extra"));
   await f.put("library/skills/review/SKILL.md", published);
   await f.put("library/skills/review/guide.md", "Published supporting file");
@@ -163,11 +166,13 @@ test("published skills take precedence over agent-specific copies without mixing
     const result = await f.resolve(source), review = result.skills.find(skill => skill.name === "review");
     assert.equal(review.content, published);
     assert.deepEqual(review.files.map(file => file.name).sort(), ["SKILL.md", "guide.md"]);
-    assert(result.warnings.some(warning => warning.includes(".openclaw/skills/review/SKILL.md") && warning.includes("skills/review/SKILL.md")));
+    for (const agent of agents) assert(result.warnings.some(warning => warning.includes(agent + '/skills/review/SKILL.md') && warning.includes('by skills/review/SKILL.md')));
     assert.equal(result.skills.length, source === root ? 2 : 1, "Unique agent-specific skills remain available");
   }
-  const explicit = await f.resolve(path.join(root, ".openclaw/skills/review"));
-  assert.equal(explicit.skills[0].content, adapter, "Explicit folders retain their own variant");
+  for (const agent of agents) {
+    const explicit = await f.resolve(path.join(root, agent, 'skills/review'));
+    assert.equal(explicit.skills[0].content, adapter, 'Explicit folders retain their own variant');
+  }
 });
 
 test("Git repository commands and name selectors prefer published copies regardless of tree order", async (t) => {
