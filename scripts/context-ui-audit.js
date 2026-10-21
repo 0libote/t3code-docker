@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
  await page.addInitScript(mode => localStorage.setItem('t3-console-theme', mode), theme);
  const providerModes = {claude:'separate',codex:'separate',opencode:'separate'};
  let oversizedStatus = false;
+ let previewFail = true;
  const oversizedError = 'Instructions are too large to edit (64 KiB maximum). Edit the file directly to reduce its size.';
  const errors=[];page.on('pageerror', e=>errors.push(e.message));
  await page.route('**/status', async route => {
@@ -30,6 +31,9 @@ const assert = require('node:assert/strict');
    }
    await route.fulfill({json:status});
  });
+ await page.route('**/context/agents-md', route => route.request().method() === 'GET'
+   ? route.fulfill({status:previewFail ? 503 : 200,json:previewFail ? {ok:false,error:'Temporary preview read failure'} : {ok:true,content:'# Preview instructions',revision:'preview-revision'}})
+   : route.fallback());
  await page.goto(base);
  if (await page.locator('input[type="password"]').isVisible()) {
    await page.locator('input[type="password"]').fill(key);
@@ -38,8 +42,12 @@ const assert = require('node:assert/strict');
  }
  await page.goto(base + (embedded ? '?embed=t3&theme=' + theme : '') + '#instructions');
  await page.locator('[data-cmd="context.edit"]').waitFor();
+ await page.getByRole('button',{name:'Retry preview',exact:true}).waitFor();
+ previewFail = false;
+ await page.getByRole('button',{name:'Retry preview',exact:true}).click();
+ await page.locator('.tc-doc-preview .tc-code').filter({hasText:'# Preview instructions'}).waitFor();
  assert.equal(await page.locator('html').getAttribute('data-theme'),theme);
- assert.equal(await page.locator('#page-instructions .tc-section').count(),2);
+ assert.equal(await page.locator('#page-instructions .tc-ins-section').count(),2);
  assert.equal(await page.getByRole('tab',{name:'Instructions',exact:true}).getAttribute('aria-selected'),'true');
  assert.equal(await page.locator('[data-cmd="context.edit"]').innerText(),'Edit');
  const checkCentered = async () => {
@@ -99,10 +107,29 @@ const assert = require('node:assert/strict');
  await page.getByRole('button',{name:'Save',exact:true}).click();
  await saving;
  assert.equal(await page.locator('#cx-input').isDisabled(),true);
+ assert.equal(await page.locator('[data-sheet="close"]:disabled').count(),2);
+ await page.keyboard.press('Escape');
+ assert.equal(await page.locator('#cx-input').count(),1,'an in-flight save keeps its editor open');
+ await page.evaluate(() => { location.hash = 'overview'; });
+ await page.waitForFunction(() => location.hash === '#instructions');
+ assert.equal(await page.locator('#cx-input').count(),1,'history navigation cannot abandon a save');
  releaseFailedSave();
  await page.getByText('Shared instructions changed since opening',{exact:true}).waitFor();
  assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
+ assert(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload',{cancelable:true}))), 'unsaved instructions warn before reload');
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ await page.getByRole('alertdialog').waitFor();
+ await page.getByRole('alertdialog').getByRole('button',{name:'Cancel',exact:true}).click();
+ assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
+ await page.evaluate(() => { location.hash = 'instructions/skills'; });
+ await page.getByRole('alertdialog').waitFor();
+ await page.getByRole('alertdialog').getByRole('button',{name:'Cancel',exact:true}).click();
+ await page.waitForFunction(() => location.hash === '#instructions');
+ assert.equal(await page.locator('#cx-input').inputValue(),'# Unsaved draft');
+ await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Discard draft',exact:true}).click();
+ await page.locator('#cx-input').waitFor({state:'hidden'});
+ assert(await page.evaluate(() => window.dispatchEvent(new Event('beforeunload',{cancelable:true}))), 'closing the editor removes its reload guard');
  // All existing provider files are discoverable, editable and saved explicitly.
  await page.route('**/context/agents-md?provider=*', async route => {
    const provider = new URL(route.request().url()).searchParams.get('provider');
@@ -151,29 +178,31 @@ const assert = require('node:assert/strict');
  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
  // What each agent reads is one choice, and it says what is in effect: a
  // cancelled or failed change shows the old choice again.
- const mode = page.locator('[data-context-mode="codex"]');
- assert.equal(await mode.inputValue(),'separate');
- await mode.selectOption('shared');
+ const mode = page.locator('.tc-context-provider[data-key="row-agentsmd:codex"]');
+ const modeValue = () => mode.locator('[aria-pressed=true]').getAttribute('data-mode');
+ const chooseMode = value => mode.locator('[data-mode="' + value + '"]').click();
+ assert.equal(await modeValue(),'separate');
+ await chooseMode('shared');
  await page.getByRole('alertdialog').waitFor();
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  assert.equal(modeSaves,0);
- assert.equal(await mode.inputValue(),'separate','a cancelled change shows the choice in effect');
- await mode.selectOption('shared');
+ assert.equal(await modeValue(),'separate','a cancelled change shows the choice in effect');
+ await chooseMode('shared');
  await page.getByRole('button',{name:'Use shared',exact:true}).click();
- await page.waitForFunction(() => document.querySelector('[data-context-mode="codex"]')?.value === 'shared' && !document.querySelector('[data-context-mode="codex"]').disabled);
- await page.locator('[data-cmd="context.provider.edit"][data-id="codex"]').click();
+ await page.waitForFunction(() => document.querySelector('[data-cmd="context.provider.mode"][data-id="codex"][data-mode="shared"]')?.getAttribute('aria-pressed') === 'true' && !document.querySelector('[data-cmd="context.provider.mode"][data-id="codex"]').disabled);
+ await page.locator('[data-cmd="context.edit"]').click();
  await page.getByRole('heading',{name:'Shared AGENTS.md',exact:true}).waitFor();
  await page.waitForFunction(() => document.querySelector('#cx-input')?.value === '# Shared fixture');
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
- await mode.selectOption('separate');
+ await chooseMode('separate');
  await page.waitForFunction(() => document.querySelector('#cx-input')?.value === '# Existing codex');
- assert.equal(await mode.inputValue(),'separate');
+ assert.equal(await modeValue(),'separate');
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  failMode = true;
- await mode.selectOption('shared');
+ await chooseMode('shared');
  await page.getByRole('button',{name:'Use shared',exact:true}).click();
  await page.getByText('Source changed while switching',{exact:true}).waitFor();
- await page.waitForFunction(() => document.querySelector('[data-context-mode="codex"]')?.value === 'separate');
+ await page.waitForFunction(() => document.querySelector('[data-cmd="context.provider.mode"][data-id="codex"][data-mode="separate"]')?.getAttribute('aria-pressed') === 'true');
  assert.equal(modeSaves,3);
  // Failed reads cannot turn into a save of blank content.
  await page.route('**/context/agents-md?provider=*', route => route.fulfill({status:400,json:{ok:false,error:'Instruction file unavailable'}}));
@@ -194,8 +223,8 @@ const assert = require('node:assert/strict');
  await page.getByText(oversizedError,{exact:true}).first().waitFor();
  assert.equal(await page.locator('[data-cmd="context.edit"]').count(),0);
  assert.equal(await page.locator('[data-cmd="context.provider.edit"][data-id="codex"]').count(),0,'an unreadable file offers no editor');
- assert.equal(await mode.isDisabled(),true);
- assert.equal(await mode.inputValue(),'separate');
+ assert.equal(await mode.locator('button:disabled').count(),3);
+ assert.equal(await modeValue(),'separate');
  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
  assert.deepEqual(errors,[]);
  console.log('PASS Context interactions:',theme,width+'x'+height,embedded?'embedded':'standalone');

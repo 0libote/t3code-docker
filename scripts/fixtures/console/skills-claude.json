@@ -1,412 +1,701 @@
 {
- "ok": true,
- "provider": "claude",
- "canCreate": true,
- "creationTargets": [
-  {
-   "id": "provider",
-   "name": "Provider folder",
-   "path": "/home/t3/.claude/skills"
-  }
- ],
- "providers": [
-  {
-   "id": "claude",
-   "name": "Claude Code"
-  },
-  {
-   "id": "codex",
-   "name": "Codex"
-  },
-  {
-   "id": "opencode",
-   "name": "OpenCode"
-  },
-  {
-   "id": "cursor",
-   "name": "Cursor"
-  },
-  {
-   "id": "grok",
-   "name": "Grok Build"
-  },
-  {
-   "id": "muse",
-   "name": "Muse Code"
-  }
- ],
- "skills": [
-  {
-   "id": "6ee8d1da5991f0f11242e1cfcafc9d39",
-   "path": "/home/t3/.claude/skills/synced/account/built-in-browser/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/built-in-browser/SKILL.md",
-   "name": "built-in-browser",
-   "description": "Read this skill before the first step that uses the built-in browser, the browser pane inside the Claude desktop app (also called the in-app browser, the browser pane, Claude's browser, or \"your own browser\"), whose tools are named mcp__Claude_Browser__* when the session runs in the desktop app and mcp__remote-devices__Claude_Browser__* when a cloud session is linked to the person's computer; before those tools are turned on there may be a single enable__mcp__remote-devices__Claude_Browser tool instead. It covers the pane's persistent sign-ins, tabs and preview_start, reading pages as text, site approvals, what the pane cannot open, and what to do when it cannot be reached. It is not for Claude in Chrome (mcp__claude-in-chrome__* tools), which has its own skill, and it does not decide which browser to use.",
-   "source": "Provider",
-   "scope": "user",
-   "state": "on",
-   "native": false,
-   "bytes": 6529,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: On",
-   "policyKey": "built-in-browser",
-   "effectiveStateText": "Manual command listed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
+  "ok": true,
+  "provider": "claude",
+  "canCreate": true,
+  "creationTargets": [
     {
-     "value": "on",
-     "label": "On"
-    },
-    {
-     "value": "name-only",
-     "label": "Name only"
-    },
-    {
-     "value": "user-invocable-only",
-     "label": "Manual only"
-    },
-    {
-     "value": "off",
-     "label": "Off"
+      "id": "provider",
+      "name": "Provider folder",
+      "path": "/home/t3/.claude/skills"
     }
-   ],
-   "nativePolicyVersion": "2.1.302",
-   "stateRevision": "ed7404725c118c61fe43d84013badbeeb71b55064d2346c535c722f5654800b2",
-   "canEdit": true,
-   "canRemove": true,
-   "readOnlyReason": null
-  },
-  {
-   "id": "59fdbc16de17475cfaa04fff069cad93",
-   "path": "/home/t3/.claude/skills/synced/account/chrome-browser/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/chrome-browser/SKILL.md",
-   "name": "chrome-browser",
-   "description": "Read this skill before the first step that uses Claude in Chrome, the browser extension whose tools are named mcp__claude-in-chrome__* (also called Chrome, the browser extension, or the external browser) and which acts in the person's real Chrome with their own sign-ins; before those tools are turned on there may be a single enable__mcp__claude-in-chrome tool instead. It covers loading the tools in one ToolSearch call, checking the person's open tabs and working in a new tab, site permissions, GIF recordings, console logs, dialogs to avoid, and when to stop and ask. It is not for the built-in browser (mcp__Claude_Browser__* or mcp__remote-devices__Claude_Browser__* tools), which has its own skill, and it does not decide which browser to use.",
-   "source": "Provider",
-   "scope": "user",
-   "state": "on",
-   "native": false,
-   "bytes": 5881,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: On",
-   "policyKey": "chrome-browser",
-   "effectiveStateText": "Manual command listed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
+  ],
+  "skills": [
     {
-     "value": "on",
-     "label": "On"
+      "id": "fef8ba8ef3a46d57ad7b4330b99c683b",
+      "path": "/home/t3/.claude/skills/built-in-browser/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/built-in-browser/SKILL.md",
+      "name": "built-in-browser",
+      "description": "Read this skill before the first step that uses the built-in browser, the browser pane inside the Claude desktop app: sign-ins, tabs and site approvals.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 2048,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-built-in-browser",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
     },
     {
-     "value": "name-only",
-     "label": "Name only"
+      "id": "ee6f59b6fc1d5970fd4b0b5b5d6812d6",
+      "path": "/home/t3/.claude/skills/chrome-browser/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/chrome-browser/SKILL.md",
+      "name": "chrome-browser",
+      "description": "Read this skill before the first step that uses Claude in Chrome, the browser extension that acts in your real Chrome with your own sign-ins.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 2135,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-chrome-browser",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
     },
     {
-     "value": "user-invocable-only",
-     "label": "Manual only"
+      "id": "56d1e311344c9fa4d35dc543cc4e0a20",
+      "path": "/home/t3/.claude/skills/computer-use/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/computer-use/SKILL.md",
+      "name": "computer-use",
+      "description": "Read before any request to do something in an app on your own computer, or to look at your screen. Covers access, picking the right tool and safety rules.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 2222,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-computer-use",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
     },
     {
-     "value": "off",
-     "label": "Off"
+      "id": "1e95a27c3b86aeacf589ef0166329876",
+      "path": "/home/t3/.claude/skills/deep-research/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/deep-research/SKILL.md",
+      "name": "deep-research",
+      "description": "Use when a prompt needs research across many sources, a comparison of options or a review of studies, synthesised into a narrative report.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "name-only",
+      "native": false,
+      "bytes": 4628,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-deep-research",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "ccb785b66cd292915aa33b0c230000ed",
+      "path": "/home/t3/.claude/skills/docs/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/docs/SKILL.md",
+      "name": "docs",
+      "description": "Editable docs people share and comment on: the default for any document, report, proposal or guide to keep, share or print.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 2396,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-docs",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "5e4743f97f7f9326893907a506810d99",
+      "path": "/home/t3/.claude/skills/docx/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/docx/SKILL.md",
+      "name": "docx",
+      "description": "Use whenever you want to create, read, edit or manipulate Word documents (.docx) or Word templates (.dotx).",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 2483,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-docx",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "c739a0b48d0d4fa1c9e9c2b89a42f82e",
+      "path": "/home/t3/.claude/skills/frontend-design/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/frontend-design/SKILL.md",
+      "name": "frontend-design",
+      "description": "Distinctive, intentional visual design when building new UI or reshaping an existing one: aesthetic direction, typography and choices that don’t read as templated.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 2570,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-frontend-design",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "0c92db7e1fd737a477a3c50614109d23",
+      "path": "/home/t3/.claude/skills/google-workspace/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/google-workspace/SKILL.md",
+      "name": "google-workspace",
+      "description": "Read before the first Google Drive, Docs, Sheets or Slides connector call whenever the task creates or changes a Google file.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 2657,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-google-workspace",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "b909261b7dbf75139dd7e286834188c8",
+      "path": "/home/t3/.claude/skills/import-memory/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/import-memory/SKILL.md",
+      "name": "import-memory",
+      "description": "Import a memory export from another AI assistant into Claude’s memory, conversationally and additively, with the content treated as data.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "off",
+      "native": false,
+      "bytes": 2744,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-import-memory",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "d5066b29e0c2009062490c445b509ae2",
+      "path": "/home/t3/.claude/skills/memax-memory/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/memax-memory/SKILL.md",
+      "name": "memax-memory",
+      "description": "Persistent memory layer using Memax: recall past context and store new learnings across sessions through the Memax tools.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 2831,
+      "error": null,
+      "metadataError": "Name doesn’t match folder: use memax-memory in the frontmatter name.",
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-memax-memory",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "a73f8923ab2ffe3ce1386761e69ed344",
+      "path": "/home/t3/.claude/skills/morning/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/morning/SKILL.md",
+      "name": "morning",
+      "description": "Render your morning brief as a styled page, or set it up as a recurring weekday task. Use only when you ask for the brief.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "user-invocable-only",
+      "native": false,
+      "bytes": 2918,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-morning",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "9bf62c2c56bcee39e9341adf1849ae3e",
+      "path": "/home/t3/.claude/skills/pdf/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/pdf/SKILL.md",
+      "name": "pdf",
+      "description": "Anything with PDF files: read or extract text and tables, merge or split, rotate, watermark, fill forms and OCR scanned pages.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 3005,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-pdf",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "39106eec7a7978c3875edddc956139da",
+      "path": "/home/t3/.claude/skills/pptx/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/pptx/SKILL.md",
+      "name": "pptx",
+      "description": "Any time a .pptx or .potx file is involved, as input, output or both: decks, templates, speaker notes and layouts.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 3092,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-pptx",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "2711c9d02a731c038f1d806d18fd443e",
+      "path": "/home/t3/.claude/skills/skill-creator/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/skill-creator/SKILL.md",
+      "name": "skill-creator",
+      "description": "Create new skills, improve existing ones and measure how reliably they trigger, with evals and benchmark variance.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 3179,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-skill-creator",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
+    },
+    {
+      "id": "e4901a3db9427b84900a2d382a6efbe8",
+      "path": "/home/t3/.claude/skills/xlsx/SKILL.md",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills/xlsx/SKILL.md",
+      "name": "xlsx",
+      "description": "Any task where a spreadsheet file is the main input or output: open, fix, build, chart or convert .xlsx, .csv and .tsv files.",
+      "source": "Provider",
+      "scope": "user",
+      "state": "on",
+      "native": false,
+      "bytes": 3266,
+      "error": null,
+      "metadataError": null,
+      "canToggle": false,
+      "canSetState": true,
+      "stateOptions": [
+        {
+          "value": "on",
+          "label": "On"
+        },
+        {
+          "value": "name-only",
+          "label": "Name only"
+        },
+        {
+          "value": "user-invocable-only",
+          "label": "Manual only"
+        },
+        {
+          "value": "off",
+          "label": "Off"
+        }
+      ],
+      "stateRevision": "fixture-state-claude",
+      "stateAuthority": "user-policy",
+      "statePath": "/home/t3/.t3/agents/.claude/settings.json",
+      "effectiveStateText": null,
+      "stateReadOnlyReason": null,
+      "canEdit": true,
+      "canRemove": true,
+      "revision": "fixture-file-xlsx",
+      "readOnlyReason": null,
+      "packageManaged": false,
+      "packageSource": null
     }
-   ],
-   "nativePolicyVersion": "2.1.302",
-   "stateRevision": "54911b0898f195b25114daca0eb5d4d9f0d7b81b4b027456263148c20699e9d9",
-   "canEdit": true,
-   "canRemove": true,
-   "readOnlyReason": null
-  },
-  {
-   "id": "a222923473b8d0866de868b8544cf2c2",
-   "path": "/home/t3/.claude/skills/synced/account/computer-use/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/computer-use/SKILL.md",
-   "name": "computer-use",
-   "description": "Read this skill before the first step of any request to do something in an app on the person's own computer (Notes, Finder, System Settings, any desktop app), to look at their screen, or for \"computer use\". Computer use (desktop control) lets Claude take screenshots of the person's desktop and control it with clicks, typing and scrolling through the Claude desktop app; its tools are named mcp__computer-use__* when the session runs in the desktop app and mcp__remote-devices__computer_* when a cloud session is linked to the person's computer; before computer use is turned on for a conversation there may be no such tools, only an enable__mcp__remote-devices__computer tool, which turns it on. It covers turning it on, picking the right tool, the access flow, and the safety rules for tiered apps, links and financial actions. It is not for websites, which go through Claude in Chrome or the built-in browser and their own skills.",
-   "source": "Provider",
-   "scope": "user",
-   "state": "on",
-   "native": false,
-   "bytes": 9269,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: On",
-   "policyKey": "computer-use",
-   "effectiveStateText": "Manual command listed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
+  ],
+  "roots": [
     {
-     "value": "on",
-     "label": "On"
-    },
-    {
-     "value": "name-only",
-     "label": "Name only"
-    },
-    {
-     "value": "user-invocable-only",
-     "label": "Manual only"
-    },
-    {
-     "value": "off",
-     "label": "Off"
+      "path": "/home/t3/.claude/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills",
+      "source": "Provider",
+      "scope": "user"
     }
-   ],
-   "nativePolicyVersion": "2.1.302",
-   "stateRevision": "3fb46751f04906f099edc4565e0769df52b687168870b3e132e2d2e504dd1644",
-   "canEdit": true,
-   "canRemove": true,
-   "readOnlyReason": null
-  },
-  {
-   "id": "947030153bffa011622fee9dacee91ae",
-   "path": "/home/t3/.claude/skills/synced/account/deep-research/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/deep-research/SKILL.md",
-   "name": "deep-research",
-   "description": "Use this skill when the user's prompt requires (1) researching a topic across multiple sources, comparing options or alternatives, analyzing trends or history, understanding markets or industries, or reviewing literature or studies and (2) synthesizing that research into a comprehensive, narrative report. If you're planning to search the web or internal knowledge bases, consider using this skill. This skill coordinates research subagents, so use it only when you have a tool for spawning subagents (the Agent or Task tool); otherwise, research the question directly.",
-   "source": "Provider",
-   "scope": "user",
-   "state": "on",
-   "native": false,
-   "bytes": 13132,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: On",
-   "policyKey": "deep-research",
-   "effectiveStateText": "Manual command hidden",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "on",
-     "label": "On"
-    },
-    {
-     "value": "name-only",
-     "label": "Name only"
-    },
-    {
-     "value": "user-invocable-only",
-     "label": "Manual only"
-    },
-    {
-     "value": "off",
-     "label": "Off"
-    }
-   ],
-   "nativePolicyVersion": "2.1.302",
-   "stateRevision": "91f646781763adf0300d51786c83dd527bfe8a73b2dddea53b714a5ccae96f8f",
-   "canEdit": true,
-   "canRemove": true,
-   "readOnlyReason": null
-  },
-  {
-   "id": "867d71329910c952d078fb44b8af4d35",
-   "path": "/home/t3/.claude/skills/synced/account/docs/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/docs/SKILL.md",
-   "name": "docs",
-   "description": "docs (editable docs people share and comment on; the default for any document, named as a doc or not: a document, report, proposal, resume, cover letter, letter, contract, policy, form, template, worksheet, essay, handbook, guide, how-to, cheat sheet, SOP or other writing to keep, share, collaborate on, send, submit, print or sign; a doc exports to Word, PDF, Markdown or Google Docs, so needing a file to send, attach, upload, submit or print is no reason to pick Word, and a file nobody asked for is a doc, not Word; a plan, comparison, summary or notes asked in chat stays in chat; a pasted claude.ai artifact link may be a doc: check with docs tools first; Word or another file format named, tracked changes wanted, or a .docx to change or use as a template → that format's skill): making one → if no docs-connector instructions are in context, call its `guide` (topic.instructions) first; then create the doc (headings only, no body) before any search, file read or plan, even with files attached.",
-   "source": "Provider",
-   "scope": "user",
-   "state": "on",
-   "native": false,
-   "bytes": 1249,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: On",
-   "policyKey": "docs",
-   "effectiveStateText": "Manual command listed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "on",
-     "label": "On"
-    },
-    {
-     "value": "name-only",
-     "label": "Name only"
-    },
-    {
-     "value": "user-invocable-only",
-     "label": "Manual only"
-    },
-    {
-     "value": "off",
-     "label": "Off"
-    }
-   ],
-   "nativePolicyVersion": "2.1.302",
-   "stateRevision": "2e8da268454584977e08681dbb877d68c9b1bdaa4d079bbdc68cf55eb595e673",
-   "canEdit": true,
-   "canRemove": true,
-   "readOnlyReason": null
-  },
-  {
-   "id": "cffeadbbf99bcf9af0df96188e2c36b1",
-   "path": "/home/t3/.claude/skills/synced/account/docx/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/docx/SKILL.md",
-   "name": "docx",
-   "description": "Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx) or Word templates (.dotx). Triggers include: any mention of Microsoft Word Documents, such as 'Word doc', 'word document', '.docx', '.dotx', 'microsoft doc'. Also use when extracting or reorganizing content from .docx or .dotx files, inserting or replacing images in documents, find-and-replace in Word files, working with tracked changes or comments, or converting content into a polished Word document. If the user asks for a deliverable as a Word or .docx file (to download, email or print), use this skill. However, if they ask for a document, page, report, memo, or notes WITHOUT naming a file format and the session offers Claude's own dedicated document or page skill or connector, use that instead, even if they will email or print it. Do NOT use for PDFs, spreadsheets, Google Docs, or coding unrelated to document generation.",
-   "source": "Provider",
-   "scope": "user",
-   "state": "on",
-   "native": false,
-   "bytes": 7639,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: On",
-   "policyKey": "docx",
-   "effectiveStateText": "Manual command listed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "on",
-     "label": "On"
-    },
-    {
-     "value": "name-only",
-     "label": "Name only"
-    },
-    {
-     "value": "user-invocable-only",
-     "label": "Manual only"
-    },
-    {
-     "value": "off",
-     "label": "Off"
-    }
-   ],
-   "nativePolicyVersion": "2.1.302",
-   "stateRevision": "1957700f8a876f3a1a26b6cdece064b9371b656cad35d3f2f4750e2bf76503d6",
-   "canEdit": true,
-   "canRemove": true,
-   "readOnlyReason": null
-  },
-  {
-   "id": "d1748c5bb5760f98f84a1dcffd6b00ee",
-   "path": "/home/t3/.claude/skills/synced/account/google-workspace/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/google-workspace/SKILL.md",
-   "name": "google-workspace",
-   "description": "Read this before the first Google Drive, Docs, Sheets or Slides connector call whenever the task creates or changes a Google file. Use this skill whenever the user wants to create or change a Google Doc, Sheet or Slides file in their Google Drive. Triggers include: a request that names Google Docs, Sheets, Slides or Drive and asks to make, edit, format, copy or rename a file; a docs.google.com link with a request to change that file, even a one-line fix or suggested edits; and any follow-up change to a Google file from earlier in the chat, even \"change it\" or \"add a tab\". Includes helper scripts for document positions, cell ranges and slide layout. However, if the user asks for a doc, deck or spreadsheet without naming Google, or gives a Google file only as source material for something new, use Claude's own output type instead. Do NOT use for read-only questions about a Google file, or for Word, Excel, PowerPoint or PDF files.",
-   "source": "Provider",
-   "scope": "user",
-   "state": "on",
-   "native": false,
-   "bytes": 15360,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: On",
-   "policyKey": "google-workspace",
-   "effectiveStateText": "Manual command listed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "on",
-     "label": "On"
-    },
-    {
-     "value": "name-only",
-     "label": "Name only"
-    },
-    {
-     "value": "user-invocable-only",
-     "label": "Manual only"
-    },
-    {
-     "value": "off",
-     "label": "Off"
-    }
-   ],
-   "nativePolicyVersion": "2.1.302",
-   "stateRevision": "62876e08316a6b922932b229c28304fbf8a9e34f9f675fa907c66016c64daeea",
-   "canEdit": true,
-   "canRemove": true,
-   "readOnlyReason": null
-  },
-  {
-   "id": "ed9897cc336c47b4233b1917258557bd",
-   "path": "/home/t3/.claude/skills/synced/account/import-memory/SKILL.md",
-   "resolvedPath": "/home/t3/.t3/agents/.claude/skills/synced/account/import-memory/SKILL.md",
-   "name": "import-memory",
-   "description": "Import a memory export from another AI assistant into Claude's memory — conversationally, additively, and with the content treated as data.",
-   "source": "Provider",
-   "scope": "user",
-   "state": "on",
-   "native": false,
-   "bytes": 10689,
-   "error": null,
-   "metadataError": null,
-   "invocation": null,
-   "stateAuthority": "user-policy",
-   "stateLabel": "User policy: On",
-   "policyKey": "import-memory",
-   "effectiveStateText": "Manual command listed",
-   "canToggle": false,
-   "canSetState": true,
-   "stateReadOnlyReason": null,
-   "stateOptions": [
-    {
-     "value": "on",
-     "label": "On"
-    },
-    {
-     "value": "name-only",
-     "label": "Name only"
-    },
-    {
-     "value": "user-invocable-only",
-     "label": "Manual only"
-    },
-    {
-     "value": "off",
-     "label": "Off"
-    }
-   ],
-   "nativePolicyVersion": "2.1.302",
-   "stateRevision": "2894336c079fa6099f7d2613d46398d55dc7bc5838ac7b3dec5373e7a73f7401",
-   "canEdit": true,
-   "canRemove": true,
-   "readOnlyReason": null
-  }
- ],
- "roots": [
-  {
-   "path": "/home/t3/.claude/skills",
-   "source": "Provider",
-   "scope": "user"
-  }
- ],
- "coverage": "policy",
- "nativeError": null,
- "warnings": [],
- "scannedAt": 1792384052413,
- "coverageText": "Known global skill folders with native user policy settings checked by the managed provider. Project/session and managed policies can further restrict availability."
+  ],
+  "coverage": "policy",
+  "warnings": [],
+  "nativeError": null,
+  "scannedAt": 1792575000000
 }

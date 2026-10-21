@@ -93,6 +93,7 @@ export function createSkillPolicies({ home, env, io, getHarness, invalidate, ins
     }
     const options = (provider === "claude" ? ["on", "name-only", "user-invocable-only", "off"] : effects).map((value) => ({ value, label: labels[value] }));
     if (provider === "claude" && config.skillOverrides !== undefined && (!config.skillOverrides || typeof config.skillOverrides !== "object" || Array.isArray(config.skillOverrides))) throw fail("unsupported", "Claude skillOverrides must be an object. Existing settings were preserved.");
+    const statePath = await io.realpath(file).catch(() => file);
     const rows = skills.map((row) => {
       const nativeRow = provider === "opencode" ? native.skills.find((entry) => (entry.path || entry.location) === row.path || (entry.path || entry.location) === row.resolvedPath) : null;
       const key = provider === "claude" ? row.name : native.major === 2 ? nativeRow?.id || (path.basename(row.path) === "SKILL.md" ? path.basename(path.dirname(row.path)) : path.basename(row.path, ".md")) : nativeRow?.name || row.name;
@@ -104,7 +105,8 @@ export function createSkillPolicies({ home, env, io, getHarness, invalidate, ins
       const effective = provider === "claude" ? native.commands.includes(key) ? "Manual command listed" : "Manual command hidden"
         : "Build agent: " + labels[matches(native.agent.permissions || native.agent.permission || [], nativeRow?.id || key) || "ask"];
       const result = { ...row, state, stateAuthority: "user-policy", stateLabel: "User policy: " + (labels[state] || "Unknown"), policyKey: key, effectiveStateText: effective,
-        canToggle: false, canSetState: !reason, stateReadOnlyReason: reason, stateOptions: options, nativePolicyVersion: native.version };
+        canToggle: false, canSetState: !reason, stateReadOnlyReason: reason, stateOptions: options, nativePolicyVersion: native.version,
+        statePath };
       return { ...result, stateRevision: !reason ? stateRevision(before.revision, result) : null };
     });
     return { file, configRevision: before.revision, native, skills: rows };

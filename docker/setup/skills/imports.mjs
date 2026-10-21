@@ -28,7 +28,8 @@ export function createSkillImporter({ home, env, io, metadata, policyFor, invali
       const snapshot = await resolveSource(source, { home, env, metadata });
       if (snapshot.links) return { ok: true, ...snapshot };
       const previewId = token(); previews.set(previewId, { ...snapshot, at: now(), plan: null });
-      return { ok: true, previewId, source: snapshot.source, warnings: snapshot.warnings,
+      const createdAt = previews.get(previewId).at;
+      return { ok: true, previewId, source: snapshot.source, sourceInfo: snapshot.sourceInfo, createdAt, expiresAt: createdAt + ttlMs, warnings: snapshot.warnings,
         skills: snapshot.skills.map((skill) => ({ name: skill.name, description: skill.description, content: skill.content,
           files: skill.files.map((file) => ({ name: file.name, bytes: file.data.length, executable: Boolean(file.mode & 0o100) })), bytes: skill.files.reduce((sum, file) => sum + file.data.length, 0) })) };
     } finally { resolving = false; }
@@ -51,7 +52,8 @@ export function createSkillImporter({ home, env, io, metadata, policyFor, invali
   };
   const planImport = async (previewId, names, providers) => {
     const snapshot = get(previewId);
-    if (snapshot.installing || snapshot.planning || snapshot.result) throw fail("conflict", "This preview has already been installed. Preview again to make another change.");
+    const partial = snapshot.result?.results.some(entry => entry.status === "failed");
+    if (snapshot.installing || snapshot.planning || (snapshot.result && !partial)) throw fail("conflict", "This preview has already been installed. Preview again to make another change.");
     if (!Array.isArray(names) || !names.length || names.length > 128 || new Set(names).size !== names.length || names.some((name) => !snapshot.skills.some((skill) => skill.name === name))) throw fail("invalid", "Choose skills from this preview.");
     if (!Array.isArray(providers) || !providers.length || providers.length > 7 || new Set(providers).size !== providers.length) throw fail("invalid", "Choose at least one provider.");
     snapshot.planning = true;
@@ -65,6 +67,10 @@ export function createSkillImporter({ home, env, io, metadata, policyFor, invali
         } catch (error) { destinations.push({ provider, name, action: "blocked", error: error.message }); }
       }
       const planId = token(); snapshot.plan = { planId, destinations };
+      // A partial retry reviews fresh destination revisions against the same
+      // immutable source. Old plan IDs stop being usable; normal install
+      // retries remain idempotent until a new review explicitly succeeds.
+      snapshot.result = null;
       return { ok: true, planId, destinations: destinations.map(({ root, rootPath, revision, ...entry }) => entry), canInstall: destinations.every((entry) => entry.action !== "blocked") };
     } finally { snapshot.planning = false; }
   };
