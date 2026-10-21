@@ -125,9 +125,22 @@ and runtime metadata, as described below. Cursor, Grok, Muse and Antigravity sho
 **Found** with a discovery-only explanation. Plugin inventories and configured extra locations
 are outside the basic known-folder inventory.
 
+**Hide bundled skills** hides entries identified as system skills, such as those
+shipped with Codex. It only filters this list; the agent can still use them. The
+choice is remembered in this browser, and the count shows how many are hidden.
+User, administrator and plugin installations remain visible unless the provider
+identifies them as system skills.
+
 Inventories load in parallel when the Skills tab opens. **Rescan** refreshes all
 installed agents after external changes. One failed provider leaves the others usable. Concurrent requests share a lookup and results
 are cached for 15 seconds; regular `/status` polling does not scan skills.
+Each inventory also reports its provider adapter: the global skill folder,
+the project skill folder where one is verified (Codex, Cursor, OpenCode and
+Antigravity share `.agents/skills` inside a project), and whether the tool
+itself is detected. Detection never gates management: an undetected tool
+shows a note, and adding, editing and importing still work. Use the `+N` header
+button, or **Show other agents** on phones, to include these folders. The installer
+only uses an undetected agent’s folder after you explicitly select that agent.
 Bodies load separately through authenticated, discovered-installation IDs.
 `GET /context/skills/read` adds `files: [{ name, bytes, executable, linked }]`
 and `fileCount` (or `filesError` if inspection is bounded/unavailable); the numeric
@@ -294,10 +307,24 @@ which variant was skipped. Name selectors use the same precedence. Paste a
 specific folder link to choose another variant. Duplicate names within the same
 discovery priority still require a specific folder.
 
-Re-importing the source is the update flow: review a fresh snapshot and explicitly
-replace each existing local folder, including removed/renamed supporting files.
-The console does not remember origins, schedule updates or maintain a source
-manifest. Use **View → Remove** to delete an imported local skill. Files tracked
+Repository installs remember their source and a fingerprint of the installed
+files in `.t3-skill-source.json` inside the skill folder. **Check for updates**
+on the Skills tab checks tracked repository installs on demand. It compares the
+skill's complete source contents and executable flags, so unrelated repository
+commits do not trigger an update. Ordinary inventory refreshes never fetch sources.
+Checks report **Up to date**, **Update available**, or **Update check failed**.
+These results last until the setup service restarts; source tracking survives restarts.
+
+Open a skill and choose **Review update** (or **Review source**) to preview its
+repository with that skill and its owning agent selected. Compatibility readers
+do not receive additional copies by default. Explicitly confirm replacing the existing
+folder, including local edits and removed/renamed supporting files. Checking alone
+never changes installed files, and local edits do not count as upstream updates.
+A ref pinned to a commit continues to check that commit. There are no scheduled
+checks or automatic replacements. Earlier installs and imports from local folders
+or direct Markdown links need a repository re-import to enable tracking.
+
+Use **View → Remove** to delete an imported local skill. Files tracked
 in the upstream skills CLI lock remain read-only here, including during import;
 manage those packages with their package manager. Unreadable locks, known plugin/system
 roots (including Grok/Antigravity plugin folders and Codex admin skills), linked

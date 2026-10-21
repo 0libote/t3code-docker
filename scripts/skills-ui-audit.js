@@ -58,9 +58,11 @@ const checkSelect = async (page, select, theme) => {
       const page = await browser.newPage({ viewport: { width, height }, colorScheme: theme, reducedMotion: 'reduce' });
       await page.addInitScript(mode => localStorage.setItem('t3-console-theme', mode), theme);
       const api = createSkillsFixtures(), status = statusFor('skills'), errors = [], writes = [], gets = {};
+      api.inventories.antigravity.adapter = { detected: false };
       page.setDefaultTimeout(8000);
       page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.message); });
       let stateGate, stateStarted, planGate, planStarted, sourceGate, sourceStarted, readGate, readStarted, installGate, installStarted, saveGate, saveStarted, reachGate, reachStarted;
+      let updateStatus = 'available', updateGate, updateStarted;
       let stateFail = false, saveFail = false, partial = false, blocked = false, expire = false, providerError = null, loseInstallResponse = false;
       await page.route('**/*', async route => {
         const request = route.request(), url = new URL(request.url()), method = request.method();
@@ -70,6 +72,11 @@ const checkSelect = async (page, select, theme) => {
           if (method === 'GET') gets[url.pathname + url.search] = (gets[url.pathname + url.search] || 0) + 1;
           else writes.push({ path: url.pathname, input });
           if (at('/skills') && (providerError === 'all' || url.searchParams.get('provider') === providerError)) return route.fulfill({ status: 503, json: { ok: false, error: 'Fixture agent is temporarily unavailable' } });
+          if (at('/check-update')) {
+            if (updateGate) { updateStarted.resolve(); await updateGate.promise; updateGate = null; }
+            const update = { status: updateStatus, error: updateStatus === 'error' ? 'Fixture repository unavailable' : undefined };
+            return route.fulfill({ json: { ok: true, id: input.id, update } });
+          }
           if (at('/state')) {
             if (stateGate) { stateStarted.resolve(); await stateGate.promise; stateGate = null; }
             if (stateFail) return route.fulfill({ status: 409, json: { ok: false, error: 'Settings changed outside the console. Rescan before trying again.' } });
@@ -139,6 +146,14 @@ const checkSelect = async (page, select, theme) => {
         assert.equal(await target.locator('.tc-mx-row').count(), 1);
         await target.locator('[data-cmd="skills.agent"][data-provider=""]').click();
       }
+      const beforeFilter = writes.length;
+      await target.getByRole('switch', { name: 'Hide bundled skills', exact: true }).click();
+      assert.equal(await target.locator('.tc-mx-group-toggle').filter({ hasText: 'Codex system skills' }).count(), 0);
+      assert.equal(await target.locator('#skill-filter-help').innerText(), '4 skills hidden');
+      assert.equal(writes.length, beforeFilter, 'hiding bundled skills never writes provider settings');
+      await shot('bundled-hidden');
+      await target.getByRole('switch', { name: 'Hide bundled skills', exact: true }).click();
+      assert.equal(await target.locator('.tc-mx-row').count(), 18);
       await shot('library');
       await checkNoticeContrast(visible(target, '.tc-sk-notices .tc-notice-desc, .tc-sk-phone-notice > span > span').first());
       const deep = () => visible(target, '[data-cmd="skills.view"]').filter({ hasText: 'deep-research' });
@@ -237,10 +252,10 @@ const checkSelect = async (page, select, theme) => {
         assert.equal(await target.getByText('No skills yet', { exact: true }).count(), 0, 'discovery failures must not masquerade as an empty library');
         providerError = null; await target.getByRole('button', { name: 'Retry scan', exact: true }).click();
         await target.locator('.tc-mx-row').first().waitFor();
-        await target.locator('[data-cmd="skills.columns"]').click();
+        await visible(target, '[data-cmd="skills.columns"]').click();
         await target.waitForFunction(() => document.querySelectorAll('.tc-mx-agent').length === 7);
         assert.equal(await target.locator('.tc-mx-agent[data-uninstalled]').count(), 2);
-        await target.locator('[data-cmd="skills.columns"]').click();
+        await visible(target, '[data-cmd="skills.columns"]').click();
         // A closed source request must release its late snapshot, never reopen.
         sourceGate = deferred(); sourceStarted = deferred();
         await visible(target, '[data-cmd="skills.import"]').click();
@@ -403,6 +418,54 @@ const checkSelect = async (page, select, theme) => {
         await target.locator('.tc-skill-inspector').waitFor({ state: 'hidden' });
         assert.equal(writes.find(write => write.path.endsWith('/create')).input.content, upload);
       }
+      // A tracked physical skill may be visible in several agent inventories.
+      // Check it once and keep review scoped to its owning folder.
+      const origin = { source: 'vercel-labs/skills', name: 'frontend-design', fingerprint: 'a'.repeat(64) };
+      for (const inventory of Object.values(api.inventories)) for (const skill of inventory.skills) {
+        if (skill.name === origin.name && skill.path.includes('/.claude/')) skill.origin = origin;
+      }
+      await target.locator('[data-cmd="skills.refresh"]').click();
+      const checkUpdates = target.getByRole('button', { name: 'Check for updates', exact: true });
+      await checkUpdates.waitFor();
+      await checkUpdates.click();
+      await visible(target, '.tc-badge').filter({ hasText: 'Update available' }).waitFor();
+      assert.equal(writes.filter(write => write.path.endsWith('/check-update')).length, 1);
+      await visible(target, '[data-cmd="skills.view"]').filter({ hasText: 'frontend-design' }).scrollIntoViewIfNeeded();
+      await shot('repository-update');
+      const trackedSkill = visible(target, '[data-cmd="skills.view"]').filter({ hasText: 'frontend-design' });
+      await trackedSkill.click(); await target.locator('[data-inspect-review-source]').waitFor();
+      await target.locator('[data-inspect-review-source]').click();
+      await target.locator('[data-import-replace]').waitFor();
+      assert.equal(await target.locator('[data-import-mode=each]').getAttribute('aria-pressed'), 'true');
+      const review = writes.filter(write => write.path.endsWith('/plan')).at(-1).input;
+      assert.deepEqual(review.skills, ['frontend-design']);
+      assert.deepEqual(review.providers, ['claude']);
+      assert.equal(await target.locator('[data-import-replace]').isChecked(), false, 'source review retains explicit replacement consent');
+      await shot('repository-review'); await close();
+      updateStatus = 'error'; await checkUpdates.click();
+      await visible(target, '.tc-badge').filter({ hasText: 'Update check failed' }).waitFor();
+      updateStatus = 'current'; await checkUpdates.click();
+      await visible(target, '.tc-badge').filter({ hasText: 'Up to date' }).waitFor();
+      updateGate = deferred(); updateStarted = deferred();
+      await checkUpdates.click(); await updateStarted.promise;
+      await target.locator('[data-cmd="skills.refresh"]').click();
+      await checkUpdates.waitFor({ state: 'hidden' });
+      updateGate.resolve();
+      await checkUpdates.waitFor();
+      assert.equal(await target.locator('.tc-badge').filter({ hasText: 'Up to date' }).count(), 0, 'late checks cannot decorate a rescanned installation');
+      // Folder management stays available for undetected tools, including on phones.
+      await visible(target, '[data-cmd="skills.columns"]').click();
+      await target.waitForFunction(() => [...document.querySelectorAll('.tc-notice-title')].some(node => node.textContent.includes('Antigravity isn’t detected')));
+      await visible(target, '.tc-sk-provider-notice').filter({ hasText: 'Antigravity' }).scrollIntoViewIfNeeded();
+      await shot('undetected-agent');
+      await openSource();
+      await target.locator('[data-import-skill="frontend-design"]').check();
+      await next().click();
+      await target.locator('[data-import-agent="antigravity"]').check();
+      await target.getByRole('button', { name: 'Install 3 copies', exact: true }).waitFor();
+      assert(writes.filter(write => write.path.endsWith('/plan')).at(-1).input.providers.includes('antigravity'), 'an explicitly selected undetected tool can receive a skill copy');
+      await close();
+      await visible(target, '[data-cmd="skills.columns"]').click();
       await navigate('instructions');
       await target.locator('.tc-doc-preview .tc-code').waitFor();
       assert.equal(await target.locator('.tc-reads-row').count(), 3);

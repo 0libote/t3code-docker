@@ -260,7 +260,7 @@ export async function resolveSkillSource(value, { home, metadata, env = process.
         const relative = file.name.slice(prefix.length), parts = relative.split("/");
         for (let i = 1; i <= parts.length; i++) treeEntries.add(parts.slice(0, i).join("/"));
       }
-      if (treeEntries.size > 1024) throw fail("too_large", "This skill exceeds the 1024-entry management limit. Use a smaller skill folder.");
+      if (treeEntries.size + (parsed.type === "git" ? 1 : 0) > 1024) throw fail("too_large", "This skill exceeds the 1024-entry management limit. Use a smaller skill folder.");
       const copied = [];
       for (const file of children) {
         const name = file.name.slice(prefix.length);
@@ -274,6 +274,6 @@ export async function resolveSkillSource(value, { home, metadata, env = process.
       if (priority < 2) foundPreferred = true;
     }
     if (!skills.length) throw fail(oversized ? "too_large" : "invalid", oversized ? "No matching skill could be imported. Skill Markdown must fit within 64 KiB; use a smaller skill or manage oversized skills directly." : parsed.filter ? "That skill was not found in this source." : "No valid SKILL.md files found. Choose a skill repository/folder or paste a direct Markdown link.");
-    return { source: value, sourceInfo, skills, warnings: [...new Set(warnings)].slice(0, 30) };
+    return { source: value, sourceInfo, sourceType: parsed.type, skills, warnings: [...new Set(warnings)].slice(0, 30) };
   } finally { await cleanup(); }
 }

@@ -1,7 +1,8 @@
-// Previewed source snapshots become ordinary local skills. No package manifest.
+// Previewed source snapshots become local skills with repository provenance.
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { resolveSkillSource } from "./sources.mjs";
+import { ORIGIN_FILE, skillFingerprint } from "./origins.mjs";
 import { removalPlan, serialized } from "./files.mjs";
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
@@ -74,7 +75,7 @@ export function createSkillImporter({ home, env, io, metadata, policyFor, invali
       return { ok: true, planId, destinations: destinations.map(({ root, rootPath, revision, ...entry }) => entry), canInstall: destinations.every((entry) => entry.action !== "blocked") };
     } finally { snapshot.planning = false; }
   };
-  const publish = async (entry, skill) => serialized(path.join(entry.directory, "SKILL.md"), async () => {
+  const publish = async (entry, skill, snapshot) => serialized(path.join(entry.directory, "SKILL.md"), async () => {
     for (const provider of entry.also) {
       const alias = await inspect(provider, skill);
       if (alias.directory !== entry.directory || alias.action !== entry.action || alias.revision !== entry.revision) throw fail("conflict", "A shared provider folder changed after review.");
@@ -86,11 +87,16 @@ export function createSkillImporter({ home, env, io, metadata, policyFor, invali
     const staging = await io.mkdtemp(path.join(entry.root, ".t3-skill-import-"));
     let backup = null, reserved = false;
     try {
+      if (skill.files.some((file) => file.name === ORIGIN_FILE)) throw fail("conflict", "This source contains reserved skill tracking metadata.");
       for (const file of skill.files) {
         const output = path.join(staging, file.name);
         await io.mkdir(path.dirname(output), { recursive: true, mode: 0o700 });
         await io.writeFile(output, file.data, { flag: "wx", mode: file.mode });
         await io.chmod(output, file.mode);
+      }
+      if (snapshot.sourceType === "git") {
+        // A source cannot supply or overwrite the console's provenance file.
+        await io.writeFile(path.join(staging, ORIGIN_FILE), JSON.stringify({ version: 1, source: snapshot.source, name: skill.name, fingerprint: skillFingerprint(skill) }) + "\n", { flag: "wx", mode: 0o600 });
       }
       // Recheck after staging too, so supporting-file edits invalidate replacement.
       for (const provider of [entry.provider, ...entry.also]) {
@@ -141,7 +147,7 @@ export function createSkillImporter({ home, env, io, metadata, policyFor, invali
       }
       const results = [];
       for (const entry of plan.destinations) {
-        try { results.push(await publish(entry, snapshot.skills.find((skill) => skill.name === entry.name))); }
+        try { results.push(await publish(entry, snapshot.skills.find((skill) => skill.name === entry.name), snapshot)); }
         catch (error) { results.push({ ...entry, status: "failed", error: error.message }); }
       }
       snapshot.result = { ok: true, results: results.map(({ root, rootPath, revision, ...entry }) => entry) };

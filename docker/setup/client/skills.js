@@ -8,9 +8,12 @@ const T3SkillsUI = (() => {
   const create = ({ api, getStatus, render, readMarkdown, downloadMarkdown }) => {
     const inventories = {}, errors = {}, epochs = {}, loading = new Set(), changing = new Map(), collapsed = new Map();
     let installed = [], reach = null, rows = [], started = false, scan = null, query = '', agent = '', needsAttention = false, showAll = false, markup = null, highlighted = new Set();
+    const filterKey = 't3-console-hide-bundled-skills';
+    let hideBundled = false, checking = false;
+    try { hideBundled = localStorage.getItem(filterKey) === 'true'; } catch { /* this session only */ }
     const columns = () => S.providers.filter(provider => showAll || installed.includes(provider.id));
     const roots = () => S.rootsFor(inventories, reach);
-    const library = () => ({ rows, inventories, errors, roots: roots(), installed, home: reach?.home || getStatus()?.paths?.volume,
+    const library = () => ({ rows, inventories, errors, roots: roots(), installed, agents: columns().map(provider => provider.id), home: reach?.home || getStatus()?.paths?.volume,
       install: options => importer.open(options), reviewHooks: pluginId => hooks.open(pluginId) });
     const hooks = T3SkillHooks.create({ api });
     const inspector = T3SkillInspector.create({ api, getLibrary: library, getStatus, availability: (...args) => availability(...args), refresh: () => loadAll(true), readMarkdown, downloadMarkdown });
@@ -87,14 +90,35 @@ const T3SkillsUI = (() => {
         items: row.stateOptions.map(option => ({ label: option.label, description: explanations[option.value], radio: true, checked: option.value === row.state, run: () => setState(id, provider, option.value) })),
         footer: html`${row.statePath ? html`Saved in <code>${S.displayPath(row.statePath, library().home)}</code>. ` : ''}Applies to new sessions.${provider === 'opencode' && row.effectiveStateText ? html`<br>${row.effectiveStateText}` : ''}` });
     };
-    const skillBadges = skill => html`${skill.packageManaged ? html`<span class="tc-tagline">${icon('lock')}Package${skill.packageSource ? html` <code>${skill.packageSource}</code>` : ''}</span>` : !Object.values(skill.byProvider).some(row => row.canEdit) ? html`<span class="tc-tagline">${icon('lock')}Read-only</span>` : ''}${skill.metadataError ? html`<span class="tc-badge tc-badge--warn" title="${skill.metadataError}">Check metadata</span>` : ''}`;
+    const checkUpdates = async () => {
+      if (checking || scan || loading.size) return;
+      const tracked = rows.filter(row => row.origin).map(row => ({ key: row.key, provider: row.provider, id: row.byProvider[row.provider].id, origin: row.origin }));
+      checking = true; paint();
+      try {
+        for (const skill of tracked) {
+          const epoch = epochs[skill.provider], inventory = inventories[skill.provider];
+          const current = inventory?.skills.find(row => row.id === skill.id);
+          if (errors[skill.provider] || current?.origin?.fingerprint !== skill.origin.fingerprint || current.origin.source !== skill.origin.source) continue;
+          const response = await api('/context/skills/check-update', { body: { provider: skill.provider, id: skill.id } });
+          if (epochs[skill.provider] !== epoch || inventories[skill.provider] !== inventory) continue;
+          const update = response.ok ? response.data.update : { ...skill.origin, status: 'error', error: response.error };
+          for (const data of Object.values(inventories)) for (const row of data.skills || []) {
+            if ((row.resolvedPath || row.path) === skill.key && row.origin?.fingerprint === skill.origin.fingerprint && row.origin.source === skill.origin.source) row.update = update;
+          }
+          rebuild(); paint();
+        }
+      } finally { checking = false; paint(); }
+    };
+    const updateBadge = skill => skill.update ? html`<span class="tc-badge${skill.update.status === 'available' ? ' tc-badge--ok' : skill.update.status === 'error' ? ' tc-badge--warn' : ''}" title="${skill.update.error || ''}">${skill.update.status === 'available' ? 'Update available' : skill.update.status === 'error' ? 'Update check failed' : 'Up to date'}</span>` : '';
+    const reviewSource = skill => importer.open({ source: skill.origin.source, names: [skill.origin.name], agents: [skill.provider], step: 2, mode: 'each' });
+    const skillBadges = skill => html`${updateBadge(skill)}${skill.packageManaged ? html`<span class="tc-tagline">${icon('lock')}Package${skill.packageSource ? html` <code>${skill.packageSource}</code>` : ''}</span>` : !Object.values(skill.byProvider).some(row => row.canEdit) ? html`<span class="tc-tagline">${icon('lock')}Read-only</span>` : ''}${skill.metadataError ? html`<span class="tc-badge tc-badge--warn" title="${skill.metadataError}">Check metadata</span>` : ''}`;
     const readersLabel = root => {
       const readers = (root.readers || []).filter(id => installed.includes(id));
       const others = readers.filter(id => id !== root.owner);
       return root.owner && others.length ? 'Also read by ' + M.listOf(others.map(S.nameOf)) : 'Read by ' + M.listOf(readers.map(S.nameOf));
     };
     const actions = () => html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.add">${icon('plus')}New skill</button><button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="skills.import">${icon('download')}Install from source…</button>`;
-    const agentMenu = trigger => Kit.menu(trigger, { label: 'Available to', items: [{ label: 'Any agent', radio: true, checked: !agent, run: () => { agent = ''; paint(); } }, ...S.providers.filter(provider => installed.includes(provider.id)).map(provider => ({ label: provider.name, radio: true, checked: agent === provider.id, run: () => { agent = provider.id; paint(); } }))] });
+    const agentMenu = trigger => Kit.menu(trigger, { label: 'Available to', items: [{ label: 'Any agent', radio: true, checked: !agent, run: () => { agent = ''; paint(); } }, ...columns().map(provider => ({ label: provider.name, radio: true, checked: agent === provider.id, run: () => { agent = provider.id; paint(); } }))] });
     const groupClosed = group => collapsed.has(group.key) ? collapsed.get(group.key) : !query && !needsAttention && ['system', 'admin'].includes(group.root.scope);
     const attentionNotice = skill => {
       const problem = Object.values(skill.byProvider).find(row => row.error || row.metadataError);
@@ -108,25 +132,31 @@ const T3SkillsUI = (() => {
     const phoneList = filtered => html`<div class="tc-sk-phone-list">${S.groups(filtered).map(group => html`<div class="tc-group tc-plist" data-key="phone-group-${group.key}"><div class="tc-plist-group"><button class="tc-mx-group-toggle" type="button" data-cmd="skills.group" data-id="${group.key}" aria-expanded="${String(!groupClosed(group))}">${group.label}</button><span>· ${group.rows.length}</span><span class="tc-spacer"></span><span>Read by ${(group.root.readers || []).filter(id => installed.includes(id)).length} agents</span></div>${groupClosed(group) ? '' : group.rows.map(skill => {
       const readers = installed.filter(id => !errors[id] && S.available(skill.byProvider[id]));
       const exceptions = installed.filter(id => skill.byProvider[id] && ['off', 'deny', 'disabled', 'ask', 'name-only', 'user-invocable-only'].includes(skill.byProvider[id].state)).map(id => S.state(skill.byProvider[id]).label + ' in ' + S.nameOf(id));
-      return html`<button class="tc-prow" type="button" data-key="phone-skill-${skill.key}" data-cmd="skills.view" data-id="${skill.key}"${highlighted.has(skill.name) ? raw(' data-highlight') : ''}><span class="tc-prow-name">${skill.name}</span><span class="tc-prow-desc">${skill.description}</span><span class="tc-prow-agents"><span class="tc-agent-stack" aria-hidden="true">${readers.map(mark)}</span><span>${M.plural(readers.length, 'agent')}${exceptions.length ? ' · ' + exceptions.join(', ') : ''}</span></span>${icon('chevron-right')}</button>`;
+      return html`<button class="tc-prow" type="button" data-key="phone-skill-${skill.key}" data-cmd="skills.view" data-id="${skill.key}"${highlighted.has(skill.name) ? raw(' data-highlight') : ''}><span class="tc-prow-name">${skill.name}${updateBadge(skill)}</span><span class="tc-prow-desc">${skill.description}</span><span class="tc-prow-agents"><span class="tc-agent-stack" aria-hidden="true">${readers.map(mark)}</span><span>${M.plural(readers.length, 'agent')}${exceptions.length ? ' · ' + exceptions.join(', ') : ''}</span></span>${icon('chevron-right')}</button>`;
     })}</div>`)}</div>`;
     const inventoryNotices = () => {
       const failed = new Map();
       for (const id of installed) if (errors[id]) failed.set(errors[id], [...(failed.get(errors[id]) || []), id]);
-      const notice = (title, description) => html`<div class="tc-notice tc-notice--warn tc-sk-provider-notice" role="status">${icon('triangle-alert')}<div class="tc-notice-body"><span class="tc-notice-title">${title}</span><span class="tc-notice-desc">${description}</span></div></div>`;
+      const notice = (title, description, tone = 'warn') => html`<div class="tc-notice tc-notice--${tone} tc-sk-provider-notice" role="status">${icon(tone === 'warn' ? 'triangle-alert' : 'info')}<div class="tc-notice-body"><span class="tc-notice-title">${title}</span><span class="tc-notice-desc">${description}</span></div></div>`;
       return html`${[...failed].map(([error, ids]) => notice(ids.length === 1 ? S.nameOf(ids[0]) + ' skills are unavailable' : ids.length + ' agents’ skills are unavailable',
         html`${ids.length > 1 ? html`${M.listOf(ids.map(S.nameOf))}<br>` : ''}${error}`))}
-        ${S.providers.filter(provider => installed.includes(provider.id)).flatMap(provider => [...(inventories[provider.id]?.nativeError ? [inventories[provider.id].nativeError] : []), ...(inventories[provider.id]?.warnings || [])].map(warning => notice(provider.name + ' skills need a look', warning)))}`;
+        ${columns().flatMap(provider => [
+          ...[...(inventories[provider.id]?.nativeError ? [inventories[provider.id].nativeError] : []), ...(inventories[provider.id]?.warnings || [])].map(warning => notice(provider.name + ' skills need a look', warning)),
+          ...(showAll && inventories[provider.id]?.adapter?.detected === false ? [notice(provider.name + ' isn’t detected here', 'Adding, editing and importing skills still work.', 'info')] : []),
+        ])}`;
     };
     const body = () => {
-      const filtered = S.filter(agent && errors[agent] ? [] : rows, { query, agent, needsAttention }), problems = rows.filter(row => row.attention);
+      const visibleRows = hideBundled ? rows.filter(row => row.scope !== 'system') : rows;
+      const hidden = rows.length - visibleRows.length;
+      const filtered = S.filter(agent && errors[agent] ? [] : visibleRows, { query, agent, needsAttention }), problems = visibleRows.filter(row => row.attention);
       const failed = installed.some(id => errors[id]), scanning = Boolean(scan) || loading.size > 0;
       const scannedAt = Math.min(...Object.values(inventories).map(inventory => inventory.scannedAt || Date.now()));
       return html`<div class="tc-sk-toolbar"><label class="tc-sk-search">${icon('search')}<input class="tc-input" type="search" id="skill-search" data-key="skill-search" value="${query}" placeholder="Search ${rows.length || ''} skills" aria-label="Search skills"><kbd class="tc-kbd">/</kbd></label><div class="tc-sk-desktop-filters"><button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.filter" aria-haspopup="menu">Available to <span class="tc-btn-value">${agent ? S.nameOf(agent) : 'Any agent'}</span>${icon('chevron-down', 'tc-chev')}</button>${problems.length ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.attention" aria-pressed="${String(needsAttention)}"><span class="tc-dot tc-dot--warn"></span>Needs attention <span class="tc-tab-count">${problems.length}</span></button>` : ''}</div><span class="tc-spacer"></span><div class="tc-sk-desktop-actions">${actions()}</div></div>
-        <div class="tc-chipbar tc-sk-agent-chips" aria-label="Available to"><button class="tc-chip-btn" type="button" data-cmd="skills.agent" data-provider="" aria-pressed="${String(!agent)}">All <span class="tc-tab-count">${rows.length}</span></button>${S.providers.filter(provider => installed.includes(provider.id)).map(provider => html`<button class="tc-chip-btn" type="button" data-cmd="skills.agent" data-provider="${provider.id}" aria-pressed="${String(agent === provider.id)}">${mark(provider.id)}${provider.name}<span class="tc-tab-count">${rows.filter(row => !errors[provider.id] && S.available(row.byProvider[provider.id])).length}</span></button>`)}</div>
+        <div class="tc-chipbar tc-sk-agent-chips" aria-label="Available to"><button class="tc-chip-btn" type="button" data-cmd="skills.agent" data-provider="" aria-pressed="${String(!agent)}">All <span class="tc-tab-count">${rows.length}</span></button>${columns().map(provider => html`<button class="tc-chip-btn" type="button" data-cmd="skills.agent" data-provider="${provider.id}" aria-pressed="${String(agent === provider.id)}">${mark(provider.id)}${provider.name}<span class="tc-tab-count">${rows.filter(row => !errors[provider.id] && S.available(row.byProvider[provider.id])).length}</span></button>`)}</div>
+        <div class="tc-sk-options"><label for="skill-hide-bundled">Hide bundled skills</label><button class="tc-switch tc-switch--sm" id="skill-hide-bundled" type="button" role="switch" aria-label="Hide bundled skills" aria-describedby="skill-filter-help" aria-checked="${String(hideBundled)}" data-cmd="skills.bundled"></button><span class="tc-hint" id="skill-filter-help">${hidden ? M.plural(hidden, 'skill') + ' hidden' : 'Filters this list only'}</span><button class="tc-btn tc-btn--sm tc-sk-other-agents" type="button" data-cmd="skills.columns" aria-expanded="${String(showAll)}"${!rows.length ? raw(' data-empty') : ''}>${showAll ? 'Hide other agents' : 'Show other agents'}</button><span class="tc-spacer"></span>${rows.some(row => row.origin) ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="skills.check-updates"${disabled(scanning || checking)}>${checking ? 'Checking updates…' : 'Check for updates'}</button>` : ''}</div>
         ${problems.length ? html`<button class="tc-sk-phone-notice" type="button" data-cmd="${problems.length === 1 ? 'skills.view' : 'skills.attention'}" data-id="${problems[0].key}" aria-pressed="${String(needsAttention)}">${icon('triangle-alert')}<span><strong>${problems.length === 1 ? problems[0].name + ' may not load' : problems.length + ' skills need attention'}</strong><span>${problems.length === 1 ? Object.values(problems[0].byProvider).find(row => row.metadataError || row.error)?.metadataError || 'Open the skill to review the problem.' : 'Review skills that may not load.'}</span></span>${icon('chevron-right')}</button>` : ''}
         <div class="tc-sk-notices">${problems.slice(0, 3).map(attentionNotice)}${problems.length > 3 ? html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="skills.attention">and ${problems.length - 3} more</button>` : ''}${inventoryNotices()}</div>
-        ${!rows.length && scanning ? html`<div class="tc-group tc-sk-skeleton" role="status" aria-label="Reading skill inventories">${[1, 2, 3, 4].map(i => html`<div class="tc-row"><span class="tc-skeleton"></span><span class="tc-hint">${i === 1 ? 'Reading skills across your agents…' : ''}</span></div>`)}</div>` : !filtered.length ? html`<div class="tc-group tc-empty tc-sk-empty"><span class="tc-empty-media"><span class="tc-empty-icon">${icon('sparkles')}</span></span><span class="tc-empty-title">${rows.length ? 'No skills match these filters' : failed ? 'Skills couldn’t be read' : 'No skills yet'}</span><span class="tc-empty-desc">${rows.length ? 'Try another search, agent or attention filter.' : failed ? 'Some agent inventories are unavailable. Retry the scan to check for skills.' : 'Add one, or install some from a source.'}</span><div class="tc-sk-empty-actions">${rows.length ? html`<button class="tc-btn" type="button" data-cmd="skills.clear">Clear filters</button>` : failed ? html`<button class="tc-btn" type="button" data-cmd="skills.refresh">Retry scan</button>` : actions()}</div></div>` : html`${table(filtered)}${phoneList(filtered)}`}
+        ${!rows.length && scanning ? html`<div class="tc-group tc-sk-skeleton" role="status" aria-label="Reading skill inventories">${[1, 2, 3, 4].map(i => html`<div class="tc-row"><span class="tc-skeleton"></span><span class="tc-hint">${i === 1 ? 'Reading skills across your agents…' : ''}</span></div>`)}</div>` : !filtered.length ? html`<div class="tc-group tc-empty tc-sk-empty"><span class="tc-empty-media"><span class="tc-empty-icon">${icon('sparkles')}</span></span><span class="tc-empty-title">${rows.length ? 'No skills match these filters' : failed ? 'Skills couldn’t be read' : 'No skills yet'}</span><span class="tc-empty-desc">${rows.length ? 'Try another search or clear the library filters.' : failed ? 'Some agent inventories are unavailable. Retry the scan to check for skills.' : 'Add one, or install some from a source.'}</span><div class="tc-sk-empty-actions">${rows.length ? html`<button class="tc-btn" type="button" data-cmd="skills.clear">Clear filters</button>` : failed ? html`<button class="tc-btn" type="button" data-cmd="skills.refresh">Retry scan</button>` : actions()}</div></div>` : html`${table(filtered)}${phoneList(filtered)}`}
         <div class="tc-sk-library-foot"><span>${icon('info', 'tc-icon--sm')}Changes apply to new sessions. A project’s own settings can still turn a skill off.</span>${installed.includes('codex') ? html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="skills.hooks">${icon('shield-check')}Plugin hooks…</button>` : ''}<span class="tc-sk-scan-time" title="${Number.isFinite(scannedAt) ? M.absTime(scannedAt) : ''}">${scanning ? 'Scanning…' : Number.isFinite(scannedAt) ? 'Scanned ' + M.relTime(scannedAt, Date.now()) : ''}</span><button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="skills.refresh"${disabled(scanning)}>${icon('refresh-cw')}${scanning ? 'Scanning' : 'Rescan'}</button></div>
         <div class="tc-sk-phone-actions">${actions()}</div>`;
     };
@@ -135,6 +165,7 @@ const T3SkillsUI = (() => {
       Kit.menu(trigger, { label: skill.name + ' actions', items: [
         { label: 'View', icon: 'file-text', run: () => inspector.open(key) },
         ...(skill.canEdit ? [{ label: 'Edit SKILL.md', icon: 'pencil', run: () => inspector.open(key, true) }] : []),
+        ...(skill.origin ? [{ label: skill.update?.status === 'available' ? 'Review update…' : 'Review source…', icon: 'download', run: () => reviewSource(skill) }] : []),
         { label: 'Copy path', icon: 'copy', run: () => Kit.copy(skill.path, trigger, 'Skill path copied') },
         { label: 'Copy to…', icon: 'copy', run: () => importer.open({ source: S.directory(skill.path), names: [skill.name], step: 2 }) },
         ...(skill.canRemove ? [{ sep: true }, { label: 'Remove…', icon: 'trash-2', danger: true, run: () => inspector.open(key, false).then(() => document.querySelector('[data-inspect-remove]')?.click()) }] : []),
@@ -143,6 +174,7 @@ const T3SkillsUI = (() => {
     return {
       content: () => html`<div class="tc-skills-library" id="skill-library" data-key="skill-library" data-keep>${markup || (markup = body())}</div>`, actions,
       activate: navigation => { if (!started || navigation && installed.join() !== S.providers.filter(provider => getStatus()?.harnesses?.some(row => row.id === provider.id && row.installed)).map(provider => provider.id).join()) return loadAll(); },
+      checkUpdates, toggleBundled: () => { hideBundled = !hideBundled; try { localStorage.setItem(filterKey, String(hideBundled)); } catch { /* this session only */ } paint(); },
       count: () => rows.length, refresh: () => loadAll(true), setState, policyMenu, menu,
       beforeNavigate: () => hooks.close() && importer.closeForNavigation() ? inspector.close('route') : false,
       hooks: () => hooks.open(),
@@ -155,9 +187,9 @@ const T3SkillsUI = (() => {
       search: value => { query = value; paint(); }, filter: agentMenu,
       focusSearch: () => document.getElementById('skill-search')?.focus(),
       select: value => { agent = value; paint(); }, attention: () => { needsAttention = !needsAttention; paint(); },
-      clear: () => { query = agent = ''; needsAttention = false; paint(); const field = document.getElementById('skill-search'); if (field) field.value = ''; },
+      clear: () => { query = agent = ''; needsAttention = hideBundled = false; try { localStorage.setItem(filterKey, 'false'); } catch { /* this session only */ } paint(); const field = document.getElementById('skill-search'); if (field) field.value = ''; },
       group: key => { const group = S.groups(rows).find(group => group.key === key); if (group) collapsed.set(key, !groupClosed(group)); paint(); },
-      columns: () => { showAll = !showAll; rebuild(); paint(); if (showAll) for (const provider of S.providers) if (!inventories[provider.id] && !loading.has(provider.id)) void loadProvider(provider.id); },
+      columns: () => { showAll = !showAll; if (!showAll && !installed.includes(agent)) agent = ''; rebuild(); paint(); if (showAll) for (const provider of S.providers) if (!inventories[provider.id] && !loading.has(provider.id)) void loadProvider(provider.id); },
       copy: (key, provider) => { const skill = rows.find(row => row.key === key); if (skill) importer.open({ source: S.directory(skill.path), names: [skill.name], agents: provider ? [provider] : undefined, step: 2 }); },
       copyGroup: key => { const group = S.groups(rows).find(group => group.key === key); if (group) importer.open({ source: group.root.path, agents: installed.filter(id => !(group.root.readers || []).includes(id)), step: 2 }); },
       paletteItems: () => [{ id: 'skills-install', label: 'Install skills from source…', desc: 'Preview and install skills into agent folders', icon: 'download', cmd: { cmd: 'skills.import' } }, { id: 'skills-new', label: 'New skill', desc: 'Write a local SKILL.md', icon: 'plus', cmd: { cmd: 'skills.add' } }, { id: 'skills-rescan', label: 'Rescan skills', desc: 'Refresh all agent inventories', icon: 'refresh-cw', cmd: { cmd: 'skills.refresh' } }, ...rows.map(row => ({ id: 'skill-' + row.key, quiet: true, label: row.name, desc: row.description, icon: 'file-text', cmd: { cmd: 'skills.view', id: row.key } }))],

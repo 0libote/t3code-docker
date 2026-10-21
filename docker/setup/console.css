@@ -928,6 +928,15 @@ html.tc-locked { overflow: hidden; }
 .tc-skill-name { appearance: none; padding: 0; border: 0; background: none; color: var(--fg); text-align: left; font: 500 14px/20px var(--font-sans); cursor: pointer; overflow-wrap: anywhere; }
 .tc-skill-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .tc-mx-row[data-highlight], .tc-prow[data-highlight] { background: var(--accent-soft); }
+.tc-sk-options { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: 44px; font-size: 12px; }
+.tc-sk-options label { display: inline-flex; align-items: center; min-height: 44px; cursor: pointer; }
+.tc-sk-options .tc-switch::before { content: ""; position: absolute; inset: -14px -9px; }
+.tc-sk-other-agents { display: none; }
+.tc-sk-other-agents[data-empty] { display: inline-flex; }
+@media (max-width: 1023.98px) { .tc-sk-other-agents { display: inline-flex; } }
+.tc-sk-options .tc-hint { margin: 0; }
+.tc-prow-name .tc-badge { margin-left: var(--space-2); vertical-align: middle; }
+.tc-skill-origin { display: block; overflow-wrap: anywhere; }
 .tc-sk-library-foot { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; font-size: 12px; line-height: 18px; color: var(--fg-muted); }
 .tc-sk-library-foot > span:first-child { display: inline-flex; align-items: center; gap: var(--space-2); flex: 1 1 28rem; }
 .tc-sk-scan-time { margin-left: auto; }
