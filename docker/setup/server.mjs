@@ -2655,7 +2655,7 @@ const server = createServer(async (req, res) => {
         const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
         if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Expected a skill operation object." });
         const result = route === "/context/skills/hooks/state" ? await skillsService.setHook(input.id, input.revision, input.action)
-          : route === "/context/skills/check-update" ? await skillsService.checkUpdate(input.provider, input.id)
+          : route === "/context/skills/check-update" ? input.skills === undefined ? await skillsService.checkUpdate(input.provider, input.id) : await skillsService.checkUpdates(input.skills)
           : route === "/context/skills/source" ? await skillsService.previewSource(input.source)
           : route === "/context/skills/plan" ? await skillsService.planImport(input.previewId, input.skills, input.providers)
           : route === "/context/skills/install" ? await skillsService.installImport(input.previewId, input.planId, input.replace)

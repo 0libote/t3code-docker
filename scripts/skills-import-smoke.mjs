@@ -22,6 +22,8 @@ try {
     await fs.writeFile(path.join(adapter, "SKILL.md"), markdown(version) + "Agent-specific variant.\n");
   };
   await writeSource(1);
+  // Local copies of repository installs must not inherit their tracking metadata.
+  await fs.writeFile(path.join(source, ".t3-skill-source.json"), '{"version":1,"source":"example/skills"}\n');
   const options = { home, env, getHarness: async (id) => id === provider ? { runnable: true, executable } : null };
   let service = createSkillsService(options);
   const importSkill = async (replace = false) => {
@@ -33,6 +35,7 @@ try {
     return result.results[0].directory;
   };
   const directory = await importSkill();
+  await assert.rejects(fs.stat(path.join(directory, ".t3-skill-source.json")), { code: "ENOENT" });
   const inventory = async () => {
     const result = await service.list(provider, { refresh: true });
     assert.equal(result.coverage, provider === "codex" ? "native" : "policy", result.nativeError);

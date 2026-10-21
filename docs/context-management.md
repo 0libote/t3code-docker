@@ -308,8 +308,11 @@ specific folder link to choose another variant. Duplicate names within the same
 discovery priority still require a specific folder.
 
 Repository installs remember their source and a fingerprint of the installed
-files in `.t3-skill-source.json` inside the skill folder. **Check for updates**
-on the Skills tab checks tracked repository installs on demand. It compares the
+files in `.t3-skill-source.json` inside the skill folder. Local **Copy to…**
+copies omit this metadata, preserve local edits and executable files, and need a
+repository re-import to enable their own update tracking. **Check for updates**
+on the Skills tab checks tracked repository installs on demand, fetching each
+source once per check action. A later check fetches fresh contents. It compares the
 skill's complete source contents and executable flags, so unrelated repository
 commits do not trigger an update. Ordinary inventory refreshes never fetch sources.
 Checks report **Up to date**, **Update available**, or **Update check failed**.

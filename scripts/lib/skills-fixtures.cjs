@@ -39,6 +39,7 @@ const createSkillsFixtures = ({ partial = false } = {}) => {
       hook.revision += '-saved'; return answer({ ok: true, hooks, warnings: [] });
     }
     if (at('/hooks')) return answer({ ok: true, hooks, warnings: [] });
+    if (at('/check-update')) return answer({ ok: true, results: (input.skills || [input]).map(skill => ({ ok: true, ...skill, update: { status: 'current', checkedAt: Date.now() } })) });
     if (at('/reach')) return answer({ ...reach, scannedAt: Date.now() - 120000 });
     if (at('/read')) {
       const skill = inventories[provider]?.skills.find(row => row.id === url.searchParams.get('id'));

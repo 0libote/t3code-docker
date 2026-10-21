@@ -115,6 +115,12 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   assert.equal(result.coverage, "policy"); assert.equal(result.skills.length, 1);
   const row = result.skills[0]; assert.equal(row.name, "one"); assert.ok(!("content" in row));
   assert.equal((await post("/context/skills/check-update", { provider: "claude", id: row.id })).status, 403);
+  assert.equal((await post("/context/skills/check-update", { skills: [] })).status, 400);
+  assert.equal((await post("/context/skills/check-update", { skills: [{ provider: "claude", id: "/etc/passwd" }] })).status, 400);
+  const batch = await (await post("/context/skills/check-update", { skills: [{ provider: "claude", id: row.id }] })).json();
+  assert.equal(batch.ok, true); assert.equal(batch.results.length, 1);
+  assert.equal(batch.results[0].id, row.id); assert.equal(batch.results[0].provider, "claude");
+  assert.equal(batch.results[0].ok, false); assert.equal(batch.results[0].code, "unsupported");
   const readPath = "/context/skills/read?provider=claude&id=" + row.id;
   assert.equal((await (await get(readPath + "&path=" + encodeURIComponent(other))).json()).content, markdown);
   assert.deepEqual((await (await get(readPath)).json()).files.map(file => file.name), ["SKILL.md"]);

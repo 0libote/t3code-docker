@@ -28,6 +28,8 @@ export function createSkillImporter({ home, env, io, metadata, policyFor, invali
     try {
       const snapshot = await resolveSource(source, { home, env, metadata });
       if (snapshot.links) return { ok: true, ...snapshot };
+      // A local copy keeps its files, but cannot inherit repository provenance.
+      if (snapshot.sourceType === "local") snapshot.skills = snapshot.skills.map(skill => ({ ...skill, files: skill.files.filter(file => file.name !== ORIGIN_FILE) }));
       const previewId = token(); previews.set(previewId, { ...snapshot, at: now(), plan: null });
       const createdAt = previews.get(previewId).at;
       return { ok: true, previewId, source: snapshot.source, sourceInfo: snapshot.sourceInfo, createdAt, expiresAt: createdAt + ttlMs, warnings: snapshot.warnings,

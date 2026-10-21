@@ -92,20 +92,24 @@ const T3SkillsUI = (() => {
     };
     const checkUpdates = async () => {
       if (checking || scan || loading.size) return;
-      const tracked = rows.filter(row => row.origin).map(row => ({ key: row.key, provider: row.provider, id: row.byProvider[row.provider].id, origin: row.origin }));
+      const tracked = rows.filter(row => row.origin && !errors[row.provider]).map(row => ({ key: row.key, provider: row.provider, id: row.byProvider[row.provider].id, origin: row.origin,
+        epoch: epochs[row.provider], inventory: inventories[row.provider] }));
+      if (!tracked.length) return;
       checking = true; paint();
       try {
-        for (const skill of tracked) {
-          const epoch = epochs[skill.provider], inventory = inventories[skill.provider];
-          const current = inventory?.skills.find(row => row.id === skill.id);
-          if (errors[skill.provider] || current?.origin?.fingerprint !== skill.origin.fingerprint || current.origin.source !== skill.origin.source) continue;
-          const response = await api('/context/skills/check-update', { body: { provider: skill.provider, id: skill.id } });
-          if (epochs[skill.provider] !== epoch || inventories[skill.provider] !== inventory) continue;
-          const update = response.ok ? response.data.update : { ...skill.origin, status: 'error', error: response.error };
-          for (const data of Object.values(inventories)) for (const row of data.skills || []) {
-            if ((row.resolvedPath || row.path) === skill.key && row.origin?.fingerprint === skill.origin.fingerprint && row.origin.source === skill.origin.source) row.update = update;
+        for (const source of new Set(tracked.map(skill => skill.origin.source))) {
+          const batch = tracked.filter(skill => skill.origin.source === source && epochs[skill.provider] === skill.epoch && inventories[skill.provider] === skill.inventory);
+          if (!batch.length) continue;
+          const response = await api('/context/skills/check-update', { body: { skills: batch.map(({ provider, id }) => ({ provider, id })) } });
+          for (const skill of batch) {
+            if (epochs[skill.provider] !== skill.epoch || inventories[skill.provider] !== skill.inventory) continue;
+            const result = response.ok ? response.data.results?.find(row => row.provider === skill.provider && row.id === skill.id) : response;
+            const update = result?.ok ? result.update : { ...skill.origin, status: 'error', error: result?.error || 'Could not check this installation. Refresh and try again.' };
+            for (const data of Object.values(inventories)) for (const row of data.skills || []) {
+              if ((row.resolvedPath || row.path) === skill.key && row.origin?.fingerprint === skill.origin.fingerprint && row.origin.source === skill.origin.source) row.update = update;
+            }
+            rebuild(); paint();
           }
-          rebuild(); paint();
         }
       } finally { checking = false; paint(); }
     };

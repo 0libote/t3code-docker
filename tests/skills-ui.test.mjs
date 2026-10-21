@@ -68,11 +68,12 @@ test('blocked browser storage still allows filtering for the session', async () 
 
 const tracked = { ...skills[0], origin: { source: 'org/repo', name: 'my-skill', fingerprint: 'a'.repeat(64) } };
 test('repository checks deduplicate physical copies and review selects only the owning installation', async () => {
-  const { ui, requests, installs } = await fixture([tracked], new Map(), url => url.endsWith('/check-update') ? { ok: true, data: { update: { ...tracked.origin, status: 'available' } } } : null);
+  const sibling = { ...tracked, id: 'second', name: 'second-skill', path: '/skills/second/SKILL.md', resolvedPath: '/skills/second/SKILL.md' };
+  const { ui, requests, installs } = await fixture([tracked, sibling], new Map(), (url, options) => url.endsWith('/check-update') ? { ok: true, data: { results: options.body.skills.map(skill => ({ ok: true, ...skill, update: { ...tracked.origin, status: 'available' } })) } } : null);
   await ui.checkUpdates();
   const checks = requests.filter(request => request.url.endsWith('/check-update'));
   assert.equal(checks.length, 1, 'two agent inventories refer to one physical installation');
-  assert.equal(checks[0].options.body.provider, 'codex');
+  assert.deepEqual(JSON.parse(JSON.stringify(checks[0].options.body.skills)), [{ provider: 'codex', id: tracked.id }, { provider: 'codex', id: sibling.id }]);
   assert.match(ui.content(), /Update available/);
   ui.menu(tracked.resolvedPath, {});
   assert.deepEqual(JSON.parse(JSON.stringify(installs[0])), { source: 'org/repo', names: ['my-skill'], agents: ['codex'], step: 2, mode: 'each' });
@@ -83,14 +84,31 @@ test('a late update response cannot overwrite a rescanned installation', async (
   const gate = new Promise(resolve => { release = resolve; });
   let started;
   const begin = new Promise(resolve => { started = resolve; });
-  const { ui } = await fixture([tracked], new Map(), async url => {
+  const { ui } = await fixture([tracked], new Map(), async (url, options) => {
     if (!url.endsWith('/check-update')) return null;
     started(); await gate;
-    return { ok: true, data: { update: { ...tracked.origin, status: 'available' } } };
+    return { ok: true, data: { results: options.body.skills.map(skill => ({ ok: true, ...skill, update: { ...tracked.origin, status: 'available' } })) } };
   });
   const checking = ui.checkUpdates();
   await begin;
   await ui.refresh();
   release(); await checking;
   assert.doesNotMatch(ui.content(), /Update available/);
+});
+
+test('batch failures remain attached to their own installation', async () => {
+  const sibling = { ...tracked, id: 'second', name: 'second-skill', path: '/skills/second/SKILL.md', resolvedPath: '/skills/second/SKILL.md' };
+  const { ui } = await fixture([tracked, sibling], new Map(), (url, options) => url.endsWith('/check-update') ? { ok: true, data: { results: options.body.skills.map(skill => skill.id === tracked.id
+    ? { ok: true, ...skill, update: { ...tracked.origin, status: 'available' } }
+    : { ok: false, ...skill, error: 'Installation changed' }) } } : null);
+  await ui.checkUpdates();
+  assert.match(ui.content(), /Update available/); assert.match(ui.content(), /Update check failed/); assert.match(ui.content(), /Installation changed/);
+});
+
+test('different repositories use separate requests', async () => {
+  const sibling = { ...tracked, id: 'second', name: 'second-skill', path: '/skills/second/SKILL.md', resolvedPath: '/skills/second/SKILL.md', origin: { ...tracked.origin, source: 'org/other' } };
+  const { ui, requests } = await fixture([tracked, sibling], new Map(), (url, options) => url.endsWith('/check-update') ? { ok: true, data: { results: options.body.skills.map(skill => ({ ok: true, ...skill, update: { status: 'current' } })) } } : null);
+  await ui.checkUpdates();
+  const checks = requests.filter(request => request.url.endsWith('/check-update'));
+  assert.equal(checks.length, 2); assert.ok(checks.every(check => check.options.body.skills.length === 1));
 });

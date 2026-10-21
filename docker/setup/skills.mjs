@@ -283,7 +283,8 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
   };
   const fileManager = createSkillFileManager({ home, env, io, rootsFor: (provider) => skillRoots(provider, { home, env }), metadata: skillMetadata, read, invalidate: () => cache.clear() });
   const importer = createSkillImporter({ home, env, io, metadata: skillMetadata, policyFor: fileManager.policyFor, invalidate: () => cache.clear(), resolveSource });
-  const checkUpdate = async (provider, id) => {
+  const checkUpdate = async (provider, id, batchSources) => {
+    const sources = batchSources || new Map();
     const row = await read(provider, id);
     if (!row.origin || !row.canEdit) throw problem("unsupported", "This skill has no tracked repository source. Re-import it from its repository to enable update checks.");
     const key = row.resolvedPath;
@@ -292,21 +293,38 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
     const pending = (async () => {
       let update;
       try {
-        const snapshot = await (resolveSource || resolveSkillSource)(row.origin.source, { home, env, metadata: skillMetadata });
-        const skill = snapshot.skills?.find((entry) => entry.name === row.origin.name);
-        if (!skill) throw new Error("The installed skill was not found in this source. It may have been renamed or removed.");
-        update = { ...row.origin, status: skillFingerprint(skill) === row.origin.fingerprint ? "current" : "available", checkedAt: Date.now() };
+        if (!sources.has(row.origin.source)) sources.set(row.origin.source, Promise.resolve().then(async () => {
+          const snapshot = await (resolveSource || resolveSkillSource)(row.origin.source, { home, env, metadata: skillMetadata });
+          // Keep fingerprints for this batch, rather than every downloaded file.
+          return new Map((snapshot.skills || []).map(skill => [skill.name, skillFingerprint(skill)]));
+        }));
+        const fingerprints = await sources.get(row.origin.source), fingerprint = fingerprints.get(row.origin.name);
+        if (!fingerprint) throw new Error("The installed skill was not found in this source. It may have been renamed or removed.");
+        update = { ...row.origin, status: fingerprint === row.origin.fingerprint ? "current" : "available", checkedAt: Date.now() };
       } catch (error) { update = { ...row.origin, status: "error", error: summaryError(error), checkedAt: Date.now() }; }
       // A replaced or removed installation must not inherit a stale check result.
       const current = await readSkillOrigin(io, row, home);
       if (!current || current.source !== row.origin.source || current.fingerprint !== row.origin.fingerprint) throw problem("conflict", "The installation changed while checking. Refresh and check again.");
       updateStates.delete(key); updateStates.set(key, update);
       if (updateStates.size > 1024) updateStates.delete(updateStates.keys().next().value);
-      cache.clear();
+      if (!batchSources) cache.clear();
       return { ok: true, id, update };
     })();
     updateChecks.set(key, pending);
     try { return await pending; } finally { updateChecks.delete(key); }
+  };
+  const checkUpdates = async (entries) => {
+    if (!Array.isArray(entries) || !entries.length || entries.length > Object.keys(PROVIDERS).length * DEFAULT_LIMITS.skills
+      || entries.some(entry => !entry || !Object.hasOwn(PROVIDERS, entry.provider) || typeof entry.id !== "string" || !/^[a-f0-9]{32}$/.test(entry.id))
+      || new Set(entries.map(entry => entry.provider + ":" + entry.id)).size !== entries.length) throw problem("invalid", "Choose discovered skill installations to check for updates.");
+    const sources = new Map(), results = [];
+    try {
+      for (const { provider, id } of entries) {
+        try { results.push({ ...await checkUpdate(provider, id, sources), provider }); }
+        catch (error) { results.push({ ok: false, provider, id, code: error.code || "unavailable", error: summaryError(error) }); }
+      }
+    } finally { cache.clear(); }
+    return { ok: true, results };
   };
   const reach = ({ refresh = false } = {}) => {
     const key = "reach", hit = cache.get(key);
@@ -317,5 +335,5 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
     cache.set(key, entry); return entry.promise;
   };
   const hooks = createPluginHookService({ home, env, io, getHarness, nativeList: nativeCodexHooks, nativeWrite: nativeCodexHookWrite });
-  return { list, read, reach, checkUpdate, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer, ...hooks };
+  return { list, read, reach, checkUpdate, checkUpdates, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer, ...hooks };
 }

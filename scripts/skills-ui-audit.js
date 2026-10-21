@@ -75,7 +75,7 @@ const checkSelect = async (page, select, theme) => {
           if (at('/check-update')) {
             if (updateGate) { updateStarted.resolve(); await updateGate.promise; updateGate = null; }
             const update = { status: updateStatus, error: updateStatus === 'error' ? 'Fixture repository unavailable' : undefined };
-            return route.fulfill({ json: { ok: true, id: input.id, update } });
+            return route.fulfill({ json: { ok: true, results: input.skills.map(skill => ({ ok: true, ...skill, update })) } });
           }
           if (at('/state')) {
             if (stateGate) { stateStarted.resolve(); await stateGate.promise; stateGate = null; }
@@ -430,6 +430,7 @@ const checkSelect = async (page, select, theme) => {
       await checkUpdates.click();
       await visible(target, '.tc-badge').filter({ hasText: 'Update available' }).waitFor();
       assert.equal(writes.filter(write => write.path.endsWith('/check-update')).length, 1);
+      assert.equal(writes.find(write => write.path.endsWith('/check-update')).input.skills.length, 1, 'one batch contains each physical installation once');
       await visible(target, '[data-cmd="skills.view"]').filter({ hasText: 'frontend-design' }).scrollIntoViewIfNeeded();
       await shot('repository-update');
       const trackedSkill = visible(target, '[data-cmd="skills.view"]').filter({ hasText: 'frontend-design' });
