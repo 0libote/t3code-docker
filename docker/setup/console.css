@@ -944,6 +944,13 @@ html.tc-locked { overflow: hidden; }
 .tc-layer--sheet > .tc-skill-inspector { width: min(520px, calc(100vw - 16px)); }
 .tc-insp-head, .tc-insp-foot { flex: none; }
 .tc-insp-foot { flex-wrap: wrap; }
+.tc-hook { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.tc-hook-head, .tc-hook-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.tc-hook-head strong { font-size: 13px; font-weight: 500; }
+.tc-hook-command { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/20px var(--font-mono); background: var(--surface-sunken); border: 1px solid var(--hairline); border-radius: var(--radius-md); padding: var(--space-3); margin-top: var(--space-2); }
+.tc-hook .tc-pathlist { border: 0; padding: 0; }
+.tc-skill-hooks .tc-hook-actions .tc-btn { min-height: 44px; }
+.tc-skill-hooks .tc-notice-desc { color: var(--danger-text); }
 .tc-insp-foot > .tc-hint { display: inline-flex; align-items: flex-start; gap: var(--space-2); }
 .tc-insp-body { min-height: 0; overscroll-behavior: contain; }
 .tc-insp-body .tc-editor-area { min-height: 320px; width: 100%; resize: vertical; font: 400 12px/20px var(--font-mono); }

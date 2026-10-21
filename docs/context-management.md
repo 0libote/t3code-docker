@@ -383,6 +383,30 @@ do not support compare-and-swap, so an external writer can still race the last
 check. Start a new conversation after changing availability: loaded instructions
 can remain in existing conversations, and project/session settings may differ.
 
+### Codex plugin hook review
+
+In Skills, **Plugin hooks** opens the installed Codex plugins' automatic commands.
+An installed plugin skill also has **Review plugin hooks** in its inspector.
+Each hook shows its event, complete command, source path, matcher and timeout,
+with separate trust and enabled states. Importing skill folders adds instructions;
+it does not install a plugin or its lifecycle hooks.
+
+**Review and trust** asks for consent to the displayed command. It records trust
+for the current native hook definition; a disabled hook stays disabled until
+you choose **Enable hook**. You can also disable a hook without changing its
+trust. Start a new Codex session after changing these settings. Hooks run with
+your container user's access and apply to the plugin, including all its skills.
+
+The console uses Codex's experimental `hooks/list` and native config APIs. It
+never starts a thread, executes a hook or bypasses hook trust. Changes check the
+reviewed definition and settings revision, use Codex's config version check,
+then verify the result. Changed definitions require another review. Managed
+hooks and hook types whose complete action is unavailable through native
+metadata stay read-only. Discovery errors and unsupported Codex versions show
+an error with a refresh action; no trust is inferred from skill availability.
+Only global installed-plugin hooks in the setup environment are managed here;
+project, user-defined and session-specific hooks remain in Codex's `/hooks` UI.
+
 ### Claude visibility and OpenCode permissions
 
 Claude's **Visibility** menu, in each skill's row, preserves all four native `skillOverrides` states:
@@ -483,12 +507,19 @@ node scripts/skills-policy-smoke.mjs opencode /absolute/path/to/opencode
 node scripts/skills-import-smoke.mjs claude /absolute/path/to/claude
 node scripts/skills-import-smoke.mjs codex /absolute/path/to/codex
 node scripts/skills-import-smoke.mjs opencode /absolute/path/to/opencode
+node scripts/skills-hooks-smoke.mjs /absolute/path/to/codex
 ```
 
 Claude 2.1.302 and OpenCode 1.19.3/2.0.31 passed native policy checks for every
 supported state, conflicts, fresh-process persistence and untouched skill content.
 OpenCode checks also verify comment preservation. Image smoke tests run these
-scripts against the packaged modules and managed binaries. The import smoke
+scripts against the packaged modules and managed binaries. The hook smoke installs
+a local fixture plugin in a disposable home and checks trust, enablement, changed
+definitions, restart persistence and symlinked settings without running a hook.
+`node scripts/skills-hooks-ui-audit.js http://127.0.0.1:23785/__setup/ dev`
+checks consent, stale/failed reads and writes, keyboard focus, long untrusted
+commands and the inspector link in light/dark phone, desktop and embedded layouts.
+The import smoke
 checks install supporting files, change a native policy, update the complete
 folder without changing that policy, verify discovery in a fresh process and
 remove the installation. Claude 2.1.302, Codex 0.163.0 and OpenCode 1.19.3/2.0.32 passed

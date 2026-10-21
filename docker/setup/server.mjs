@@ -2150,7 +2150,7 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/toolchains/install", "/toolchains/update", "/toolchains/uninstall", "/toolchains/cancel",
   "/auth/apikey/remove", "/auth/apikey", "/auth/signin", "/auth/session", "/auth/code", "/auth/cancel",
   "/source-control/signin", "/source-control/signout",
-  "/providers", "/updates/check",
+  "/providers", "/updates/check", "/context/skills/hooks", "/context/skills/hooks/state",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info",
   "/context/agents-md", "/context/skills/reach", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard", "/context/skills"];
@@ -2637,24 +2637,25 @@ const server = createServer(async (req, res) => {
     }
 
     // Skill discovery is on demand, never part of /status polling.
-    if (req.method === "GET" && (route === "/context/skills" || route === "/context/skills/read" || route === "/context/skills/reach")) {
+    if (req.method === "GET" && (route === "/context/skills" || route === "/context/skills/read" || route === "/context/skills/reach" || route === "/context/skills/hooks")) {
       try {
         const params = raw.searchParams;
-        const result = route === "/context/skills/reach" ? await skillsService.reach({ refresh: params.get("refresh") === "1" }) : route === "/context/skills/read"
+        const result = route === "/context/skills/hooks" ? await skillsService.listHooks() : route === "/context/skills/reach" ? await skillsService.reach({ refresh: params.get("refresh") === "1" }) : route === "/context/skills/read"
           ? await skillsService.read(params.get("provider"), params.get("id"))
           : await skillsService.list(params.get("provider"), { refresh: params.get("refresh") === "1" });
         return sendJson(res, 200, result);
       } catch (error) {
-        const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, too_large: 413 }[error?.code] || 500;
+        const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, too_large: 413, unsupported: 403 }[error?.code] || 500;
         return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "Skill discovery is unavailable.").slice(0, 300) });
       }
     }
 
-    if (req.method === "POST" && ["/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard"].includes(route)) {
+    if (req.method === "POST" && ["/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard", "/context/skills/hooks/state"].includes(route)) {
       try {
         const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
         if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Expected a skill operation object." });
-        const result = route === "/context/skills/source" ? await skillsService.previewSource(input.source)
+        const result = route === "/context/skills/hooks/state" ? await skillsService.setHook(input.id, input.revision, input.action)
+          : route === "/context/skills/source" ? await skillsService.previewSource(input.source)
           : route === "/context/skills/plan" ? await skillsService.planImport(input.previewId, input.skills, input.providers)
           : route === "/context/skills/install" ? await skillsService.installImport(input.previewId, input.planId, input.replace)
           : route === "/context/skills/discard" ? await skillsService.discardImport(input.previewId)
@@ -2662,7 +2663,7 @@ const server = createServer(async (req, res) => {
           : route === "/context/skills/save" ? await skillsService.save(input.provider, input.id, input.revision, input.content)
             : route === "/context/skills/state" ? await skillsService.setState(input.provider, input.id, input.stateRevision, input.enabled, input.state)
               : await skillsService.remove(input.provider, input.id, input.revision, input.removalRevision);
-        if (!["/context/skills/source", "/context/skills/plan", "/context/skills/discard"].includes(route)) recordEvent("context.saved", route === "/context/skills/install" ? "Imported local skills; review individual installation results" : route === "/context/skills/remove" ? "Removed a local skill installation" : route === "/context/skills/state" ? "Changed native skill availability" : "Saved a local skill");
+        if (!["/context/skills/source", "/context/skills/plan", "/context/skills/discard"].includes(route)) recordEvent("context.saved", route === "/context/skills/hooks/state" ? "Changed a Codex plugin hook setting" : route === "/context/skills/install" ? "Imported local skills; review individual installation results" : route === "/context/skills/remove" ? "Removed a local skill installation" : route === "/context/skills/state" ? "Changed native skill availability" : "Saved a local skill");
         return sendJson(res, 200, result);
       } catch (error) {
         const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, EEXIST: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || (error instanceof SyntaxError ? 400 : 500);

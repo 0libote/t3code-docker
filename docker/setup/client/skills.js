@@ -11,7 +11,8 @@ const T3SkillsUI = (() => {
     const columns = () => S.providers.filter(provider => showAll || installed.includes(provider.id));
     const roots = () => S.rootsFor(inventories, reach);
     const library = () => ({ rows, inventories, errors, roots: roots(), installed, home: reach?.home || getStatus()?.paths?.volume,
-      install: options => importer.open(options) });
+      install: options => importer.open(options), reviewHooks: pluginId => hooks.open(pluginId) });
+    const hooks = T3SkillHooks.create({ api });
     const inspector = T3SkillInspector.create({ api, getLibrary: library, getStatus, availability: (...args) => availability(...args), refresh: () => loadAll(true), readMarkdown, downloadMarkdown });
     const importer = T3SkillImport.create({ api, getLibrary: library, refresh: () => loadAll(true), showInLibrary: names => {
       highlighted = new Set(names); query = ''; agent = ''; needsAttention = false; paint();
@@ -126,7 +127,7 @@ const T3SkillsUI = (() => {
         ${problems.length ? html`<button class="tc-sk-phone-notice" type="button" data-cmd="${problems.length === 1 ? 'skills.view' : 'skills.attention'}" data-id="${problems[0].key}" aria-pressed="${String(needsAttention)}">${icon('triangle-alert')}<span><strong>${problems.length === 1 ? problems[0].name + ' may not load' : problems.length + ' skills need attention'}</strong><span>${problems.length === 1 ? Object.values(problems[0].byProvider).find(row => row.metadataError || row.error)?.metadataError || 'Open the skill to review the problem.' : 'Review skills that may not load.'}</span></span>${icon('chevron-right')}</button>` : ''}
         <div class="tc-sk-notices">${problems.slice(0, 3).map(attentionNotice)}${problems.length > 3 ? html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="skills.attention">and ${problems.length - 3} more</button>` : ''}${inventoryNotices()}</div>
         ${!rows.length && scanning ? html`<div class="tc-group tc-sk-skeleton" role="status" aria-label="Reading skill inventories">${[1, 2, 3, 4].map(i => html`<div class="tc-row"><span class="tc-skeleton"></span><span class="tc-hint">${i === 1 ? 'Reading skills across your agents…' : ''}</span></div>`)}</div>` : !filtered.length ? html`<div class="tc-group tc-empty tc-sk-empty"><span class="tc-empty-media"><span class="tc-empty-icon">${icon('sparkles')}</span></span><span class="tc-empty-title">${rows.length ? 'No skills match these filters' : failed ? 'Skills couldn’t be read' : 'No skills yet'}</span><span class="tc-empty-desc">${rows.length ? 'Try another search, agent or attention filter.' : failed ? 'Some agent inventories are unavailable. Retry the scan to check for skills.' : 'Add one, or install some from a source.'}</span><div class="tc-sk-empty-actions">${rows.length ? html`<button class="tc-btn" type="button" data-cmd="skills.clear">Clear filters</button>` : failed ? html`<button class="tc-btn" type="button" data-cmd="skills.refresh">Retry scan</button>` : actions()}</div></div>` : html`${table(filtered)}${phoneList(filtered)}`}
-        <div class="tc-sk-library-foot"><span>${icon('info', 'tc-icon--sm')}Changes apply to new sessions. A project’s own settings can still turn a skill off.</span><span class="tc-sk-scan-time" title="${Number.isFinite(scannedAt) ? M.absTime(scannedAt) : ''}">${scanning ? 'Scanning…' : Number.isFinite(scannedAt) ? 'Scanned ' + M.relTime(scannedAt, Date.now()) : ''}</span><button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="skills.refresh"${disabled(scanning)}>${icon('refresh-cw')}${scanning ? 'Scanning' : 'Rescan'}</button></div>
+        <div class="tc-sk-library-foot"><span>${icon('info', 'tc-icon--sm')}Changes apply to new sessions. A project’s own settings can still turn a skill off.</span>${installed.includes('codex') ? html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="skills.hooks">${icon('shield-check')}Plugin hooks…</button>` : ''}<span class="tc-sk-scan-time" title="${Number.isFinite(scannedAt) ? M.absTime(scannedAt) : ''}">${scanning ? 'Scanning…' : Number.isFinite(scannedAt) ? 'Scanned ' + M.relTime(scannedAt, Date.now()) : ''}</span><button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="skills.refresh"${disabled(scanning)}>${icon('refresh-cw')}${scanning ? 'Scanning' : 'Rescan'}</button></div>
         <div class="tc-sk-phone-actions">${actions()}</div>`;
     };
     const menu = (key, trigger) => {
@@ -143,7 +144,8 @@ const T3SkillsUI = (() => {
       content: () => html`<div class="tc-skills-library" id="skill-library" data-key="skill-library" data-keep>${markup || (markup = body())}</div>`, actions,
       activate: navigation => { if (!started || navigation && installed.join() !== S.providers.filter(provider => getStatus()?.harnesses?.some(row => row.id === provider.id && row.installed)).map(provider => provider.id).join()) return loadAll(); },
       count: () => rows.length, refresh: () => loadAll(true), setState, policyMenu, menu,
-      beforeNavigate: () => importer.closeForNavigation() ? inspector.close('route') : false,
+      beforeNavigate: () => hooks.close() && importer.closeForNavigation() ? inspector.close('route') : false,
+      hooks: () => hooks.open(),
       view: (id, editing = false) => inspector.open(id, editing), add: async () => {
         if (!started) await loadAll();
         if (!Object.values(inventories).some(inventory => inventory.canCreate)) await loadProvider('claude');

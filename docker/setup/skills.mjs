@@ -10,6 +10,7 @@ import { createSkillFileManager, skillRevision } from "./skills/files.mjs";
 import { createSkillPolicies } from "./skills/policies.mjs";
 import { createSkillImporter } from "./skills/imports.mjs";
 import { skillReach } from "./skills/reach.mjs";
+import { createPluginHookService } from "./skills/hooks.mjs";
 
 const PROVIDERS = Object.freeze({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok Build", muse: "Muse Code", antigravity: "Antigravity" });
 const DEFAULT_LIMITS = { entries: 2048, skills: 256, depth: 8, bytes: 4 * 1024 * 1024, fileBytes: 64 * 1024, milliseconds: 3000 };
@@ -145,7 +146,7 @@ export async function scanSkillFiles(provider, options) {
   return { skills: [...rows.values()], roots, warnings: [...warnings] };
 }
 
-export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, inspectClaude, inspectOpenCode, getHarness = async () => null, ttlMs = 15000, limits, resolveSource } = {}) {
+export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, nativeCodexHooks, nativeCodexHookWrite, inspectClaude, inspectOpenCode, getHarness = async () => null, ttlMs = 15000, limits, resolveSource } = {}) {
   home = path.resolve(home || env.HOME || "/home/t3");
   const cache = new Map();
   const policies = createSkillPolicies({ home, env, io, getHarness, inspectClaude, inspectOpenCode, invalidate: () => cache.clear() });
@@ -173,7 +174,7 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
           const resolvedPath = await io.realpath(entry.path).catch(() => null);
           byPath.set(entry.path, { ...previous, id: idFor(provider, entry.path), path: entry.path, resolvedPath,
             name: entry.name.slice(0, 256), description: entry.description.slice(0, 2048), scope: entry.scope,
-            source: entry.pluginId ? "Plugin" : entry.scope === "system" ? "System" : entry.scope === "admin" ? "Admin" : previous?.source || "Codex",
+            source: entry.pluginId ? "Plugin" : entry.scope === "system" ? "System" : entry.scope === "admin" ? "Admin" : previous?.source || "Codex", pluginId: typeof entry.pluginId === "string" ? entry.pluginId.slice(0, 256) : null,
             state: entry.enabled ? "enabled" : "disabled", native: true,
             error: previous?.error || (!resolvedPath ? "This skill's local file is unavailable." : null),
           });
@@ -278,5 +279,6 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
       .then(result => { entry.pending = false; entry.at = Date.now(); return { ...result, home }; }, error => { cache.delete(key); throw error; });
     cache.set(key, entry); return entry.promise;
   };
-  return { list, read, reach, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer };
+  const hooks = createPluginHookService({ home, env, io, getHarness, nativeList: nativeCodexHooks, nativeWrite: nativeCodexHookWrite });
+  return { list, read, reach, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer, ...hooks };
 }

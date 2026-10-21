@@ -78,7 +78,7 @@ const T3SkillInspector = (() => {
           <div class="tc-insp-body" aria-busy="${String(view.loading || view.saving)}">
             ${view.error ? html`<div class="tc-notice tc-notice--danger" role="alert">${icon('circle-alert')}<div><strong>${view.data || creating ? 'Couldn’t complete this change' : 'Couldn’t read this skill'}</strong><p>${view.error}</p></div></div>` : ''}
             ${creating ? html`<section class="tc-insp-section"><label class="tc-label" for="skill-target">Location</label><select class="tc-select" id="skill-target"${disabled(view.saving)}>${targets.map(target => html`<option value="${target.value}"${target.value === view.target ? raw(' selected') : ''}>${S.nameOf(target.provider)} · ${target.name}</option>`)}</select><p class="tc-hint">Other agents may read this folder too. Shared file changes affect everyone using it.</p><label class="tc-label" for="skill-slug">Folder name</label><input class="tc-input tc-mono" id="skill-slug" data-key="skill-slug" value="${view.slug}" placeholder="my-skill" maxlength="64" spellcheck="false" autocapitalize="none"${disabled(view.saving)}><p class="tc-hint">Lowercase letters, numbers and hyphens. The frontmatter name must match.</p></section>` : html`<p class="tc-insp-desc">${skill.description}</p>${renderAvailability()}${renderLocations()}${renderFiles()}`}
-            ${renderEditor()}
+            ${!creating && !view.editing && row()?.byProvider?.codex?.pluginId ? html`<section class="tc-insp-section"><div class="tc-insp-label">Plugin hooks</div><p class="tc-hint">Hook trust is separate from skill availability. Approval applies to this Codex plugin and all its skills.</p><button class="tc-btn tc-btn--sm" type="button" data-inspect-hooks>Review plugin hooks…</button></section>` : ''}${renderEditor()}
           </div><div class="tc-sheet-foot tc-insp-foot">${footer()}</div>` });
       window.addEventListener('beforeunload', beforeUnload);
       const syncEditor = () => {
@@ -109,6 +109,7 @@ const T3SkillInspector = (() => {
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && view.editing) { event.preventDefault(); view.layer.panel.querySelector('[data-inspect-save]')?.click(); }
       });
       const act = async (action, button) => {
+        if (action === 'data-inspect-hooks' && !view.saving && !view.loading) { getLibrary().reviewHooks(row()?.byProvider?.codex?.pluginId); return; }
         if (action === 'data-inspect-rescan') { if (await view.close('refresh')) await refresh(); return; }
         if (action === 'data-inspect-menu') {
           Kit.menu(button, { label: 'Skill actions', items: [

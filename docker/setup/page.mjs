@@ -31,6 +31,7 @@ export const CONSOLE_SCRIPTS = [
   "client/skill-model.js",
   "client/skill-inspector.js",
   "client/skill-import.js",
+  "client/skill-hooks.js",
   "client/skills.js",
   "app.js",
 ];

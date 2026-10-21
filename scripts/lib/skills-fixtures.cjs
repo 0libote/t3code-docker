@@ -14,6 +14,13 @@ const createSkillsFixtures = ({ partial = false } = {}) => {
   const reach = read('skills-reach');
   const inventories = Object.fromEntries(['claude', 'codex', 'opencode', 'cursor', 'grok', 'muse', 'antigravity'].map(id => [id, read('skills-' + id)]));
   const previews = new Map();
+  const hooks = ['sessionStart', 'userPromptSubmit', 'subagentStart'].map((eventName, index) => ({
+    id: 'fixture-hook-' + index, revision: 'fixture-hook-revision-' + index, pluginId: 'ponytail@local', eventName,
+    sourcePath: '/home/t3/.codex/plugins/cache/ponytail/hooks/hooks.json', handlerType: 'command',
+    command: 'node "/home/t3/.codex/plugins/cache/ponytail/hooks/' + ['activate', 'track', 'subagent'][index] + '.js"',
+    matcher: index ? null : 'startup|resume|clear|compact', timeoutSec: 15, async: false,
+    trustStatus: index === 1 ? 'modified' : index === 2 ? 'trusted' : 'untrusted', enabled: index !== 2, isManaged: false, readOnlyReason: null,
+  }));
   let serial = 0;
   let shared = '# How I work\n\nBe direct and specific. Explain tradeoffs and check your assumptions.\n\n## Before making changes\n\nRead the relevant code and tests. Keep changes focused on the task.\n\n## Quality\n\nTest the complete user journey. Preserve accessibility and keyboard controls.\n';
   const answer = (body, status = 200) => ({ status, body });
@@ -25,6 +32,13 @@ const createSkillsFixtures = ({ partial = false } = {}) => {
       return answer({ ok: true, content: shared, bytes: Buffer.byteLength(shared), revision: 'fixture-shared', path: '/home/t3/.t3/setup/context/AGENTS.md' });
     }
     if (!url.pathname.includes('/context/skills')) return null;
+    if (at('/hooks/state')) {
+      const hook = hooks.find(hook => hook.id === input.id);
+      if (!hook || hook.revision !== input.revision) return answer({ ok: false, error: 'The hook changed. Refresh and review the new definition.' }, 409);
+      if (input.action === 'trust') hook.trustStatus = 'trusted'; else hook.enabled = input.action === 'enable';
+      hook.revision += '-saved'; return answer({ ok: true, hooks, warnings: [] });
+    }
+    if (at('/hooks')) return answer({ ok: true, hooks, warnings: [] });
     if (at('/reach')) return answer({ ...reach, scannedAt: Date.now() - 120000 });
     if (at('/read')) {
       const skill = inventories[provider]?.skills.find(row => row.id === url.searchParams.get('id'));
@@ -69,6 +83,6 @@ const createSkillsFixtures = ({ partial = false } = {}) => {
     }
     return answer({ ok: true });
   };
-  return { respond, inventories, reach, previews };
+  return { respond, inventories, reach, previews, hooks };
 };
 module.exports = { createSkillsFixtures, contentFor, filesFor };
