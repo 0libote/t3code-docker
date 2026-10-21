@@ -62,7 +62,7 @@ async function readInstructionFile(fs, file) {
         bytes += result.bytesRead;
       }
       if (bytes > MAX_INSTRUCTION_BYTES) throw tooLarge(bytes);
-      return { content: buffer.toString("utf8", 0, bytes), bytes, mode: stat.mode & 0o777 };
+      return { content: buffer.toString("utf8", 0, bytes), bytes, mode: stat.mode & 0o777, modifiedAt: stat.mtimeMs };
     } finally {
       await handle.close();
     }
@@ -102,8 +102,8 @@ async function withInstructionWrite(file, work) {
 export async function readAgentsMd(fs, baseDir) {
   const file = agentsMdPathFor(baseDir);
   try {
-    const { content, bytes } = await readInstructionFile(fs, file);
-    return { present: true, path: file, content, revision: revisionFor(file, content), bytes, error: null };
+    const { content, bytes, modifiedAt } = await readInstructionFile(fs, file);
+    return { present: true, path: file, content, revision: revisionFor(file, content), bytes, modifiedAt, error: null };
   } catch (error) {
     return { present: error?.code === "too_large", path: file, content: null, revision: null,
       bytes: error?.bytes ?? 0, code: error?.code === "too_large" ? "too_large" : undefined,
@@ -206,9 +206,9 @@ export async function readProviderAgentsMd(fs, provider, { home = "/home/t3", en
   let resolvedPath;
   try {
     resolvedPath = await fs.realpath(target.path);
-    const { content, bytes, mode } = await readInstructionFile(fs, resolvedPath);
+    const { content, bytes, mode, modifiedAt } = await readInstructionFile(fs, resolvedPath);
     const revision = revisionFor(resolvedPath, content);
-    return { ok: true, ...target, resolvedPath, content, revision, bytes, mode };
+    return { ok: true, ...target, resolvedPath, content, revision, bytes, mode, modifiedAt };
   } catch (error) {
     if (error?.code === "too_large") return { ok: false, ...target, resolvedPath, content: null, revision: null, bytes: error.bytes, code: "too_large", error: error.message };
     return { ok: false, ...target, code: error?.code === "ENOENT" ? "missing" : error?.code === "invalid" ? "invalid" : "unavailable", error: error?.code === "ENOENT" ? "The instruction file or its linked target no longer exists" : String(error?.message ?? error) };
@@ -251,7 +251,7 @@ export async function providerInstructionState(fs, baseDir, provider, options = 
   return {
     ok: true, ...target, mode,
     sourceRevision: revisionFor(target.path, link + "\0" + read.revision),
-    resolvedPath: read.resolvedPath, error: null,
+    resolvedPath: read.resolvedPath, bytes: read.bytes, modifiedAt: read.modifiedAt, error: null,
   };
 }
 
@@ -331,7 +331,7 @@ export async function contextStatus(fs, { baseDir, home = "/home/t3", env = {} }
   const providers = [];
   for (const target of agentsMdTargets(env, home)) {
     const state = await providerInstructionState(snapshotFs, baseDir, target.provider, { home, env });
-    providers.push({ ...target, mode: state.mode, sourceRevision: state.sourceRevision, error: state.error ?? null });
+    providers.push({ ...target, mode: state.mode, sourceRevision: state.sourceRevision, bytes: state.bytes, modifiedAt: state.modifiedAt, error: state.error ?? null });
   }
-  return { agentsMd: { present: read.present, bytes: read.bytes, error: read.error }, providers };
+  return { agentsMd: { present: read.present, path: read.path, bytes: read.bytes, revision: read.revision, modifiedAt: read.modifiedAt, error: read.error }, providers };
 }

@@ -25,7 +25,7 @@ fs.mkdirSync(out, {recursive:true});
         {provider:'codex',supported:true,path:'/home/t3/.codex/config.toml',revision:'native-'+nativeRevision,linked:configured&&!differs?['probe']:[],diverged:configured&&differs?['probe']:[],unlinked:configured?[]:['probe']},
         {provider:'claude',supported:true,path:'/home/t3/.claude.json',revision:'native-'+nativeRevision,linked:[],diverged:claudePresent?['probe']:[],unlinked:claudePresent?[]:['probe']}
       ]});
-      const status = statusFor('ready'); status.context.mcp = snapshot();
+      const status = statusFor('skills'); status.context.mcp = snapshot();
       await routeConsole(page,{status:()=>status,ports:()=>portsFor('ready')});
       await page.route('**/*',async route=>{
         const req = route.request(), url = new URL(req.url());
@@ -83,6 +83,9 @@ fs.mkdirSync(out, {recursive:true});
       assert.equal(await target.locator('.tc-mcp-editor [aria-label=Close]').isDisabled(),true);
       await page.keyboard.press('Escape');
       assert.equal(await target.locator('.tc-mcp-editor').count(),1);
+      await target.evaluate(() => { location.hash = 'instructions/skills'; });
+      await target.waitForFunction(() => location.hash === '#instructions/mcp');
+      assert.equal(await target.locator('#cx-tab-mcp').getAttribute('aria-selected'), 'true', 'navigation waits for a save');
       finishSave(); pendingSave=null;
       await target.locator('.tc-mcp-editor').waitFor({state:'detached'});
       assert.deepEqual(definition.command,['server',' spaced ','']);
@@ -124,6 +127,29 @@ fs.mkdirSync(out, {recursive:true});
       assert.equal(await target.locator('#mcp-command').inputValue(),'not JSON');
       await target.locator('.tc-mcp-editor [data-mcp=close][aria-label=Close]').click();
       await target.getByRole('button',{name:'Discard changes',exact:true}).click();
+      // Page/history navigation shares the new library's draft protections.
+      await target.getByRole('button',{name:'Edit probe',exact:true}).click();
+      await target.locator('#mcp-command').waitFor();
+      await target.locator('#mcp-command').fill('["unsaved-server"]');
+      assert.equal(await target.evaluate(() => {
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event); return event.defaultPrevented;
+      }), true, 'reload warns while an MCP draft is dirty');
+      await target.evaluate(() => { location.hash = 'instructions/skills'; });
+      await target.getByRole('alertdialog').getByRole('button',{name:'Cancel',exact:true}).click();
+      await target.waitForFunction(() => location.hash === '#instructions/mcp');
+      assert.equal(await target.locator('#cx-tab-mcp').getAttribute('aria-selected'), 'true');
+      assert.equal(await target.locator('#mcp-command').inputValue(), '["unsaved-server"]');
+      await target.evaluate(() => { location.hash = 'instructions/skills'; });
+      await target.getByRole('button',{name:'Discard changes',exact:true}).click();
+      await target.locator('.tc-skills-library').waitFor();
+      assert.equal(await target.locator('.tc-mcp-editor').count(), 0);
+      await target.waitForFunction(() => document.querySelector('#cx-tab-skills')?.textContent.trim() === 'Skills 22');
+      assert.equal(await target.locator('#cx-tab-skills').innerText(), 'Skills 22');
+      await target.evaluate(() => { location.hash = 'instructions'; });
+      await target.locator('.tc-doc-preview .tc-code').waitFor();
+      await target.evaluate(() => { location.hash = 'instructions/mcp'; });
+      await target.locator('#mcp-provider').waitFor();
       readError=true;
       await target.getByRole('button',{name:'Edit probe',exact:true}).click();
       await target.getByRole('alert').filter({hasText:'Fixture read failure'}).waitFor();

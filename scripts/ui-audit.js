@@ -316,7 +316,7 @@ const audit = () => {
   const ROUTES = await (async () => {
     const response = await fetch(URL, { headers: { "x-t3-setup-key": KEY } });
     const document = await response.text();
-    const routes = [...document.matchAll(/<section class="tc-page" id="page-([a-z]+)"/g)].map((m) => m[1]);
+    const routes = [...document.matchAll(/<section class="tc-page(?: [^"]*)?" id="page-([a-z]+)"/g)].map((m) => m[1]);
     if (!routes.length) throw new Error("the console's document lists no pages; is the key right?");
     return routes;
   })();
@@ -329,7 +329,7 @@ const audit = () => {
     }));
     await page.goto(host, { waitUntil: "domcontentloaded" });
     const frame = await (await page.waitForSelector("iframe")).contentFrame();
-    await frame.waitForSelector("input[type=password]", { timeout: 60000 });
+    await frame.waitForSelector("input[type=password], #app", { timeout: 60000 });
     return new Proxy(frame, {
       get: (f, key) => (key === "keyboard" ? page.keyboard : typeof f[key] === "function" ? f[key].bind(f) : f[key]),
     });
@@ -482,8 +482,10 @@ const audit = () => {
     // still go through the page, to whichever frame has focus).
     const target = tag ? await framed(page, url) : page;
     if (!tag) await page.goto(url, { waitUntil: "domcontentloaded" });
-    await target.fill("input[type=password]", KEY);
-    await target.click("button[type=submit]");
+    if (await target.locator("input[type=password]").count()) {
+      await target.fill("input[type=password]", KEY);
+      await target.click("button[type=submit]");
+    }
     await target.waitForSelector("#page-overview .tc-check, #page-overview .tc-ready-line", { timeout: 60000 });
 
     const label = `${width}x${height}${tag}`;

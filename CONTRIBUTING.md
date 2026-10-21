@@ -29,6 +29,18 @@ Issues and pull requests are welcome. Before opening one:
   machine, and nothing it presses reaches the server. Screenshots go to
   `/tmp/t3-console-screens`; `--routes`, `--sizes`, `--themes` and
   `--scenarios` narrow a run. Attach the pages you changed to the pull request.
+  For Skills review without installed agents, `node scripts/console-preview.mjs`
+  serves the real console at `http://127.0.0.1:23785/__setup/` with an in-memory
+  API. It never connects to production or executes source files. Reload reads the
+  current console assets; restart resets fixture mutations. This is a review
+  server, not a deployment mode. `--scenarios skills --skill-overlays` adds the
+  seven-provider library, policy menu, inspector and all three import steps to
+  `console-screens.js`. Fixtures use synthetic instruction text and paths.
+  `node scripts/skills-ui-audit.js http://127.0.0.1:23785/__setup/ dev` exercises
+  desktop, phone, tablet and embedded flows in both themes, including settings
+  serialization, stale saves/plans, late replies, replacement consent and partial
+  retry. Like the other audits it uses the existing Playwright installation
+  (`NODE_PATH` if needed) and `CHROME_PATH` for Chromium.
   `node scripts/readme-media.js` rebuilds the README's picture
   (`docs/media/setup-{light,dark}.png`) and the Ports guide's
   (`docs/media/ports-panel.png`) from the same data; run it when a change

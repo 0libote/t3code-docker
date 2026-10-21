@@ -1,0 +1,221 @@
+{
+  "ok": true,
+  "home": "/home/t3",
+  "roots": [
+    {
+      "path": "/home/t3/.claude/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.claude/skills",
+      "paths": [
+        "/home/t3/.claude/skills"
+      ],
+      "owner": "claude",
+      "owners": [
+        "claude"
+      ],
+      "readers": [
+        "claude",
+        "opencode",
+        "cursor",
+        "grok",
+        "muse"
+      ],
+      "writableOwners": [
+        "claude"
+      ],
+      "writable": true,
+      "source": "Provider",
+      "scope": "user"
+    },
+    {
+      "path": "/home/t3/.codex/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.codex/skills",
+      "paths": [
+        "/home/t3/.codex/skills"
+      ],
+      "owner": "codex",
+      "owners": [
+        "codex"
+      ],
+      "readers": [
+        "codex",
+        "cursor",
+        "muse"
+      ],
+      "writableOwners": [
+        "codex"
+      ],
+      "writable": true,
+      "source": "Provider",
+      "scope": "user"
+    },
+    {
+      "path": "/home/t3/.config/opencode/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.config/opencode/skills",
+      "paths": [
+        "/home/t3/.config/opencode/skills"
+      ],
+      "owner": "opencode",
+      "owners": [
+        "opencode"
+      ],
+      "readers": [
+        "opencode"
+      ],
+      "writableOwners": [
+        "opencode"
+      ],
+      "writable": true,
+      "source": "Provider",
+      "scope": "user"
+    },
+    {
+      "path": "/home/t3/.cursor/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.cursor/skills",
+      "paths": [
+        "/home/t3/.cursor/skills"
+      ],
+      "owner": "cursor",
+      "owners": [
+        "cursor"
+      ],
+      "readers": [
+        "cursor",
+        "grok"
+      ],
+      "writableOwners": [
+        "cursor"
+      ],
+      "writable": true,
+      "source": "Provider",
+      "scope": "user"
+    },
+    {
+      "path": "/home/t3/.grok/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.grok/skills",
+      "paths": [
+        "/home/t3/.grok/skills"
+      ],
+      "owner": "grok",
+      "owners": [
+        "grok"
+      ],
+      "readers": [
+        "grok"
+      ],
+      "writableOwners": [
+        "grok"
+      ],
+      "writable": true,
+      "source": "Provider",
+      "scope": "user"
+    },
+    {
+      "path": "/home/t3/.config/muse/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.config/muse/skills",
+      "paths": [
+        "/home/t3/.config/muse/skills"
+      ],
+      "owner": "muse",
+      "owners": [
+        "muse"
+      ],
+      "readers": [
+        "muse"
+      ],
+      "writableOwners": [
+        "muse"
+      ],
+      "writable": true,
+      "source": "Provider",
+      "scope": "user"
+    },
+    {
+      "path": "/home/t3/.gemini/config/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.gemini/config/skills",
+      "paths": [
+        "/home/t3/.gemini/config/skills"
+      ],
+      "owner": "antigravity",
+      "owners": [
+        "antigravity"
+      ],
+      "readers": [
+        "antigravity"
+      ],
+      "writableOwners": [
+        "antigravity"
+      ],
+      "writable": true,
+      "source": "Provider",
+      "scope": "user"
+    },
+    {
+      "path": "/home/t3/.agents/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.agents/skills",
+      "paths": [
+        "/home/t3/.agents/skills"
+      ],
+      "owner": null,
+      "owners": [],
+      "readers": [
+        "codex",
+        "opencode",
+        "cursor",
+        "grok",
+        "muse"
+      ],
+      "writableOwners": [],
+      "writable": true,
+      "source": "Shared .agents",
+      "scope": "user"
+    },
+    {
+      "path": "/home/t3/.codex/skills/.system",
+      "resolvedPath": "/home/t3/.t3/agents/.codex/skills/.system",
+      "paths": [
+        "/home/t3/.codex/skills/.system"
+      ],
+      "owner": null,
+      "owners": [],
+      "readers": [
+        "codex"
+      ],
+      "writableOwners": [],
+      "writable": false,
+      "source": "System",
+      "scope": "system"
+    },
+    {
+      "path": "/etc/codex/skills",
+      "resolvedPath": "/etc/codex/skills",
+      "paths": [
+        "/etc/codex/skills"
+      ],
+      "owner": null,
+      "owners": [],
+      "readers": [
+        "codex"
+      ],
+      "writableOwners": [],
+      "writable": false,
+      "source": "Admin",
+      "scope": "admin"
+    },
+    {
+      "path": "/home/t3/.gemini/antigravity-cli/skills",
+      "resolvedPath": "/home/t3/.t3/agents/.gemini/antigravity-cli/skills",
+      "paths": [
+        "/home/t3/.gemini/antigravity-cli/skills"
+      ],
+      "owner": null,
+      "owners": [],
+      "readers": [
+        "antigravity"
+      ],
+      "writableOwners": [],
+      "writable": false,
+      "source": "Antigravity CLI",
+      "scope": "user"
+    }
+  ]
+}
