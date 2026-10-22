@@ -887,6 +887,13 @@ check "T3's login-shell PATH does not include the agent dispatcher" \
 check "toolchains run from any directory, as the t3 user" \
   "docker exec -u t3 $NAME bash -lc 'cd /tmp && go version && cargo --version && cargo clippy --version && rustfmt --version && bun --version && deno --version && uv --version'"
 
+storage_native_commands() {
+  docker cp "$SCRIPT_DIR/storage-native-smoke.mjs" "$NAME:/tmp/t3-storage-native-smoke.mjs" >/dev/null
+  docker exec -u t3 -e T3_STORAGE_HARNESS_ROOT=/opt/t3-harness "$NAME" \
+    bash -lc 'node /tmp/t3-storage-native-smoke.mjs'
+}
+check "native cache cleanup preserves shared dependencies and stays inside reviewed locations" storage_native_commands
+
 # T3 refuses an OpenCode below the floor its own binary declares, and the
 # manager refuses to select one. Both read the same number, or a T3 bump that
 # raises it slips through until someone's session fails.

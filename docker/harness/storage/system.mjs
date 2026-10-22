@@ -212,19 +212,26 @@ export async function processSnapshot({ pid = process.pid, uid = process.getuid?
   return { complete, processes };
 }
 
-export function buildsOrInstallsRunning(snapshot) {
+export function buildsOrInstallsRunning(snapshot, cacheIds = null) {
   if (!snapshot.complete) return true;
+  const relevant = (...ids) => !cacheIds || ids.some((id) => cacheIds.includes(id));
   return snapshot.processes.some(({ args, executable }) => {
     const bin = path.basename(executable || args[0] || "");
-    if (["go", "compile", "link", "rustc", "bunx"].includes(bin)) return true;
+    if (["go", "compile", "link"].includes(bin)) return relevant("go", "gomod");
+    if (bin === "rustc") return relevant("mise");
+    if (bin === "bunx") return relevant("bun");
+    if (bin === "uvx") return relevant("uv");
     // A Deno process of any kind can populate the Deno cache; cleaning while
     // one runs risks removing files from under it.
-    if (bin === "deno") return true;
-    if (bin === "cargo" && args.slice(1).some((arg) => /^(build|run|test|bench|install|fetch|update|add|remove|package|publish)$/.test(arg))) return true;
-    if (bin === "mise" && args.slice(1).some((arg) => /^(install|i|upgrade|up|uninstall)$/.test(arg))) return true;
+    if (bin === "deno") return relevant("deno");
+    if (bin === "cargo" && args.slice(1).some((arg) => /^(build|run|test|bench|install|fetch|update|add|remove|package|publish)$/.test(arg))) return relevant("mise");
+    if (bin === "mise" && args.slice(1).some((arg) => /^(install|i|upgrade|up|uninstall|run|r|exec|x)$/.test(arg))) return true;
+    // Bun can auto-install imports while running an application, and uv run
+    // and uvx use environments in the cache. They are activity, not idle time.
+    if (bin === "bun" && !(args.length === 2 && /^(--version|-v|--help|-h)$/.test(args[1]))) return relevant("bun");
     const packageTool = args.findIndex((arg) => /(?:^|\/)(?:npm(?:-cli\.js)?|pnpm(?:\.cjs)?|yarn(?:\.js)?|bun)$/.test(arg));
-    if (packageTool !== -1 && args.slice(packageTool + 1).some((arg) => /^(install|ci|add|update|upgrade|exec|dlx)$/.test(arg))) return true;
+    if (packageTool !== -1 && args.slice(packageTool + 1).some((arg) => /^(install|ci|add|update|upgrade|exec|dlx)$/.test(arg))) return relevant(path.basename(args[packageTool]) === "bun" ? "bun" : "npm");
     const uvTool = args.findIndex((arg) => /(?:^|\/)(?:uv|pip(?:\d(?:\.\d+)?)?)$/.test(arg));
-    return uvTool !== -1 && args.slice(uvTool + 1).some((arg) => /^(install|sync|add|lock|pip|tool|venv|download|wheel)$/.test(arg));
+    return uvTool !== -1 && args.slice(uvTool + 1).some((arg) => /^(run|install|sync|add|lock|pip|tool|venv|download|wheel)$/.test(arg)) && relevant("uv");
   });
 }
