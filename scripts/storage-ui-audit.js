@@ -10,6 +10,7 @@ try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require(
 const base = process.argv[2] || 'http://127.0.0.1:23780/__setup/';
 const key = process.argv[3] || 'dev', GB = 1e9;
 const output = process.env.T3_STORAGE_UI_OUTPUT || '/tmp/t3-storage-ui-audit';
+const spacingOnly = process.env.T3_STORAGE_UI_SPACING_ONLY === '1';
 const deferred = () => { let release; return { promise: new Promise(resolve => { release = resolve; }), release: () => release() }; };
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -27,6 +28,35 @@ const geometry = () => {
     const r = el.getBoundingClientRect(), style = getComputedStyle(el);
     if (!r.width || !r.height || el.matches('input,.tc-storage-path,.tc-switch')) continue;
     if (style.overflowX === 'visible' && el.scrollWidth > el.clientWidth + 1) issues.push((el.className || el.tagName) + ' clipped');
+  }
+  for (const row of document.querySelectorAll('.tc-storage .tc-row')) {
+    const lead = row.querySelector(':scope > .tc-tile'), main = row.querySelector(':scope > .tc-row-main');
+    if (lead && main) {
+      const gap = main.getBoundingClientRect().left - lead.getBoundingClientRect().right;
+      if (Math.abs(gap - parseFloat(getComputedStyle(row).columnGap)) > 1) issues.push('row text is detached from its icon');
+    }
+  }
+  // Overflow checks cannot detect a paragraph losing its indent or breathing
+  // room to the shell's reset. Check relationships between rendered text boxes.
+  for (const section of document.querySelectorAll('.tc-storage-policy-section')) {
+    const help = section.querySelector('.tc-hint'), detail = section.querySelector('.tc-storage-policy-detail,.tc-storage-policy-state');
+    if (help && detail) {
+      const a = help.getBoundingClientRect(), b = detail.getBoundingClientRect(), gap = b.top - a.bottom;
+      if (Math.abs(a.left - b.left) > 1) issues.push('policy explanation is not aligned with its description');
+      if (gap < 8 || gap > 20) issues.push('policy explanation has uneven vertical spacing');
+    }
+  }
+  for (const note of document.querySelectorAll('.tc-storage-cleanup .tc-storage-plan-note')) {
+    const previous = note.previousElementSibling;
+    if (previous && note.getBoundingClientRect().top - previous.getBoundingClientRect().bottom < 8) issues.push('cleanup note touches the preceding content');
+  }
+  for (const row of document.querySelectorAll('.tc-storage-plan-row[data-kept]')) {
+    const name = row.querySelector('.tc-row-name'), reason = row.querySelector('.tc-small'), detail = row.querySelector('.tc-storage-plan-effect');
+    if (detail) {
+      const a = name.getBoundingClientRect(), b = reason.getBoundingClientRect(), c = detail.getBoundingClientRect();
+      if (Math.abs(a.left - c.left) > 1) issues.push('protected-cache explanation is not aligned with its name');
+      if (c.top - b.bottom < 6) issues.push('protected-cache explanation touches its status');
+    }
   }
   return issues;
 };
@@ -115,7 +145,10 @@ const geometry = () => {
       await surface.locator('[data-key=storage-preferences]').click();
       assert.equal(await surface.locator('#storage-cache-limits').isVisible(),false,'off settings do not expose seven large fields');
       await snap('maintenance');
+      await surface.locator('[data-storage-switch=retainManagedVersions]').click(); await snap('maintenance-retention-off');
+      await surface.locator('[data-storage-switch=retainManagedVersions]').click();
       await surface.locator('[data-storage-limits]').click(); await check('expanded limits');
+      if (spacingOnly) await snap('maintenance-expanded');
       const footer = await surface.locator('.tc-storage-settings .tc-storage-dialog-foot').boundingBox();
       await surface.locator('.tc-storage-settings .tc-storage-dialog-scroll').evaluate(el => { el.scrollTop = el.scrollHeight; });
       assert.deepEqual(await surface.locator('.tc-storage-settings .tc-storage-dialog-foot').boundingBox(),footer,'settings footer stays fixed');
@@ -133,7 +166,7 @@ const geometry = () => {
       await surface.getByRole('alertdialog').getByRole('button',{name:'Cancel',exact:true}).click();
       assert.equal(await surface.locator('#storage-go-limit').inputValue(),'12.5','cancelled discard preserves the draft');
       mock.options.failPolicy = true; await surface.locator('[data-storage-save]').click();
-      await surface.locator('#storage-settings-error').waitFor(); assert.equal(await surface.locator('#storage-go-limit').inputValue(),'12.5'); await check('failed preferences');
+      await surface.locator('#storage-settings-error').waitFor(); assert.equal(await surface.locator('#storage-go-limit').inputValue(),'12.5'); await snap('maintenance-save-error');
       assert.equal(await surface.evaluate(() => document.activeElement.id),'storage-settings-error','save errors receive keyboard focus');
       assert(await surface.locator('#storage-settings-error').evaluate(el=>{
         const r=el.getBoundingClientRect(),body=el.closest('.tc-storage-dialog-scroll').getBoundingClientRect();
@@ -151,6 +184,12 @@ const geometry = () => {
       await surface.locator('#storage-go-limit').waitFor({state:'visible'});
       assert.equal(await surface.locator('#storage-go-limit').inputValue(),'12.5'); assert.equal(await surface.locator('#storage-uv-limit').inputValue(),'3');
       await cancel();
+
+      if (spacingOnly) {
+        assert.deepEqual(errors,[]); await context.close();
+        console.log(`PASS spacing ${tag}: text alignment, paragraph gaps, on/off policies, expanded limits, save errors, drafts and conflicts`);
+        continue;
+      }
 
       // Existing previous-version consent, stale replies and long inventories.
       await surface.locator('[data-key=storage-review]').click(); await surface.getByRole('dialog').waitFor();
