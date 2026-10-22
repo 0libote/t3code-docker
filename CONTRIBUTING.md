@@ -56,12 +56,28 @@ Issues and pull requests are welcome. Before opening one:
   shows on Overview, Agents or Ports.
   `node scripts/ui-audit.js http://127.0.0.1:23780/__setup/ dev` measures the
   same pages for clipped text, uneven buttons and misaligned glyphs.
+  `T3_UI_AUDIT_STATES=storage` narrows that shared audit to Storage; comma-separated
+  route or overlay names select other states without weakening the default run.
   `node scripts/storage-ui-audit.js http://127.0.0.1:23780/__setup/ dev`
-  checks storage layouts and keyboard flows in light/dark and embedded modes.
+  checks the complete cleanup and maintenance journeys in 18 light/dark
+  configurations, including short viewports and real embedded frames. It covers
+  protected caches, expired/stale reviews, late replies, repeated submissions,
+  background progress, partial retries, unsaved drafts and preference conflicts.
   Its storage data and mutations are intercepted, so it cannot clean a real
   cache or change preferences. Screenshots go to `/tmp/t3-storage-ui-audit`;
   set `T3_STORAGE_UI_OUTPUT` to change that location. The development console
   isolates its home, mise state, and caches under `/tmp/t3-dev/home`.
+  For a focused visual pass, `T3_STORAGE_UI_SPACING_ONLY=1` checks text alignment,
+  paragraph gaps, policy states, expanded limits and preference recovery across
+  the same viewports. It stops before the version and cleanup job scenarios.
+  The fixture console also supports Storage: run `node scripts/console-preview.mjs`
+  and open `http://127.0.0.1:23785/__setup/#storage`. Its writes stay in memory;
+  the same browser audit can use this URL. `node scripts/storage-native-smoke.mjs`
+  additionally checks the actual Go, Bun, Deno, uv and mise commands in disposable
+  homes, using local packages with no network. Install/select those tools first;
+  `T3_STORAGE_<TOOL>_BIN` can supply concrete binaries. The image smoke suite runs
+  these native checks after its normal first-start installation on both variants
+  and architectures.
   `node scripts/access-ui-audit.js http://127.0.0.1:23780/__setup/ dev`
   checks device renaming, revocation and pairing with delayed/failed fixture
   responses, repeated submissions, stale polls and incomplete list refreshes.

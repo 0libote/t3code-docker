@@ -67,6 +67,23 @@ test("storage view handles loading, unknown sizes, disk pressure, and job progre
   assert.equal(M.storageView({ storage: { operation: { state: 'interrupted' } } }, NOW).busy, false);
 });
 
+test("storage view lists every detected cache and names the one being cleared", () => {
+  const view = M.storageView({ storage: { at: NOW, disk: { usedPercent: 10 },
+    categories: [
+      { id: 'go', label: 'Go build cache', bytes: 100, cleanable: true, kind: 'cache' },
+      { id: 'uv', label: 'uv cache', bytes: 200, cleanable: true, kind: 'cache' },
+      { id: 'deno', label: 'Deno cache', bytes: 0, cleanable: false, kind: 'cache', unavailable: 'Install Deno to clean this cache.' },
+      { id: 'history', label: 'Threads & agent data', bytes: 300, kind: 'data' },
+    ],
+    operation: { state: 'running', phase: 'uv' } } }, NOW);
+  assert.deepEqual(plain(view.ids), ['go', 'uv']);
+  assert.equal(view.cleanableBytes, 300);
+  assert.deepEqual(view.cacheRows.map((row) => row.id), ['go', 'uv', 'deno']);
+  assert.equal(view.cacheRows[2].canClean, false);
+  assert.deepEqual(view.dataRows.map((row) => row.id), ['history']);
+  assert.match(view.progress, /uv cache/);
+});
+
 test("disk pressure appears in navigation attention and storage is searchable", () => {
   const status = { storage: { disk: { usedPercent: 89 } } };
   assert.equal(M.navBadges(status).storage.count, 1);

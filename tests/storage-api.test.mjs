@@ -87,21 +87,33 @@ test("storage API authenticates, validates, acknowledges durable jobs, and prese
   assert.equal(trimmed.policy.retainManagedVersions,true,'manual mode does not change automatic retention');
   assert.equal((await request("/proxy/__setup/storage")).status, 200);
   assert.equal((await request("/storage/refresh", {})).status, 202);
-  const accepted = await request("/storage/clean", { ids: ["go"] });
+  assert.equal((await request("/storage/clean", { ids: ["go"] })).status, 400, 'a fresh review is required');
+  assert.equal((await request("/storage/clean/preview", { ids: ["go"], path: workspace })).status, 400);
+  assert.equal((await request("/storage/clean/preview", { ids: ["go"] }, { "sec-fetch-site": "cross-site" })).status, 403);
+  const cleanupPlan = await (await request("/storage/clean/preview", { ids: ["go"] })).json();
+  assert.equal(cleanupPlan.caches[0].eligible, true);
+  assert.equal((await fs.readFile(path.join(go,'aa/archive'),'utf8')), 'keep or cache');
+  const accepted = await request("/storage/clean", { ids: ["go"], token: cleanupPlan.token });
   assert.equal(accepted.status, 202);
   const job = await accepted.json(); assert.equal(job.operation.state, "running");
   const record = JSON.parse(await fs.readFile(path.join(home, ".t3/setup/storage-operation.json")));
   assert.equal(record.id, job.operation.id); assert.equal(record.state, "running");
-  const concurrent = await request("/storage/clean", { ids: ["go"] }); assert.equal(concurrent.status, 409);
+  const concurrent = await request("/storage/clean", { ids: ["go"], token: cleanupPlan.token }); assert.equal(concurrent.status, 409);
   let status;
   for (let i = 0; i < 60; i++) {
     status = await (await request("/storage")).json();
     if (status.operation?.state === "succeeded") break;
     await pause(20);
   }
-  assert.equal(status.operation.state, "succeeded"); assert.ok(status.operation.reclaimedBytes > 0);
+  assert.equal(status.operation.state, "succeeded"); assert.ok(status.operation.removedCacheBytes > 0); assert.equal(status.operation.reclaimedBytes, null);
+  assert.equal((await request("/storage/clean", { ids: ["go"], token: cleanupPlan.token })).status, 409, 'consent is single-use');
   for (const file of protectedFiles) assert.equal(await fs.readFile(file, "utf8"), "keep or cache");
   assert.equal((await request("/storage/policy", { automatic: true, retainManagedVersions: false, goBudgetBytes: 750000000, npmBudgetBytes: 500000000 })).status, 200);
+  const preferences = await (await request('/storage')).json();
+  const revised = { ...preferences.policy, uvBudgetBytes: 1500000000 };
+  assert.equal((await request('/storage/policy', { policy: revised, revision: preferences.policyRevision })).status, 200);
+  const stale = await request('/storage/policy', { policy: preferences.policy, revision: preferences.policyRevision });
+  assert.equal(stale.status, 409); assert.equal((await stale.json()).code, 'stale-policy');
   await stop(); await start();
   status = await (await request("/storage")).json();
   assert.equal(status.policy.automatic, true); assert.equal(status.policy.retainManagedVersions, false);
