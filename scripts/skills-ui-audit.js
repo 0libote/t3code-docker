@@ -493,9 +493,23 @@ const checkSelect = async (page, select, theme) => {
       updateGate.resolve();
       await checkUpdates.waitFor();
       assert.equal(await target.locator('.tc-badge').filter({ hasText: 'Up to date' }).count(), 0, 'late checks cannot decorate a rescanned installation');
+      // The rescan above keeps painting as providers finish, and an open
+      // popover closes on any scroll, so wait until the library is quiet first.
+      // (Scoped to live controls: body textContent also matches inline scripts.)
+      const quiet = () => !document.querySelector('[data-cmd="skills.check-updates"]')?.textContent.includes('Checking updates')
+        && !document.querySelector('.tc-sk-scan-time')?.textContent.includes('Scanning')
+        && ![...document.querySelectorAll('.tc-mx-agent-kind')].some(el => el.textContent.includes('Reading'));
+      await target.waitForFunction(quiet);
       // Folder management stays available for undetected tools, including on phones.
+      // N.B. force-click the menu items: a synthetic scrollIntoView scrolls the
+      // page, and Kit closes popovers on any page scroll. Real pointer clicks
+      // never scroll, so they don't hit this. Scroll to the top first so the
+      // trigger click below settles before the menu opens.
+      await target.evaluate(() => window.scrollTo(0, 0));
       await visible(target, '[data-cmd="skills.columns"]').click();
-      await target.getByRole('menuitemradio', { name: /All agents/ }).click();
+      const showAllAgents = target.getByRole('menuitemradio', { name: /All agents/ });
+      await showAllAgents.waitFor({ state: 'visible' });
+      await showAllAgents.click({ force: true });
       await target.waitForFunction(() => [...document.querySelectorAll('.tc-notice-title')].some(node => node.textContent.includes('Antigravity isn’t detected')));
       await visible(target, '.tc-sk-provider-notice').filter({ hasText: 'Antigravity' }).scrollIntoViewIfNeeded();
       await shot('undetected-agent');
@@ -506,8 +520,14 @@ const checkSelect = async (page, select, theme) => {
       await target.getByRole('button', { name: 'Install 3 copies', exact: true }).waitFor();
       assert(writes.filter(write => write.path.endsWith('/plan')).at(-1).input.providers.includes('antigravity'), 'an explicitly selected undetected tool can receive a skill copy');
       await close();
+      // Showing all agents loads the undetected providers above; wait out
+      // those paints before reopening the menu.
+      await target.waitForFunction(() => ![...document.querySelectorAll('.tc-mx-agent-kind')].some(el => el.textContent.includes('Reading')));
+      await target.evaluate(() => window.scrollTo(0, 0));
       await visible(target, '[data-cmd="skills.columns"]').click();
-      await target.getByRole('menuitemradio', { name: /Installed agents/ }).click();
+      const installedAgents = target.getByRole('menuitemradio', { name: /Installed agents/ });
+      await installedAgents.waitFor({ state: 'visible' });
+      await installedAgents.click({ force: true });
       await navigate('instructions');
       await target.locator('.tc-doc-preview .tc-code').waitFor();
       assert.equal(await target.locator('.tc-reads-row').count(), 3);
