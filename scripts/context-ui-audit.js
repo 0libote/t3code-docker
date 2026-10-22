@@ -8,6 +8,9 @@ catch { ({ chromium } = require('playwright-core')); }
 const base = process.argv[2] || 'http://127.0.0.1:23780/__setup/';
 const key = process.argv[3] || 'dev';
 const assert = require('node:assert/strict');
+const fs = require('node:fs'), path = require('node:path');
+const output = process.env.T3_CONTEXT_UI_OUTPUT || '/tmp/t3-context-ui-audit';
+fs.mkdirSync(output, {recursive:true});
 (async () => {
  const browser = await chromium.launch({executablePath:process.env.CHROME_PATH || '/usr/bin/chromium', args:['--no-sandbox']});
  try {
@@ -16,24 +19,31 @@ const assert = require('node:assert/strict');
  const page = await browser.newPage({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce'});
  await page.addInitScript(mode => localStorage.setItem('t3-console-theme', mode), theme);
  const providerModes = {claude:'separate',codex:'separate',opencode:'separate'};
- let oversizedStatus = false;
+ let oversizedStatus = false, emptyStatus = true, unreadableStatus = false;
  let previewFail = true;
+ let previewContent = '# Preview instructions';
+ let releasePreview, previewStarted;
+ const previewGate = new Promise(resolve => { releasePreview = resolve; });
+ const previewReading = new Promise(resolve => { previewStarted = resolve; });
  const oversizedError = 'Instructions are too large to edit (64 KiB maximum). Edit the file directly to reduce its size.';
  const errors=[];page.on('pageerror', e=>errors.push(e.message));
  await page.route('**/status', async route => {
    const response = await route.fetch();
    const status = await response.json();
-   status.context.agentsMd = {present:true,bytes:12};
+   status.context.agentsMd = {present:true,bytes:12,path:'/home/t3/.t3/setup/context/AGENTS.md'};
    status.context.providers = ['claude', 'codex', 'opencode'].map(provider => ({provider, mode:providerModes[provider],sourceRevision:provider+'-'+providerModes[provider],path:'/home/t3/a-very-long-existing-configuration-directory-for-' + provider + '/AGENTS.md', bytes:12}));
+   if (emptyStatus) { status.context.agentsMd = {present:false,bytes:0,...(unreadableStatus ? {error:'Fixture instructions read failure'} : {})}; }
    if (oversizedStatus) {
      status.context.agentsMd = {present:true,bytes:65537,error:oversizedError};
      Object.assign(status.context.providers[1], {error:oversizedError,sourceRevision:null});
    }
    await route.fulfill({json:status});
  });
- await page.route('**/context/agents-md', route => route.request().method() === 'GET'
-   ? route.fulfill({status:previewFail ? 503 : 200,json:previewFail ? {ok:false,error:'Temporary preview read failure'} : {ok:true,content:'# Preview instructions',revision:'preview-revision'}})
-   : route.fallback());
+ await page.route('**/context/agents-md', async route => {
+   if (route.request().method() !== 'GET') { await route.fallback(); return; }
+   previewStarted(); await previewGate;
+   await route.fulfill({status:previewFail ? 503 : 200,json:previewFail ? {ok:false,error:'Temporary preview read failure'} : {ok:true,content:previewContent,revision:'preview-revision'}});
+ });
  await page.goto(base);
  if (await page.locator('input[type="password"]').isVisible()) {
    await page.locator('input[type="password"]').fill(key);
@@ -41,11 +51,56 @@ const assert = require('node:assert/strict');
    await page.locator('#app').waitFor();
  }
  await page.goto(base + (embedded ? '?embed=t3&theme=' + theme : '') + '#instructions');
+ await page.locator('.tc-ins-empty').waitFor();
+ const emptyLayout = await page.locator('.tc-ins-empty').evaluate(card => {
+   const box = card.getBoundingClientRect(), center = box.x + box.width / 2;
+   return [...card.children].map(child => { const r=child.getBoundingClientRect();return {center:Math.abs(r.x+r.width/2-center),width:r.width}; });
+ });
+ assert(emptyLayout.every(child => child.center < 1), 'empty icon, copy and action share one center line');
+ assert(emptyLayout[0].width <= 40, 'empty-state decoration keeps its intrinsic size');
+ if(width<1024)assert((await page.locator('.tc-ins-empty > .tc-btn').boundingBox()).height>=44,'first-write actions keep a 44px touch target');
+ for (const row of await page.locator('.tc-reads-path').all()) {
+   const metadata = await row.evaluate(el => [...el.children].filter(child => child.tagName === 'SPAN').map(child => ({height:child.getBoundingClientRect().height,lineHeight:parseFloat(getComputedStyle(child).lineHeight)})));
+   assert(metadata.every(item => item.height <= item.lineHeight + 1),'file sizes stay together beside long paths');
+   if(width<1024)assert((await row.getByRole('button',{name:/Edit/}).boundingBox()).height>=44,'own-file edits keep a 44px touch target');
+ }
+ await page.locator('#page-instructions').screenshot({path:path.join(output,`${theme}-${width}${embedded?'-embedded':''}-empty.png`)});
+ unreadableStatus = true; await page.reload();
+ await page.getByText('Shared instructions unavailable',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'Write AGENTS.md',exact:true}).count(),0,'a failed read never offers to create a replacement');
+ await page.locator('#page-instructions').screenshot({path:path.join(output,`${theme}-${width}${embedded?'-embedded':''}-unavailable.png`)});
+ emptyStatus = false; unreadableStatus = false;
+ await page.getByRole('button',{name:'Try again',exact:true}).click();
+ await previewReading;
+ await page.getByText('Reading shared instructions…',{exact:true}).waitFor();
+ assert.equal(await page.locator('.tc-doc-preview').evaluate(el=>getComputedStyle(el,'::after').content),'none','loading text has no fading overlay');
+ await page.locator('#page-instructions').screenshot({path:path.join(output,`${theme}-${width}${embedded?'-embedded':''}-preview-loading.png`)});
+ releasePreview();
  await page.locator('[data-cmd="context.edit"]').waitFor();
  await page.getByRole('button',{name:'Retry preview',exact:true}).waitFor();
+ assert.equal(await page.locator('.tc-doc-preview').evaluate(el=>getComputedStyle(el,'::after').content),'none','recovery notices have no fading overlay');
+ const recovery = await page.getByRole('button',{name:'Retry preview',exact:true}).boundingBox(), recoveryCopy = await page.locator('.tc-doc-preview .tc-notice-body').boundingBox();
+ assert(recovery.y >= recoveryCopy.y + recoveryCopy.height,'preview recovery has a separate row instead of crowding the error text');
+ assert(Math.abs(recovery.x-recoveryCopy.x)<1,'preview recovery aligns with its error text');
+ if(width<1024)assert(recovery.height>=44,'preview recovery keeps a 44px touch target');
+ await page.locator('#page-instructions').screenshot({path:path.join(output,`${theme}-${width}${embedded?'-embedded':''}-preview-error.png`)});
  previewFail = false;
  await page.getByRole('button',{name:'Retry preview',exact:true}).click();
  await page.locator('.tc-doc-preview .tc-code').filter({hasText:'# Preview instructions'}).waitFor();
+ assert.equal(await page.locator('.tc-doc-preview .tc-code').getAttribute('aria-label'),'Shared AGENTS.md preview');
+ assert.equal(await page.locator('.tc-doc-preview').evaluate(el=>getComputedStyle(el,'::after').content),'none','short instructions remain fully readable');
+ previewContent = '# Long instructions\n' + 'wrapped instruction '.repeat(120) + '\n' + Array.from({length:24},(_,i)=>'Line '+i).join('\n');
+ await page.reload();
+ await page.getByText('First 18 lines · On the state volume',{exact:true}).waitFor();
+ assert.equal(await page.locator('.tc-doc-preview .tc-code > span').count(),18,'long previews keep a bounded line count');
+ assert(await page.locator('.tc-doc-preview .tc-code').evaluate(el=>getComputedStyle(el).overflowY==='auto'&&el.scrollHeight>el.clientHeight),'wrapped preview lines remain reachable by scrolling');
+ assert(await page.locator('.tc-doc-foot > span').evaluate(el=>el.getBoundingClientRect().height<=parseFloat(getComputedStyle(el).lineHeight)+1),'preview metadata stays together beside its file path');
+ assert(await page.locator('.tc-doc-foot > code').evaluate(el=>el.getBoundingClientRect().height<=parseFloat(getComputedStyle(el).lineHeight)+1),'a normal shared-file path stays whole at narrow widths');
+ await page.locator('#page-instructions').screenshot({path:path.join(output,`${theme}-${width}${embedded?'-embedded':''}-preview-content.png`)});
+ previewContent = '# Preview instructions'; await page.reload();
+ await page.locator('.tc-doc-preview .tc-code').filter({hasText:previewContent}).waitFor();
+ const head=await page.locator('.tc-doc-head').boundingBox(), edit=await page.locator('.tc-doc-head [data-cmd="context.edit"]').boundingBox();
+ assert(Math.abs(head.x+head.width-edit.x-edit.width-14)<2,'document actions align to the card end');
  assert.equal(await page.locator('html').getAttribute('data-theme'),theme);
  assert.equal(await page.locator('#page-instructions .tc-ins-section').count(),2);
  assert.equal(await page.getByRole('tab',{name:'Instructions',exact:true}).getAttribute('aria-selected'),'true');

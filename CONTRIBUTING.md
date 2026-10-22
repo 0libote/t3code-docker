@@ -41,6 +41,15 @@ Issues and pull requests are welcome. Before opening one:
   serialization, stale saves/plans, late replies, replacement consent and partial
   retry. Like the other audits it uses the existing Playwright installation
   (`NODE_PATH` if needed) and `CHROME_PATH` for Chromium.
+  Review console changes beyond the populated mockup: empty, loading, unavailable,
+  expanded, hover and keyboard-focus states, long paths, and both scroll edges.
+  Compare the changed states at the same viewport in light and dark, including a
+  narrow phone and the embedded console. Use the shared Kit controls throughout;
+  check touch targets and keep recovery actions readable. Add a regression to the
+  relevant browser audit for the defect. `node scripts/context-ui-audit.js
+  http://127.0.0.1:23785/__setup/ dev` covers Instructions, including failed reads,
+  draft preservation and save conflicts; its screenshots go to
+  `/tmp/t3-context-ui-audit` (`T3_CONTEXT_UI_OUTPUT` overrides it).
   `node scripts/readme-media.js` rebuilds the README's picture
   (`docs/media/setup-{light,dark}.png`) and the Ports guide's
   (`docs/media/ports-panel.png`) from the same data; run it when a change
