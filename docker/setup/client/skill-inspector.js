@@ -5,7 +5,7 @@ const T3SkillInspector = (() => {
   const S = T3SkillModel;
   const disabled = value => value ? raw(' disabled') : '';
   const bytes = value => T3Model.formatBytes(value || 0);
-  const code = text => html`<pre class="tc-code" tabindex="0" aria-label="SKILL.md contents">${String(text).split('\n').map(line => html`<span>${line || '\n'}</span>`)}</pre>`;
+  const code = (text, label = 'SKILL.md contents') => html`<pre class="tc-code" tabindex="0" aria-label="${label}">${String(text).split('\n').map(line => html`<span>${line || '\n'}</span>`)}</pre>`;
   const create = ({ api, getLibrary, getStatus, availability, refresh, readMarkdown, downloadMarkdown }) => {
     let active = null;
     const repaint = () => { if (active && !active.layer.closed) active.layer.render(); };

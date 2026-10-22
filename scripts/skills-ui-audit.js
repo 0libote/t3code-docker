@@ -51,7 +51,7 @@ const checkSelect = async (page, select, theme) => {
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] });
   try {
-    for (const theme of ['light', 'dark']) for (const [width, height, embedded] of [[1440, 900], [390, 844], [360, 720], [820, 900], [1198, 878, true]]) {
+    for (const theme of ['light', 'dark']) for (const [width, height, embedded] of [[1440, 900], [1024, 900], [390, 844], [360, 720], [820, 900], [1198, 878, true]]) {
       if (process.env.T3_SKILLS_UI_THEMES && !process.env.T3_SKILLS_UI_THEMES.split(',').includes(theme)) continue;
       if (process.env.T3_SKILLS_UI_WIDTHS && !process.env.T3_SKILLS_UI_WIDTHS.split(',').includes(String(width))) continue;
       console.log('Starting', theme, width);
@@ -117,16 +117,58 @@ const checkSelect = async (page, select, theme) => {
       const close = async () => { await page.keyboard.press('Escape'); await target.locator('.tc-layer:not([data-closing]) [role=dialog]').waitFor({ state: 'hidden' }); };
       const openSource = async () => { await visible(target, '[data-cmd="skills.import"]').click(); await target.locator('#skill-source').fill('vercel-labs/skills'); await target.locator('#skill-source').press('Enter'); await target.locator('[data-import-all]').waitFor(); };
       const next = () => target.locator('[data-import-next]');
+      const checkColumns = async () => {
+        const columnButton = target.locator('.tc-mx-columns');
+        await columnButton.click();
+        assert.equal(await target.getByRole('menuitemradio',{name:/Installed agents/}).getAttribute('aria-checked'),'true');
+        await page.keyboard.press('Escape');
+        assert(await columnButton.evaluate(el=>el===document.activeElement),'column menu returns keyboard focus');
+        await columnButton.click();
+        await target.getByRole('menuitemradio',{name:/All agents/}).click();
+        await target.waitForFunction(() => document.querySelectorAll('.tc-mx-agent').length === 7);
+        assert.equal(await target.locator('.tc-mx-agent[data-uninstalled]').count(), 2);
+        await target.waitForFunction(() => { const table=document.querySelector('.tc-mx'); return table.scrollWidth <= table.clientWidth + 1 && ![...table.querySelectorAll('.tc-mx-agent-kind')].some(el=>el.textContent.includes('Reading')); });
+        const containment = await target.locator('.tc-mx').evaluate(table => {
+          const right = table.getBoundingClientRect().right;
+          return {overflow:table.scrollWidth-table.clientWidth,rows:[...table.querySelectorAll('.tc-mx-head,.tc-mx-row')].map(row=>({right:row.getBoundingClientRect().right,cells:row.querySelectorAll(':scope > [role=cell],:scope > [role=columnheader]').length,last:row.lastElementChild.getBoundingClientRect().right})),right};
+        });
+        assert(containment.overflow<=1,'expanded agent columns stay within the table background: '+containment.overflow+'px overflow');
+        assert(containment.rows.every(row=>row.cells===8&&Math.abs(row.right-containment.right)<1&&Math.abs(row.right-row.last-8)<1),'headers and every data row share the same eight columns and end inset');
+        assert.equal(await target.locator('.tc-mx-row > .tc-mx-actions').count(),0,'row actions do not reserve an anonymous trailing column');
+        const sticky = await target.locator('.tc-mx-scroll').evaluate(scroll => {
+          scroll.scrollLeft=scroll.scrollWidth-scroll.clientWidth;
+          const left=scroll.getBoundingClientRect().left, first=scroll.querySelector('.tc-mx-skill').getBoundingClientRect(), button=scroll.querySelector('[data-cmd="skills.columns"]').getBoundingClientRect();
+          const header=scroll.querySelector('.tc-mx-head'), label=scroll.querySelector('.tc-mx-head-label'), group=scroll.querySelector('.tc-mx-group').getBoundingClientRect();
+          return {first:first.left-left,button:button.left-left,width:scroll.clientWidth,headerCover:header.getBoundingClientRect().height-label.getBoundingClientRect().height,groupLeft:group.left-left,groupWidth:group.width};
+        });
+        assert(Math.abs(sticky.first)<1 && sticky.button>=0 && sticky.button<sticky.width,'skill names, row actions and column menu remain visible at the far scroll edge');
+        assert(sticky.headerCover<=1&&Math.abs(sticky.groupLeft)<1&&Math.abs(sticky.groupWidth-sticky.width)<1,'fixed headers cover scrolling text and folder context fits the visible table');
+        await shot('all-agent-columns');
+        const firstPolicy = target.locator('.tc-mx-row .tc-cellwrap button').first();
+        await firstPolicy.focus();
+        const focusClear = await firstPolicy.evaluate(button => button.getBoundingClientRect().left >= button.closest('.tc-mx-row').querySelector('.tc-mx-skill').getBoundingClientRect().right - 1);
+        assert(focusClear,'keyboard focus scrolls policy controls clear of the fixed skill column');
+        await columnButton.click(); await shot('agent-columns-menu');
+        assert.equal(await target.getByRole('menuitemradio',{name:/All agents/}).getAttribute('aria-checked'),'true');
+        await target.getByRole('menuitemradio',{name:/Installed agents/}).click();
+        await target.waitForFunction(() => document.querySelectorAll('.tc-mx-agent').length === 5);
+      };
       await navigate('instructions/skills');
       await target.locator('.tc-mx-row').first().waitFor({ state: 'attached' });
       await target.waitForFunction(() => !document.querySelector('.tc-mx-agent-kind')?.textContent.includes('Reading'));
       assert.equal(await target.locator('.tc-mx-row').count(), 18);
       assert.equal(await target.locator('.tc-mx-agent').count(), 5);
       assert.equal(await target.locator('#cx-tab-skills').innerText(), 'Skills 22');
+      if (width >= 1024 && width !== 1440) await checkColumns();
       const inventoryCount = Object.values(gets).reduce((a, b) => a + b, 0);
       await target.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await page.waitForTimeout(300);
       assert.equal(Object.values(gets).reduce((a, b) => a + b, 0), inventoryCount, 'routine status polling must not discover skills');
+      await target.locator('#skill-search').fill('__no_skill_matches__');
+      await target.getByText('No skills match these filters',{exact:true}).waitFor();
+      const clearFilters=target.getByRole('button',{name:'Clear filters',exact:true});
+      if(width<1024)assert((await clearFilters.boundingBox()).height>=44,'empty-state recovery keeps a 44px touch target');
+      await shot('filtered-empty'); await clearFilters.click();
       await page.keyboard.press('/');
       assert.equal(await target.evaluate(() => document.activeElement.id), 'skill-search');
       await target.locator('#skill-search').fill('research narrative');
@@ -252,10 +294,7 @@ const checkSelect = async (page, select, theme) => {
         assert.equal(await target.getByText('No skills yet', { exact: true }).count(), 0, 'discovery failures must not masquerade as an empty library');
         providerError = null; await target.getByRole('button', { name: 'Retry scan', exact: true }).click();
         await target.locator('.tc-mx-row').first().waitFor();
-        await visible(target, '[data-cmd="skills.columns"]').click();
-        await target.waitForFunction(() => document.querySelectorAll('.tc-mx-agent').length === 7);
-        assert.equal(await target.locator('.tc-mx-agent[data-uninstalled]').count(), 2);
-        await visible(target, '[data-cmd="skills.columns"]').click();
+        await checkColumns();
         // A closed source request must release its late snapshot, never reopen.
         sourceGate = deferred(); sourceStarted = deferred();
         await visible(target, '[data-cmd="skills.import"]').click();
@@ -456,6 +495,7 @@ const checkSelect = async (page, select, theme) => {
       assert.equal(await target.locator('.tc-badge').filter({ hasText: 'Up to date' }).count(), 0, 'late checks cannot decorate a rescanned installation');
       // Folder management stays available for undetected tools, including on phones.
       await visible(target, '[data-cmd="skills.columns"]').click();
+      await target.getByRole('menuitemradio', { name: /All agents/ }).click();
       await target.waitForFunction(() => [...document.querySelectorAll('.tc-notice-title')].some(node => node.textContent.includes('Antigravity isn’t detected')));
       await visible(target, '.tc-sk-provider-notice').filter({ hasText: 'Antigravity' }).scrollIntoViewIfNeeded();
       await shot('undetected-agent');
@@ -467,6 +507,7 @@ const checkSelect = async (page, select, theme) => {
       assert(writes.filter(write => write.path.endsWith('/plan')).at(-1).input.providers.includes('antigravity'), 'an explicitly selected undetected tool can receive a skill copy');
       await close();
       await visible(target, '[data-cmd="skills.columns"]').click();
+      await target.getByRole('menuitemradio', { name: /Installed agents/ }).click();
       await navigate('instructions');
       await target.locator('.tc-doc-preview .tc-code').waitFor();
       assert.equal(await target.locator('.tc-reads-row').count(), 3);

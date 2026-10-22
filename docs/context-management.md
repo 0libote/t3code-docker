@@ -21,7 +21,8 @@ missing native files:
 
 The shared file's header says which agents read it. Its actions menu offers
 upload, download and delete; the preview refreshes when its revision changes or
-when you retry a failed preview. Under **What each agent
+when you retry a failed preview. A long preview shows its first 18 lines in a
+scrollable region; the editor opens the full file. Under **What each agent
 reads**, each agent has one choice of three:
 
 - **Shared AGENTS.md** uses the global file, so subsequent global edits reach
@@ -80,7 +81,9 @@ The **Skills** tab is one library across installed Claude Code, Codex,
 OpenCode, Cursor, Grok Build, Muse Code and Antigravity agents. Each physical
 `SKILL.md` is one row, joined by resolved path, with one column per installed
 agent. A name appearing in two different folders remains two installations.
-The `+N` header button reveals agents that are not installed. On phones, the
+The **Installed agents** menu in the Skill header switches to **All agents**,
+including agents that are not installed. Skill names, row actions and folder
+context stay visible while scrolling across agent columns. On phones, the
 matrix becomes a grouped list with available-agent chips and a fixed install bar.
 
 Groups identify the owning folder, its actual path, and the other agents that
@@ -503,10 +506,16 @@ node scripts/context-ui-audit.js http://127.0.0.1:23780/__setup/ dev
 node scripts/skills-ui-audit.js http://127.0.0.1:23780/__setup/ dev
 ```
 
+The Instructions audit saves screenshots in `/tmp/t3-context-ui-audit`; set
+`T3_CONTEXT_UI_OUTPUT` to choose another directory. It checks empty, loading and
+unavailable states, readable bounded previews, long paths and touch targets,
+alongside editor drafts and recovery.
+
 The skills UI audit saves screenshots in `/tmp/t3-skills-ui-audit`; set
 `T3_SKILLS_UI_OUTPUT` to choose another directory. It checks keyboard focus across
 import stages, dismissal of slow reads, late-response isolation, replacement
-consent and partial results at phone, tablet and desktop sizes in both themes.
+consent, partial results, column menus, table containment and horizontal scrolling
+at phone, tablet and desktop sizes in both themes.
 
 The browser audits need `playwright` or `playwright-core` and Chromium. In an
 image with Playwright under `/opt/t3/node_modules`, set
