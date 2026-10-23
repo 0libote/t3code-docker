@@ -132,4 +132,9 @@ allow/ask/deny user policies and reports the Build agent's effective rule.
 Unmanaged shared skills can be added, edited and removed from Codex/OpenCode.
 Other providers show **Found** with a discovery-only explanation. Phone layouts
 use grouped lists and bottom sheets. Status polling does not rescan skills or reset drafts.
+The separate **[MCP servers](mcp-servers.md)** page defines servers once and
+compares every installed agent’s native copy. Add/Remove, per-agent On/Off,
+difference review, snippet import, editing, sharing and removal all check native
+revisions and preserve backups. Its inspector masks credentials until revealed.
+Grok Build is imports only; Muse Code and Antigravity are not managed here.
 See [Context management](context-management.md) for paths and verification.

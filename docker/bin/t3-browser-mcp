@@ -50,8 +50,8 @@ Notes:
   * Chromium is sandboxed by the container already, so --no-sandbox is passed.
   * chrome-devtools-mcp officially supports Google Chrome rather than Debian's
     Chromium; it does work here, but playwright is the tested default.
-  * Each harness is registered through its managed executable. Install the
-    harness (setup page or `t3-harness install`) before registering MCP with it.
+  * Install the managed harness (setup page or `t3-harness install`) first.
+    Claude uses its native CLI; Codex/OpenCode use the setup config adapters.
 USAGE
 }
 
@@ -105,8 +105,6 @@ harness_exec() { # id
   fi
 }
 
-json_args="$(printf '%s\n' "${args[@]}" | jq -R . | jq -s .)"
-
 register_claude() {
   local bin
   bin="$(harness_exec claude)"
@@ -124,60 +122,33 @@ register_claude() {
   fi
 }
 
+# Use the console's adapters so both entry points agree on JSONC precedence,
+# OpenCode V2 nesting, TOML sections, backups and file symlinks.
+write_browser_entry() {
+  "$T3_INFRA_NODE" --input-type=module - "$1" "$name" "$action" "$cmd" "${args[@]}" <<'NODE'
+import * as io from "node:fs/promises";
+const { writeProviderMcpEntry } = await import(process.env.T3_MCP_ADAPTERS_MODULE || "file:///opt/t3-setup/mcp/adapters.mjs");
+const [provider, name, action, command, ...args] = process.argv.slice(2);
+const entry = action === "remove" ? null : provider === "codex"
+  ? { command, args } : { type: "local", command: [command, ...args], enabled: true };
+await writeProviderMcpEntry(io, provider, { home: process.env.HOME, env: process.env }, name, entry);
+NODE
+}
+
 register_codex() {
   local bin
   bin="$(harness_exec codex)"
   [ -n "$bin" ] || { echo "  codex: not installed"; return; }
-  local config="${CODEX_HOME:-$HOME/.codex}/config.toml"
-  mkdir -p "$(dirname "$config")"
-  touch "$config"
-
-  # Drop any block we previously wrote, then re-add if needed.
-  local tmp; tmp="$(mktemp)"
-  awk -v marker="# >>> t3-browser-mcp:${name} >>>" \
-      -v endmarker="# <<< t3-browser-mcp:${name} <<<" '
-    $0 == marker { skip = 1 }
-    skip != 1 { print }
-    $0 == endmarker { skip = 0 }
-  ' "$config" > "$tmp"
-  mv "$tmp" "$config"
-
-  if [ "$action" = "remove" ]; then
-    echo "  codex: removed $name"
-    return
-  fi
-
-  {
-    printf '\n# >>> t3-browser-mcp:%s >>>\n' "$name"
-    printf '[mcp_servers.%s]\n' "$name"
-    printf 'command = "%s"\n' "$cmd"
-    printf 'args = %s\n' "$(printf '%s' "$json_args" | jq -c .)"
-    printf '# <<< t3-browser-mcp:%s <<<\n' "$name"
-  } >> "$config"
-  echo "  codex: registered $name in $config (via $bin)"
+  write_browser_entry codex
+  echo "  codex: $action $name (via $bin)"
 }
 
 register_opencode() {
   local bin
   bin="$(harness_exec opencode)"
   [ -n "$bin" ] || { echo "  opencode: not installed"; return; }
-  local config="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
-  mkdir -p "$(dirname "$config")"
-  [ -s "$config" ] || echo '{"$schema":"https://opencode.ai/config.json"}' > "$config"
-
-  local tmp; tmp="$(mktemp)"
-  if [ "$action" = "remove" ]; then
-    jq --arg n "$name" 'del(.mcp[$n])' "$config" > "$tmp"
-    mv "$tmp" "$config"
-    echo "  opencode: removed $name"
-    return
-  fi
-
-  jq --arg n "$name" --arg c "$cmd" --argjson a "$json_args" \
-     '.mcp[$n] = {type: "local", command: ([$c] + $a), enabled: true}' \
-     "$config" > "$tmp"
-  mv "$tmp" "$config"
-  echo "  opencode: registered $name in $config (via $bin)"
+  write_browser_entry opencode
+  echo "  opencode: $action $name (via $bin)"
 }
 
 printf '%s %s (%s)\n' \

@@ -136,6 +136,7 @@
   const storageUI = T3StorageUI.create({ api, getStatus: () => state.status, reload: () => loadStatus(), render: () => render() });
   const skillsUI = T3SkillsUI.create({ api, getStatus: () => state.status, render: () => render(),
     readMarkdown: (file) => readMarkdownFile(file, 64 * 1024), downloadMarkdown: (...args) => downloadMarkdown(...args) });
+  const mcpUI = T3McpUI.create({ api, getStatus: () => state.status, render: () => render() });
 
   /** Whether this browser came in on its T3 Code session rather than the key, so Lock would end nothing. */
   const viaT3 = (s) => Boolean(s && s.viewer && s.viewer.via === 't3');
@@ -212,6 +213,7 @@
         tellAttention();
         checkHere();
         if (state.route === 'instructions' && state.contextTab === 'skills') skillsUI.activate();
+        if (state.route === 'mcp') mcpUI.activate();
         if (state.route === 'instructions' && state.contextTab === 'instructions') void loadInstructionsPreview();
       } else if (!locked) {
         // Name the URL and the reason. "Could not read status" sent someone
@@ -1826,6 +1828,7 @@
   // ---------------------------------------------------------------- shell --
   const PAGES = {
     overview: overviewPage, access: accessPage, agents: agentsPage, instructions: instructionsPage,
+    mcp: () => html`${mcpUI.phoneHead()}${pageHead('mcp', { sub: 'Servers your agents can start or connect to. Define one once, then add it to the agents you choose.' })}${mcpUI.content()}`,
     toolchains: toolchainsPage, sourcecontrol: sourceControlPage, ports: portsPage,
     updates: updatesPage, storage: storagePage, server: serverPage, more: morePage,
   };
@@ -1890,6 +1893,7 @@
   // Access), which is rewritten in place so the address bar says where it is.
   const routeFromHash = () => {
     const [name, sub] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
+    if (name === 'instructions' && sub === 'mcp') { history.replaceState(null, '', '#mcp'); return 'mcp'; }
     const route = T3Routes.resolve(name);
     if (route && route !== name) history.replaceState(null, '', '#' + route + (sub ? '/' + sub : ''));
     if (route === 'instructions') state.contextTab = sub === 'skills' ? 'skills' : 'instructions';
@@ -1922,6 +1926,7 @@
     if (route === 'ports' && !state.ports) loadPorts();
     if (route === 'instructions' && state.contextTab === 'skills' && state.status) skillsUI.activate(true);
     if (route === 'instructions' && state.contextTab === 'instructions' && state.status) void loadInstructionsPreview(true);
+    if (route === 'mcp' && state.status) mcpUI.activate(true);
   };
   const navigateFromHash = async focus => {
     const version = ++navigationVersion;
@@ -1930,7 +1935,8 @@
     // keeps the old route, tab and draft together.
     if (!navigationTask) navigationTask = (async () => {
       if (contextEditor.layer && !await contextEditor.requestClose()) return false;
-      return skillsUI.beforeNavigate();
+      if (!await skillsUI.beforeNavigate()) return false;
+      return mcpUI.beforeNavigate();
     })();
     const allowed = await navigationTask;
     if (version !== navigationVersion) return;
@@ -3551,6 +3557,18 @@
     'skills.group': (a) => skillsUI.group(a.id),
     'skills.copy': (a) => skillsUI.copy(a.id, a.provider),
     'skills.copy-group': (a) => skillsUI.copyGroup(a.id),
+    'mcp.refresh': () => mcpUI.refresh(),
+    'mcp.view': (a) => mcpUI.view(a.id, a.provider),
+    'mcp.add': () => mcpUI.add(),
+    'mcp.cell': (a, el) => mcpUI.cellMenu(a.id, a.provider, el),
+    'mcp.agent': (a, el) => mcpUI.agentMenu(el),
+    'mcp.filter': (a) => mcpUI.filterAgent(a.provider || ''),
+    'mcp.attention': () => mcpUI.attention(),
+    'mcp.columns': (a, el) => mcpUI.columnsMenu(el),
+    'mcp.group': (a) => mcpUI.group(a.id),
+    'mcp.share': (a) => mcpUI.share(a.id, a.provider),
+    'mcp.link': (a) => mcpUI.toggle(a.provider, a.id),
+    'mcp.apply': (a) => mcpUI.apply(a.provider, a.id),
     'storage.goto': () => go('storage'),
     refresh: () => { loadStatus(); loadPorts(); },
     goto: (a) => go(a.route),
@@ -3911,6 +3929,7 @@
     render();
   });
   document.addEventListener('change', (e) => {
+    if (e.target.id === 'mcp-provider') mcpUI.select(e.target.value);
     if (e.target.hasAttribute('data-skill-policy')) skillsUI.setState(e.target.getAttribute('data-skill-policy'), e.target.getAttribute('data-skill-provider'), e.target.value);
   });
 
@@ -3952,7 +3971,7 @@
 
   // ------------------------------------------------------------ shortcuts --
   Kit.bind('mod+k', openPalette);
-  Kit.bind('/', () => state.route === 'instructions' && state.contextTab === 'skills' ? skillsUI.focusSearch() : openPalette());
+  Kit.bind('/', () => state.route === 'mcp' ? mcpUI.focusSearch() : state.route === 'instructions' && state.contextTab === 'skills' ? skillsUI.focusSearch() : openPalette());
   for (const page of T3Routes.PAGES) {
     if (page.key) Kit.bind('g ' + page.key, () => { keyboardNav = true; go(page.route); });
   }

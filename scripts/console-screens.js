@@ -62,6 +62,12 @@ const withSkillOverlays = args.includes("--skill-overlays");
 // The overlays worth a picture: how to reach each from a loaded console. Each
 // returns false when the scenario has nothing to open.
 const OVERLAYS = [
+  ['mcp-inspector', async (t) => {
+    await t.evaluate(() => { location.hash = 'mcp'; });
+    const edit = await t.waitForSelector('[data-cmd="mcp.view"]', { timeout: 5000 }).catch(() => null);
+    if (!edit) return false;
+    await edit.click(); await t.waitForSelector('.tc-mcp-inspector'); return true;
+  }],
   ["palette", async (t, page) => { await t.evaluate(() => { location.hash = "overview"; }); await page.keyboard.press("Control+k"); await t.waitForSelector(".tc-layer .tc-palette"); return true; }],
   ["device-menu", async (t) => {
     await t.evaluate(() => { location.hash = "access"; });

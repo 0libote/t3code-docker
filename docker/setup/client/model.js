@@ -1441,6 +1441,7 @@ const T3Model = (() => {
       access: warn(!s.publicUrl && s.server && connectView(s).state !== 'on' && connectView(s).state !== 'linking' ? 1 : 0),
       agents: warn(agents.filter((a) => a.attention).length) || running(busy(agents)),
       instructions: null,
+      mcp: warn((s.context?.mcp?.providers || []).filter(p => p.supported && s.harnesses?.some(a => a.id === p.provider && a.installed)).reduce((n, p) => n + (p.diverged?.length || 0) + (p.error ? 1 : 0), 0)),
       toolchains: warn(tools.filter((t) => t.state === 'failed').length) || running(busy(tools)),
       // A source control CLI someone installed and has not signed in is as
       // unusable to T3 Code as a failed one. The image's gh never counts.
@@ -1585,6 +1586,10 @@ const T3Model = (() => {
       add(item.id === 'runtime' ? 'Updates' : 'Server', fixes[item.id], item.icon,
         item.action.cmd === 'goto' ? { cmd: 'goto', route: item.action.route } : { cmd: item.action.cmd, id: item.action.id }, { attention: true });
     }
+    add('MCP servers', 'Add MCP server…', 'plug', { cmd: 'mcp.add' });
+    add('MCP servers', 'Rescan MCP servers', 'refresh-cw', { cmd: 'mcp.refresh' });
+    for (const server of s.context?.mcp?.shared?.servers || []) add('MCP servers', server.name, 'plug', { cmd: 'mcp.view', id: server.name });
+    for (const provider of s.context?.mcp?.providers || []) for (const name of provider.diverged || []) add('MCP servers', 'Review ' + name + ' in ' + ({ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' }[provider.provider] || provider.provider), 'triangle-alert', { cmd: 'mcp.view', id: name, provider: provider.provider }, { attention: true });
     add('Storage', 'Free up disk space', 'hard-drive', { cmd: 'storage.goto' }, { keywords: 'disk space caches cleanup folders usage manage storage', attention: Boolean(diskWarning(s)) });
     add('Storage', 'Storage maintenance…', 'settings-2', { cmd: 'storage.preferences' }, { keywords: 'cache limits automatic cleanup retention preferences' });
 
@@ -1907,6 +1912,15 @@ const T3Model = (() => {
     });
   };
 
+  // Shared MCP servers: redacted summaries in /status, secrets only in the
+  // editor. Provider support is uneven; unsupported providers stay visible
+  // with their reason instead of failing the whole section.
+  const mcpView = (status) => {
+    const mcp = status?.context?.mcp || {};
+    const shared = mcp.shared || {};
+    return { present: Boolean(shared.present), count: shared.count || (shared.servers || []).length, revision: shared.revision || null,
+      bytes: shared.bytes || 0, error: shared.error || null, ok: mcp.ok !== false };
+  };
   // Automatic updates: the policy and last run from /status, as the Updates
   // page's switches say them. Pure, so the words are testable without a browser.
   const autoUpdateView = (status, now) => {
@@ -1958,6 +1972,7 @@ const T3Model = (() => {
     readiness, readySummary, needsYou, containerItems, activity, setupBanner, setupFailures,
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
+    mcpView,
     navBadges, serverWarnings, diskWarning, attentionCount, summaries, updatesView, runtimeView, autoUpdateView,
     paletteItems, searchPalette,
     redactedDiagnostics, storageView,
