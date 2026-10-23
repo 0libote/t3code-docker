@@ -139,6 +139,13 @@ const Kit = (() => {
   };
   PHONE.addEventListener('change', syncDensity);
 
+  // Native Tab focus can leave a partially visible filter clipped. Reveal the
+  // whole chip using its scrollport's focus-ring padding, without centering it.
+  document.addEventListener('focusin', (event) => {
+    const chip = event.target.closest?.('.tc-sk-agent-chips .tc-chip-btn');
+    if (chip) chip.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+  });
+
   const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   const focusables = (root) => [...root.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement);
   const isTyping = (el) => Boolean(el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.nodeName)) && !(el.type === 'checkbox' || el.type === 'radio' || el.type === 'button'));

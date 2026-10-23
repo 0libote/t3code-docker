@@ -1157,7 +1157,10 @@ html.tc-locked { overflow: hidden; }
   .tc-sk-search { flex: 1 1 100%; min-width: 0; }
   .tc-sk-search > .tc-input { min-height: 44px; font-size: 16px; }
   .tc-sk-search > .tc-kbd, .tc-sk-desktop-filters, .tc-sk-desktop-actions, .tc-sk-table { display: none !important; }
-  .tc-sk-agent-chips { display: flex; overflow-x: auto; overscroll-behavior-x: contain; gap: var(--space-2); margin-right: -16px; padding: 0 16px 4px 0; }
+  /* Keep the scrollport's 4px focus gutter within the library's bounds,
+     without moving its content or increasing the row's layout space. */
+  .tc-skills-library { margin-inline: -4px; padding-inline: 4px; }
+  .tc-sk-agent-chips { display: flex; overflow-x: auto; overscroll-behavior-x: contain; gap: var(--space-2); margin: -4px; padding: 4px 4px 8px; scroll-padding-inline: 4px; }
   .tc-sk-agent-chips .tc-chip-btn { min-height: 44px; }
   .tc-sk-phone-list { display: flex; flex-direction: column; gap: var(--space-4); }
   .tc-prow { width: 100%; text-align: left; appearance: none; border: 0; background: none; cursor: pointer; font: inherit; }
@@ -1529,7 +1532,7 @@ html.tc-locked { overflow: hidden; }
 .tc-mcp-editor textarea.tc-mcp-secret-input { height: auto; min-height: 56px; }
 .tc-mcp-table .tc-mx[data-no-agents="true"] { --mx-cols: minmax(0, 1fr); min-width: 0; }
 @media (max-width: 1023.98px) {
-  .tc-mcp-library .tc-sk-agent-chips { margin-right: 0; padding-right: 0; scrollbar-width: none; }
+  .tc-mcp-library .tc-sk-agent-chips { scrollbar-width: none; }
 }
 /* Modal feedback lives in its content, so earlier sticky page notifications
    cannot cover an inspector policy or a dialog’s Save/Cancel controls. */

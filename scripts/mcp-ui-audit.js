@@ -7,6 +7,7 @@ const path = require('node:path');
 let chromium; try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('playwright-core')); }
 const { statusFor, portsFor, routeConsole, framed, unlock, visit } = require('./lib/console-fixtures.cjs');
 const { createMcpFixtures } = require('./lib/mcp-fixtures.cjs');
+const { checkChipFocus } = require('./lib/chip-focus.cjs');
 const base = process.argv[2] || 'http://127.0.0.1:23804/__setup/', key = process.argv[3] || 'dev';
 const out = process.env.T3_MCP_UI_OUTPUT || '/tmp/t3-mcp-ui-audit'; fs.mkdirSync(out, { recursive: true });
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
@@ -61,6 +62,7 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
       const closeInspector = () => target.getByRole('button', { name: 'Close server inspector', exact: true }).click();
       await noOverflow(); await screenshot('library');
       if (phone) {
+        await checkChipFocus(page, target.locator('.tc-mcp-library .tc-sk-agent-chips'), screenshot);
         const add = await target.locator('.tc-sk-phone-actions button').boundingBox();
         assert.ok(add && add.y + add.height <= viewport.height && add.y > 0, 'Phone Add stays reachable');
         assert.equal(await target.locator('.tc-tabbar').isVisible(), false);
