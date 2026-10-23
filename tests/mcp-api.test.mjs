@@ -46,6 +46,12 @@ test("shared MCP API creates, links and removes servers without leaking secrets"
   const get = (route) => fetch(base + route, { headers: { "x-t3-setup-key": "mcp-fixture-key" } });
   const post = (route, body, headers = {}) => fetch(base + route, { method: "POST", headers: { "x-t3-setup-key": "mcp-fixture-key", "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   assert.equal((await fetch(base + "/context/mcp")).status, 401);
+  const embeddedPage = await (await get('/?embed=t3')).text();
+  assert.match(embeddedPage, /<html lang="en" data-embed="t3">/);
+  assert.match(await (await get('/?embed=1')).text(), /<html lang="en">/);
+  const login = await fetch(base + '/login', { method: 'POST', redirect: 'manual', body: new URLSearchParams({ key: 'mcp-fixture-key', embed: 't3' }) });
+  assert.equal(login.status, 303);
+  assert.equal(login.headers.get('location'), '/__setup/?embed=t3', 'Unlocking must retain T3 embedding for the MCP close action');
   assert.equal((await post("/context/mcp/create", { server: { name: "x", type: "local", command: ["x"] } }, { "sec-fetch-site": "cross-site" })).status, 403);
   assert.equal((await post("/context/mcp/create", { server: { name: "Bad Name", type: "local", command: ["x"] } })).status, 400);
   assert.equal((await post("/context/mcp/create", null)).status, 400);

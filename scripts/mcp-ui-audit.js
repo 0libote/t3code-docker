@@ -38,10 +38,12 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
         if (unreadableStore && req.method() === 'GET' && url.pathname.endsWith('/context/mcp')) { result.body.ok = false; Object.assign(result.body.shared, { error: 'Synthetic unreadable store', revision: null, count: 0, servers: [] }); }
         return route.fulfill({ status: result.status, json: result.body });
       });
-      const url = new URL(base); if (embedded) url.search = '?embed=1&theme=' + theme;
+      const url = new URL(base); if (embedded) { url.searchParams.set('embed', 't3'); url.searchParams.set('theme', theme); }
       const target = embedded ? await framed(page, url.href) : page;
       if (!embedded) await page.goto(url.href);
       await unlock(target, key); await visit(target, page, 'mcp');
+      assert.equal(await target.evaluate(() => document.documentElement.getAttribute('data-embed')), embedded ? 't3' : null, 'The authenticated page must retain its actual embedding mode');
+      if (phone) assert.equal(await target.getByRole(embedded ? 'button' : 'link', { name: embedded ? 'Close setup' : 'Close MCP servers', exact: true }).isVisible(), true, 'Phone close uses the applied embedding mode');
       await target.locator('#mcp-search').waitFor();
       await target.locator('[data-key="mcp-shared:docs"]').waitFor({ state: 'attached' });
       await target.evaluate(() => { location.hash = 'instructions/mcp'; });

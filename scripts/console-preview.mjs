@@ -19,7 +19,7 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/.well-known/t3/environment') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ environmentId: 'fixture-preview', serverVersion: 'fixture', label: 'Fixture preview' })); return; }
   if (url.pathname === '/__setup/' || url.pathname === '/') {
     res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store', 'content-security-policy': contentSecurityPolicy('fixture') });
-    res.end(renderConsole({ assets: loadAssets(), nonce: 'fixture', mount: '/__setup', embed: url.searchParams.has('embed') }));
+    res.end(renderConsole({ assets: loadAssets(), nonce: 'fixture', mount: '/__setup', embed: url.searchParams.get('embed') === 't3' }));
     return;
   }
   const chunks = []; let bytes = 0;
