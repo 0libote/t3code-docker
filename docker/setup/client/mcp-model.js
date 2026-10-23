@@ -11,6 +11,7 @@ const T3McpModel = (() => {
     { id: 'muse', name: 'Muse Code', control: 'Not managed here' },
     { id: 'antigravity', name: 'Antigravity', control: 'Not managed here' },
   ];
+  const columns = (installed, all = false) => providers.filter(provider => all || installed.includes(provider.id));
   const normalize = value => Array.isArray(value) ? value.map(normalize) : value && typeof value === 'object'
     ? Object.fromEntries(Object.keys(value).sort().map(key => [key, normalize(value[key])])) : value;
   const sameValue = (a, b) => JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
@@ -60,5 +61,5 @@ const T3McpModel = (() => {
     if (diff.extraOptions?.length) fields.push('agent-specific options');
     return fields.length ? 'Its copy has a different ' + (fields.length < 2 ? fields.join('') : fields.slice(0, -1).join(', ') + ' and ' + fields.at(-1)) + ', so it no longer matches the shared server.' : 'Its copy no longer matches the shared server.';
   };
-  return { providers, nameOf, state, rows, attention, filter, used, has, fieldLabel, describeDiff, sameValue, sameDefinition };
+  return { providers, columns, nameOf, state, rows, attention, filter, used, has, fieldLabel, describeDiff, sameValue, sameDefinition };
 })();

@@ -30,6 +30,12 @@ These states describe configuration, not connectivity. Unreadable settings get
 an attention notice and disable that agent’s controls. While a change saves, its
 cell shows progress and that agent’s column is disabled; other agents remain usable.
 
+The **Installed agents / All agents** menu beside **Server** controls the matrix
+columns, as it does in Skills. It stays visible when the table scrolls sideways.
+All agents also shows uninstalled agents; their saved entries are read-only.
+Muse Code and Antigravity show **Not managed here**, and Grok remains imports only.
+Changing the visible columns never adds a server or changes native settings.
+
 Claude Code and Cursor have Add/Remove here. Codex and OpenCode also support
 On/Off. Claude’s per-project toggles are outside Setup’s inventory. A legacy
 shared `enabled: false` value is still readable and makes new Codex/OpenCode

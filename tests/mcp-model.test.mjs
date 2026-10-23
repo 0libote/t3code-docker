@@ -6,6 +6,13 @@ const context = vm.createContext({}); vm.runInContext(readFileSync(new URL('../d
 const S = context.S;
 const fixture = () => JSON.parse(readFileSync(new URL('../scripts/fixtures/console/mcp.json', import.meta.url)));
 const plain = value => JSON.parse(JSON.stringify(value));
+test('MCP columns use installation state without treating unsupported agents as uninstalled', () => {
+  assert.deepEqual(plain(S.columns(['claude', 'muse']).map(p => p.id)), ['claude', 'muse']);
+  assert.equal(S.columns(['claude'], true).length, 7);
+  assert.equal(S.columns([]).length, 0);
+  assert.equal(S.columns([], true).length, 7);
+  assert.equal(S.columns(S.providers.map(p => p.id)).length, 7);
+});
 test('definition comparison ignores only the agent state, never named credential values', () => {
   const a = { name: 'server', type: 'local', command: ['server'], enabled: true, env: { enabled: 'one', TOKEN: 'secret' } };
   assert.equal(S.sameDefinition(a, { ...a, enabled: false }), true);

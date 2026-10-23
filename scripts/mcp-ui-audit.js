@@ -17,9 +17,9 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
       const embedded = variant.startsWith('embedded'), phone = variant === 'phone' || variant === 'embedded-phone', viewport = phone ? { width: 390, height: 844 } : variant === 'embedded' ? { width: 1198, height: 878 } : { width: 1440, height: 900 };
       const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: 'reduce' });
       const page = await context.newPage(), mcp = createMcpFixtures(), errors = [], calls = [];
-      let failRead = false, failRemoval = false, linkGate = null, readGate = null, parseGate = null, createGate = null, conflictLink = false, conflictSave = false, unreadableStore = false;
+      let failRead = false, failRemoval = false, linkGate = null, readGate = null, parseGate = null, createGate = null, conflictLink = false, conflictSave = false, unreadableStore = false, installedOverride = null;
       page.on('pageerror', error => errors.push(error.message));
-      const status = () => { const s = statusFor('skills'); s.context.mcp = mcp.status(); return s; };
+      const status = () => { const s = statusFor('skills'); if (installedOverride) for (const agent of s.harnesses) agent.installed = installedOverride.includes(agent.id); s.context.mcp = mcp.status(); return s; };
       await routeConsole(page, { status, ports: () => portsFor('ready') });
       await page.route('**/*', async route => {
         const req = route.request(), url = new URL(req.url());
@@ -66,10 +66,44 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
         assert.equal(await target.locator('.tc-tabbar').isVisible(), false);
       } else {
         assert.equal(await target.locator('.tc-mcp-table [role="columnheader"]').count(), 6);
-        await target.locator('[data-cmd="mcp.columns"]').click();
-        await screenshot('other-agents');
-        assert.match(await target.getByRole('menu').innerText(), /Muse Code/);
+        const columnButton = target.locator('[data-cmd="mcp.columns"]');
+        assert.equal(await target.locator('.tc-mcp-extra').count(), 0, 'No trailing +2 control');
+        await columnButton.click();
+        assert.equal(await target.getByRole('menuitemradio', { name: /^Installed agents/ }).getAttribute('aria-checked'), 'true');
         await page.keyboard.press('Escape');
+        assert.equal(await columnButton.evaluate(element => element === document.activeElement), true, 'Column menu restores keyboard focus');
+        await columnButton.click();
+        await target.getByRole('menuitemradio', { name: /^All agents/ }).click();
+        await target.waitForFunction(() => document.querySelectorAll('.tc-mcp-table [role="columnheader"]').length === 8);
+        assert.equal(await columnButton.innerText(), 'All agents');
+        assert.equal(await target.locator('.tc-mcp-table .tc-mx-agent[data-uninstalled]').count(), 2);
+        assert.equal(await target.locator('.tc-mcp-table .tc-mx-agent').filter({ hasText: 'Not managed here' }).count(), 2);
+        const containment = await target.locator('.tc-mcp-table .tc-mx').evaluate(table => {
+          const right = table.getBoundingClientRect().right;
+          return { overflow: table.scrollWidth - table.clientWidth, rows: [...table.querySelectorAll('.tc-mx-head,.tc-mx-row')].map(row => ({ right: row.getBoundingClientRect().right, cells: row.children.length, last: row.lastElementChild.getBoundingClientRect().right })), right };
+        });
+        assert.ok(containment.overflow <= 1, 'Expanded columns fit their table background');
+        assert.ok(containment.rows.every(row => row.cells === 8 && Math.abs(row.right - containment.right) < 1 && Math.abs(row.right - row.last - 8) < 1), 'Every header and row uses eight columns with the same end inset');
+        const sticky = await target.locator('.tc-mcp-table .tc-mx-scroll').evaluate(scroll => {
+          scroll.scrollLeft = scroll.scrollWidth - scroll.clientWidth;
+          const left = scroll.getBoundingClientRect().left, header = scroll.querySelector('.tc-mx-head'), label = scroll.querySelector('.tc-mx-head-label'), group = scroll.querySelector('.tc-mx-group').getBoundingClientRect();
+          return { first: scroll.querySelector('.tc-mx-skill').getBoundingClientRect().left - left, button: scroll.querySelector('[data-cmd="mcp.columns"]').getBoundingClientRect().left - left, width: scroll.clientWidth, headerCover: header.getBoundingClientRect().height - label.getBoundingClientRect().height, groupLeft: group.left - left, groupWidth: group.width };
+        });
+        assert.ok(Math.abs(sticky.first) < 1 && sticky.button >= 0 && sticky.button < sticky.width, 'Names and column selector stay visible at the far scroll edge');
+        assert.ok(sticky.headerCover <= 1 && Math.abs(sticky.groupLeft) < 1 && Math.abs(sticky.groupWidth - sticky.width) < 1, 'Pinned headings cover scrolling text and keep group context in view');
+        await screenshot('all-agent-columns');
+        const firstPolicy = target.locator('.tc-mcp-table .tc-mx-row .tc-cellwrap button').first();
+        await firstPolicy.focus();
+        assert.ok(await firstPolicy.evaluate(button => button.getBoundingClientRect().left >= button.closest('.tc-mx-row').querySelector('.tc-mx-skill').getBoundingClientRect().right - 1), 'Focused controls scroll clear of the pinned server column');
+        await columnButton.click();
+        assert.equal(await target.getByRole('menuitemradio', { name: /^All agents/ }).getAttribute('aria-checked'), 'true');
+        await screenshot('agent-columns-menu');
+        assert.match(await target.getByRole('menu').innerText(), /Muse Code/);
+        await target.getByRole('menuitemradio', { name: /^Installed agents/ }).click();
+        await target.waitForFunction(() => document.querySelectorAll('.tc-mcp-table [role="columnheader"]').length === 6);
+        assert.equal(await target.locator('.tc-mcp-table .tc-mx-scroll').evaluate(scroll => scroll.scrollLeft), 0);
+        assert.equal(await columnButton.evaluate(element => element === document.activeElement), true, 'Visibility choice restores focus');
+        assert.equal(calls.length, 0, 'Column visibility never writes settings');
         // The selected menu survives an unrelated /status refresh.
         await target.getByRole('button', { name: 'docs in Codex: on', exact: true }).click();
         await target.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -219,6 +253,28 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
         await page.evaluate(() => { window.mcpMessages = []; window.addEventListener('message', event => window.mcpMessages.push(event.data)); });
         await target.getByRole('button', { name: 'Close setup', exact: true }).click();
         await page.waitForFunction(() => window.mcpMessages.some(message => message?.source === 't3-setup' && message.type === 'close'));
+      }
+      if (variant === 'desktop' && theme === 'light') {
+        unreadableStore = false;
+        const reload = async ids => {
+          installedOverride = ids;
+          await target.evaluate(() => location.reload());
+          await target.locator('.tc-mcp-table .tc-mx-row').first().waitFor();
+          await target.waitForFunction(count => document.querySelectorAll('.tc-mcp-table .tc-mx-agent').length === count, ids.length);
+        };
+        await reload(['claude', 'codex', 'opencode', 'grok']);
+        await target.locator('[data-cmd="mcp.columns"]').click();
+        await target.getByRole('menuitemradio', { name: /^All agents/ }).click();
+        const cursor = target.locator('[data-key="mcp-shared:issues-cursor"]');
+        assert.equal(await cursor.locator('button').count(), 0, 'An uninstalled managed agent has no mutation control');
+        assert.equal(await cursor.innerText(), 'On', 'Its saved state stays visible');
+        await reload([]);
+        await target.locator('[data-cmd="mcp.columns"]').click();
+        await target.getByRole('menuitemradio', { name: /^All agents/ }).click();
+        assert.equal(await target.locator('.tc-mcp-table .tc-cellwrap button').count(), 0, 'Zero installed agents cannot mutate native settings');
+        await reload(['claude', 'codex', 'opencode', 'cursor', 'grok', 'muse', 'antigravity']);
+        assert.equal(await target.locator('[data-cmd="mcp.columns"]').count(), 0, 'No redundant choice when all agents are installed');
+        assert.equal(await target.locator('[data-key="mcp-shared:issues-muse"] button').count(), 0, 'Installing an unsupported agent does not enable management');
       }
       await noOverflow(); assert.deepEqual(errors, [], 'No browser exceptions');
       console.log(`${variant} ${theme}: matrix, secrets, per-agent off, draft/poll guards, snippet, consent, partial removal, failed/late reads passed`);

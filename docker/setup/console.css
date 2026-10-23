@@ -1443,10 +1443,7 @@ html.tc-locked { overflow: hidden; }
 .tc-mcp-library .tc-sk-toolbar { margin-top: 0; }
 .tc-mcp-library .tc-sk-desktop-filters { display: flex; align-items: center; gap: var(--space-2); }
 .tc-mcp-table .tc-mx-head { position: relative; }
-.tc-mcp-extra { margin-left: auto; margin-right: 0; flex: none; }
-.tc-mcp-table .tc-mx-agent:last-child { padding-right: 0; }
 .tc-mcp-table .tc-mx-agent-name { min-width: 0; }
-.tc-mcp-table .tc-mx-agent:has(.tc-mcp-extra) { min-width: 0; }
 .tc-mcp-table .tc-mx-agent-name .tc-tile { width: 20px; height: 20px; }
 .tc-mcp-table .tc-key { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .tc-mcp-loading, .tc-mcp-diff-loading { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4); color: var(--fg-muted); font-size: 13px; }
@@ -1530,9 +1527,6 @@ html.tc-locked { overflow: hidden; }
 }
 .tc-mcp-editor .tc-mcp-secret-input { white-space: pre; scrollbar-width: none; }
 .tc-mcp-editor textarea.tc-mcp-secret-input { height: auto; min-height: 56px; }
-/* The last header contains the compact unsupported-agent menu, within its
-   own agent track. It never adds an empty column through every server row. */
-.tc-mcp-table .tc-mx { --mx-cols: minmax(240px, 1fr) repeat(var(--mx-main-count, 4), 120px) 144px; min-width: calc(240px + var(--mx-main-count, 4) * 120px + 144px + 24px); }
 .tc-mcp-table .tc-mx[data-no-agents="true"] { --mx-cols: minmax(0, 1fr); min-width: 0; }
 @media (max-width: 1023.98px) {
   .tc-mcp-library .tc-sk-agent-chips { margin-right: 0; padding-right: 0; scrollbar-width: none; }
