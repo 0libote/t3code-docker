@@ -34,6 +34,7 @@ const KEY = process.argv[3] || "k";
 const DEVICE_ID = process.env.T3_UI_AUDIT_DEVICE_ID || "";
 const DEVICE_LABEL = 'Work phone <not markup> & "desk"';
 const DEVICE_LONG_LABEL = 'W'.repeat(64);
+const REQUESTED_STATES = process.env.T3_UI_AUDIT_STATES?.split(',').map(name => name.trim()).filter(Boolean);
 const CHROME = process.env.CHROME_PATH
   || (require("node:fs").existsSync("/usr/bin/chromium") ? "/usr/bin/chromium"
       : "/opt/pw-browsers/chromium-1194/chrome-linux/chrome");
@@ -466,6 +467,10 @@ const audit = () => {
     }],
   ];
 
+  const states = REQUESTED_STATES ? STATES.filter(([name]) => REQUESTED_STATES.includes(name)) : STATES;
+  if (!states.length || REQUESTED_STATES?.some(name => !STATES.some(([state]) => state === name))) {
+    throw new Error('T3_UI_AUDIT_STATES must name existing routes or overlay states.');
+  }
   for (const { url, viewport: [width, height], tag } of RUNS) {
     // Measure a settled page: reduced motion disables the transitions and
     // animations the stylesheet already gates behind that preference, so a
@@ -496,7 +501,7 @@ const audit = () => {
       console.log(`  ${label.padEnd(19)} the console in the frame is not embedded, or has no visible close button`);
       found += 1;
     }
-    for (const [state, reach] of STATES) {
+    for (const [state, reach] of states) {
       await reach(target);
       await settle(target);
       const findings = await target.evaluate(audit);
@@ -508,10 +513,11 @@ const audit = () => {
         if (f.where) console.log(`        at ${f.where}`);
       }
     }
-    if (!found) console.log(`  ${label.padEnd(19)} clean (${STATES.length} states)`);
+    if (!found) console.log(`  ${label.padEnd(19)} clean (${states.length} state${states.length === 1 ? '' : 's'})`);
     total += found;
-    // The link this made is not for anyone; leave no unused link behind.
-    await target.evaluate(async () => {
+    // Only the pairing state creates a disposable link. A focused read-only
+    // run must never revoke a link that already belonged to someone else.
+    if (states.some(([name]) => name === 'pairing')) await target.evaluate(async () => {
       const button = document.querySelector("#page-access .tc-card-foot [data-cmd='link.revoke']");
       if (!button) return;
       await fetch((window.__T3_SETUP_BASE__ || "") + "/revoke", {

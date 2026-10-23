@@ -2153,7 +2153,7 @@ const cancelLifecycle = (target, rawId) => {
 };
 
 const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/devices/rename", "/ports",
-  "/storage/versions/prune", "/storage/versions", "/storage/refresh", "/storage/clean", "/storage/policy", "/storage",
+  "/storage/versions/prune", "/storage/versions", "/storage/refresh", "/storage/clean/preview", "/storage/clean", "/storage/policy", "/storage",
   "/public-url/clear", "/public-url", "/setup-key/reveal", "/setup-key/replace", "/connect/unlink", "/t3/restart",
   "/t3/updates/check", "/t3/update", "/ports/expose", "/ports/unexpose",
   "/auto-update", "/auto-update/policy",
@@ -2271,7 +2271,7 @@ const autoTick = async () => {
 };
 
 const storageHttpStatus = (result) => result.ok ? 200
-  : ["busy", "stale-preview"].includes(result.code) ? 409
+  : ["busy", "stale-preview", "stale-policy"].includes(result.code) ? 409
     : ["invalid-cache", "invalid-policy", "invalid-options"].includes(result.code) ? 400 : 503;
 
 /** Acknowledges durable operation state before a scan/native cleanup finishes. */
@@ -2280,10 +2280,10 @@ const startStorageWork = async (storage, kind, input) => {
   const started = new Promise((resolve) => { acknowledge = resolve; });
   const options = { onStarted: (operation) => acknowledge({ http: 202, body: { ok: true, operation } }) };
   const done = Promise.resolve().then(() => kind === "versions"
-    ? storage.trimVersions({ ...options, token: input.token, includePrevious: input.includePrevious }) : storage.clean(input.ids, options))
+    ? storage.trimVersions({ ...options, token: input.token, includePrevious: input.includePrevious }) : storage.clean(input.ids, { ...options, token: input.token }))
     .then((result) => {
       if (result.ok) recordEvent(kind === "versions" ? "storage.trimmed" : "storage.cleaned",
-        kind === "versions" ? "Trimmed older tool versions" : "Cleared build and download caches");
+        kind === "versions" ? "Trimmed older tool versions" : "Cleared caches");
       return { http: storageHttpStatus(result), body: result };
     }).catch(() => ({ http: 503, body: { ok: false, error: "Storage cleanup could not finish. Refresh and try again." } }));
   return Promise.race([started, done]);
@@ -2509,17 +2509,26 @@ const server = createServer(async (req, res) => {
         void storage.refresh();
         return sendJson(res, 202, { ok: true, storage: storage.snapshot() });
       }
-      if (req.method === "POST" && ["/storage/clean", "/storage/policy", "/storage/versions/prune"].includes(route)) {
+      if (req.method === "POST" && ["/storage/clean", "/storage/clean/preview", "/storage/policy", "/storage/versions/prune"].includes(route)) {
         let input;
         try { input = JSON.parse((await readBody(req)) || "{}"); }
         catch { return sendJson(res, 400, { ok: false, error: "Use a valid storage request." }); }
         if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Use a valid storage request." });
         if (route === "/storage/policy") {
-          const result = await storage.setPolicy(input);
+          if (Object.hasOwn(input, "policy") && (Object.keys(input).some((key) => !["policy", "revision"].includes(key))
+            || !/^[a-f0-9]{64}$/.test(String(input.revision || "")))) return sendJson(res, 400, { ok: false, error: "Use a current storage preferences review." });
+          const result = Object.hasOwn(input, "policy") ? await storage.setPolicy(input.policy, { expectedRevision: input.revision }) : await storage.setPolicy(input);
           return sendJson(res, storageHttpStatus(result), result);
         }
-        const allowed = route === "/storage/clean" ? ["ids"] : ["token", "includePrevious"];
+        const allowed = route === "/storage/clean" ? ["ids", "token"] : route === "/storage/clean/preview" ? ["ids"] : ["token", "includePrevious"];
         if (Object.keys(input).some((key) => !allowed.includes(key))) return sendJson(res, 400, { ok: false, error: "Unknown storage request field." });
+        if (route === "/storage/clean/preview") {
+          const result = await storage.previewClean(input.ids);
+          return sendJson(res, storageHttpStatus(result), result);
+        }
+        if (route === "/storage/clean" && !/^[a-f0-9]{64}$/.test(String(input.token || ""))) {
+          return sendJson(res, 400, { ok: false, error: "Review the selected caches before cleaning them." });
+        }
         if (route === "/storage/versions/prune" && input.includePrevious !== undefined && typeof input.includePrevious !== "boolean") {
           return sendJson(res, 400, { ok: false, error: "Choose a valid version cleanup mode." });
         }

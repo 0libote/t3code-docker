@@ -163,6 +163,26 @@ assert disk["availableBytes"] >= 0
 '
 }
 check "storage CLI reads filesystem space" storage_cli_has_disk
+storage_cache_paths_protect_tools() {
+  docker exec -i -u t3 "$NAME" node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import * as fs from 'node:fs/promises';
+import { checkCachePath } from '/opt/t3-harness/storage/system.mjs';
+const home = await fs.mkdtemp(path.join(os.tmpdir(), 'storage-path-smoke-'));
+try {
+  const options = { userHome: home, stateRoot: path.join(home, '.t3'), workspace: path.join(home, 'workspace') };
+  for (const relative of ['go', 'go/src/project', 'go/bin', '.bun', '.bun/bin']) {
+    assert.equal((await checkCachePath(path.join(home, relative), options)).safe, false, relative);
+  }
+  for (const relative of ['go/pkg/mod', '.bun/install/cache']) {
+    assert.equal((await checkCachePath(path.join(home, relative), options)).safe, true, relative);
+  }
+} finally { await fs.rm(home, { recursive: true, force: true }); }
+NODE
+}
+check "cache cleanup protects Go and Bun projects and installed tools" storage_cache_paths_protect_tools
 check "provider integration ships" "docker exec $NAME test -r /opt/t3-provider/cli.mjs"
 
 # T3 Code enforces a minimum `gh` at runtime: too old and it reports "GitHub
@@ -906,6 +926,27 @@ check "T3's login-shell PATH does not include the agent dispatcher" \
   "! docker exec -u t3 $NAME bash -ilc 'echo \"\$PATH\"' 2>/dev/null | grep -q t3-agents"
 check "toolchains run from any directory, as the t3 user" \
   "docker exec -u t3 $NAME bash -lc 'cd /tmp && go version && cargo --version && cargo clippy --version && rustfmt --version && bun --version && deno --version && uv --version'"
+
+rust_release_discovery() {
+  docker exec -i -u t3 "$NAME" node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import { createHarnessManager } from '/opt/t3-harness/index.mjs';
+const manager = createHarnessManager();
+const before = await manager.toolchains.resolve('rust');
+const release = await manager.toolchains.latestRelease('rust', { fresh: true });
+assert.match(release.version, /^\d+\.\d+\.\d+$/);
+if (release.newest) assert.match(release.newest, /^\d+\.\d+\.\d+$/);
+assert.equal((await manager.toolchains.resolve('rust')).version, before.version, 'discovery changed the Rust selection');
+NODE
+}
+check "Rust discovery offers numbered releases without changing the installed toolchain" rust_release_discovery
+
+storage_native_commands() {
+  docker cp "$SCRIPT_DIR/storage-native-smoke.mjs" "$NAME:/tmp/t3-storage-native-smoke.mjs" >/dev/null
+  docker exec -u t3 -e T3_STORAGE_HARNESS_ROOT=/opt/t3-harness "$NAME" \
+    bash -lc 'node /tmp/t3-storage-native-smoke.mjs'
+}
+check "native cache cleanup preserves shared dependencies and stays inside reviewed locations" storage_native_commands
 
 # T3 refuses an OpenCode below the floor its own binary declares, and the
 # manager refuses to select one. Both read the same number, or a T3 bump that

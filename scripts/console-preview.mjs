@@ -8,7 +8,9 @@ import { loadAssets, renderConsole, contentSecurityPolicy } from '../docker/setu
 const require = createRequire(import.meta.url);
 const { statusFor, portsFor, fixture } = require('./lib/console-fixtures.cjs');
 const { createSkillsFixtures } = require('./lib/skills-fixtures.cjs');
+const { createStorageFixtures } = require('./lib/storage-fixtures.cjs');
 const api = createSkillsFixtures();
+const storage = createStorageFixtures();
 const port = Number(process.argv[process.argv.indexOf('--port') + 1]) || 23785;
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -22,7 +24,7 @@ http.createServer(async (req, res) => {
   let input;
   try { input = chunks.length ? JSON.parse(Buffer.concat(chunks)) : {}; }
   catch { res.writeHead(400); res.end(); return; }
-  const result = api.respond(req.method, url, input) || (url.pathname.endsWith('/status') ? { body: statusFor('skills') }
+  const result = storage.respond(req.method, url, input) || api.respond(req.method, url, input) || (url.pathname.endsWith('/status') ? { body: { ...statusFor('skills'), storage: storage.status() } }
     : url.pathname.endsWith('/ports') ? { body: portsFor('ready') }
       : url.pathname.endsWith('/providers') ? { body: fixture('providers.json') }
         : { status: 404, body: { ok: false, error: 'This is a read-only fixture preview. No live API is connected.' } });
