@@ -78,12 +78,29 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
         assert.equal(await columnButton.innerText(), 'All agents');
         assert.equal(await target.locator('.tc-mcp-table .tc-mx-agent[data-uninstalled]').count(), 2);
         assert.equal(await target.locator('.tc-mcp-table .tc-mx-agent').filter({ hasText: 'Not managed here' }).count(), 2);
-        const containment = await target.locator('.tc-mcp-table .tc-mx').evaluate(table => {
+        const measureColumns = () => target.locator('.tc-mcp-table .tc-mx').evaluate(table => {
           const right = table.getBoundingClientRect().right;
-          return { overflow: table.scrollWidth - table.clientWidth, rows: [...table.querySelectorAll('.tc-mx-head,.tc-mx-row')].map(row => ({ right: row.getBoundingClientRect().right, cells: row.children.length, last: row.lastElementChild.getBoundingClientRect().right })), right };
+          return {
+            overflow: table.scrollWidth - table.clientWidth, right,
+            rows: [...table.querySelectorAll('.tc-mx-head,.tc-mx-row')].map(row => ({ right: row.getBoundingClientRect().right, cells: row.children.length, last: row.lastElementChild.getBoundingClientRect().right, grid: getComputedStyle(row).gridTemplateColumns })),
+            overflowing: [...table.querySelectorAll('*')].filter(element => element.getBoundingClientRect().right > right + 1).slice(0, 10).map(element => ({ class: element.getAttribute('class'), right: element.getBoundingClientRect().right, width: element.getBoundingClientRect().width })),
+          };
         });
-        assert.ok(containment.overflow <= 1, 'Expanded columns fit their table background');
-        assert.ok(containment.rows.every(row => row.cells === 8 && Math.abs(row.right - containment.right) < 1 && Math.abs(row.right - row.last - 8) < 1), 'Every header and row uses eight columns with the same end inset');
+        // New DOM columns can land a frame before container-query sizing.
+        // Wait for actual containment, as in the Skills audit; a persistent
+        // overflow still fails with measurements and a screenshot.
+        await target.waitForFunction(() => {
+          const table = document.querySelector('.tc-mcp-table .tc-mx');
+          return table.scrollWidth <= table.clientWidth + 1;
+        }, null, { timeout: 5000 }).catch(async error => {
+          await screenshot('all-agent-columns-containment-failure');
+          console.error(`${variant} ${theme}: expanded column layout: ${JSON.stringify(await measureColumns())}`);
+          throw error;
+        });
+        const containment = await measureColumns();
+        if (containment.overflow > 1) await screenshot('all-agent-columns-containment-failure');
+        assert.ok(containment.overflow <= 1, `${variant} ${theme}: expanded columns fit their table background: ${JSON.stringify(containment)}`);
+        assert.ok(containment.rows.every(row => row.cells === 8 && Math.abs(row.right - containment.right) < 1 && Math.abs(row.right - row.last - 8) < 1), `${variant} ${theme}: every header and row uses eight columns with the same end inset: ${JSON.stringify(containment)}`);
         const sticky = await target.locator('.tc-mcp-table .tc-mx-scroll').evaluate(scroll => {
           scroll.scrollLeft = scroll.scrollWidth - scroll.clientWidth;
           const left = scroll.getBoundingClientRect().left, header = scroll.querySelector('.tc-mx-head'), label = scroll.querySelector('.tc-mx-head-label'), group = scroll.querySelector('.tc-mx-group').getBoundingClientRect();
