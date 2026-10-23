@@ -2165,7 +2165,7 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info",
   "/context/agents-md", "/context/skills/reach", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard", "/context/skills",
-  "/context/mcp", "/context/mcp/read", "/context/mcp/create", "/context/mcp/save", "/context/mcp/remove", "/context/mcp/link"];
+  "/context/mcp", "/context/mcp/read", "/context/mcp/create", "/context/mcp/save", "/context/mcp/remove", "/context/mcp/link", "/context/mcp/diff", "/context/mcp/adopt", "/context/mcp/parse"];
 
 // One background pass for the opt-in auto-updater. Checks are cheap and
 // always safe; installs run only when enabled, an update is known, and
@@ -2704,12 +2704,13 @@ const server = createServer(async (req, res) => {
     // --- shared MCP servers ---------------------------------------------
     // Inventory per provider is on demand, never part of /status polling;
     // /status carries only redacted shared metadata and link states.
-    if (req.method === "GET" && (route === "/context/mcp" || route === "/context/mcp/read")) {
+    if (req.method === "GET" && ["/context/mcp", "/context/mcp/read", "/context/mcp/diff"].includes(route)) {
       try {
         const params = raw.searchParams;
+        if (route === "/context/mcp/diff") return sendJson(res, 200, await mcpService.diff(params.get("provider"), params.get("name")));
         if (route === "/context/mcp/read") {
           if (!params.get("name")) return sendJson(res, 400, { ok: false, code: "invalid", error: "Expected an MCP server name." });
-          return sendJson(res, 200, await mcpService.read(params.get("name")));
+          return sendJson(res, 200, await mcpService.read(params.get("name"), params.get("provider")));
         }
         if (params.get("provider")) return sendJson(res, 200, await mcpService.list(params.get("provider")));
         return sendJson(res, 200, await mcpService.status({ refresh: params.get("refresh") === "1" }));
@@ -2719,12 +2720,18 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    if (req.method === "POST" && ["/context/mcp/create", "/context/mcp/save", "/context/mcp/remove", "/context/mcp/link"].includes(route)) {
+    if (req.method === "POST" && ["/context/mcp/create", "/context/mcp/save", "/context/mcp/remove", "/context/mcp/link", "/context/mcp/adopt", "/context/mcp/parse"].includes(route)) {
       try {
         const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
         if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Expected an MCP operation object." });
-        if (route === "/context/mcp/link" && typeof input.providerRevision !== "string") return sendJson(res, 400, { ok: false, code: "invalid", error: "Refresh MCP servers before changing provider settings." });
-        const result = route === "/context/mcp/link" ? await mcpService.setLink(input.provider, input.name, input.linked, input.sharedRevision, input.providerRevision)
+        if (route === "/context/mcp/parse") {
+          if (typeof input.text !== "string") return sendJson(res, 400, { ok: false, error: "Paste a server snippet as text." });
+          if (Buffer.byteLength(input.text, "utf8") > 64 * 1024) return sendJson(res, 413, { ok: false, error: "That’s too long to be a server snippet." });
+          return sendJson(res, 200, mcpService.parse(input.text));
+        }
+        if (["/context/mcp/link", "/context/mcp/adopt"].includes(route) && typeof input.providerRevision !== "string") return sendJson(res, 400, { ok: false, code: "invalid", error: "Refresh MCP servers before changing provider settings." });
+        const result = route === "/context/mcp/link" ? await mcpService.setLink(input.provider, input.name, input.linked, input.sharedRevision, input.providerRevision, input.enabled)
+          : route === "/context/mcp/adopt" ? await mcpService.adopt(input.provider, input.name, input.providerRevision, input.sharedRevision, input.replace)
           : route === "/context/mcp/create" ? await mcpService.create(input.server)
           : route === "/context/mcp/save" ? await mcpService.save(input.name, input.revision, input.server)
             : await mcpService.remove(input.name, input.revision);
@@ -2734,7 +2741,7 @@ const server = createServer(async (req, res) => {
         return sendJson(res, 200, result);
       } catch (error) {
         const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, EEXIST: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || (error instanceof SyntaxError ? 400 : 500);
-        return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "The MCP operation failed.").slice(0, 500) });
+        return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: error instanceof SyntaxError ? "Use a valid MCP operation object." : String(error?.message || "The MCP operation failed.").slice(0, 500) });
       }
     }
 

@@ -2,8 +2,8 @@
 
 **Setup → Instructions & skills** edits the shared AGENTS.md and each agent's
 own instruction file, on its **Instructions** tab; skills are on its **Skills**
-tab (`#instructions/skills`) and shared MCP servers on its **MCP servers** tab
-(`#instructions/mcp`). A two-column overview shows a safe text preview of
+tab (`#instructions/skills`). Shared servers live on the separate
+[MCP servers](mcp-servers.md) page (`#mcp`). A two-column overview shows a safe text preview of
 AGENTS.md beside the per-agent source choices. The instruction editor is centered
 on desktop and opens as a bottom sheet on phones. Uploading a Markdown file
 replaces the draft; only **Save** applies it. Downloads include unsaved edits.
@@ -430,98 +430,9 @@ settings. A failed verification reports that the policy may already be saved;
 it does not roll back over a possible external change. External applications can
 still race the final check. Start a new conversation to load policy changes.
 
-### Shared MCP servers
+### MCP servers
 
-Open **Instructions & skills → MCP servers**, then choose an agent, just as
-on the Skills tab. Each row opens the shared definition; its switch links or
-unlinks the selected agent’s copy. A **Differs** badge and **Apply** button
-appear when that copy needs updating. Expand the agent’s settings to see its
-config path and other servers, which stay unchanged.
-
-The tab holds local command and Streamable HTTP definitions at
-`$T3CODE_HOME/setup/mcp/servers.json` (0600, at most 128 entries and 256 KiB).
-Add/edit the command as a JSON array and environment/headers as JSON objects,
-so empty arguments, whitespace and multiline values survive editing. Local and
-remote drafts keep separate environment and header values when switching type.
-Closing, changing tabs or leaving the page confirms discarding unsaved changes.
-Reload warns while a draft or save is pending; navigation waits for a save to finish.
-Values are literal; variable interpolation follows each provider's native rules.
-
-**Save updates the shared definition. Apply updates a provider's copy.**
-Existing copies stay unchanged after a shared edit and show **Differs** until
-explicitly applied or unlinked. Switches show whether a same-name entry exists,
-including disabled or differing entries; they do not establish a live connection.
-**Apply** replaces that complete entry, including provider-only options, after
-confirmation. Unlink removes it. Both preserve a private config backup next to
-the resolved target (`.t3-mcp-backup.<unique suffix>`); these files contain secrets
-and can be removed manually once no longer needed. Unlink from every supported
-provider before removing the shared definition. Other provider entries remain
-in place. Start a new provider process/session after applying changes.
-
-The tab manages default global config files, honoring the server environment's
-Claude/Codex/XDG/OpenCode directory overrides. Custom T3 provider-instance homes,
-project overrides, enterprise policy, approvals, plugin servers and effective
-runtime availability are outside its inventory. An unreadable provider config
-blocks removal rather than silently leaving an unknown copy behind.
-
-| Provider | Native global config | Support in this release |
-| --- | --- | --- |
-| Claude Code | `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json` | Local command/args/env and HTTP URL/headers |
-| Codex | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | Local and HTTP; native `enabled`; full TOML parsing with edits limited to the selected server |
-| OpenCode 1 | `opencode.json[c]`, `.mcp[name]` | Local and HTTP; native `enabled` |
-| OpenCode 2 | `opencode.json[c]`, `.mcp.servers[name]` | Local and HTTP; native `disabled`; existing native V2 files stay V2; new files use the V1-compatible format also accepted by V2 |
-| Cursor | `~/.cursor/mcp.json` | Local and HTTP; native approval/login still applies |
-| Antigravity | T3's isolated provider profile | Not integrated; Gemini CLI settings are not an Antigravity integration |
-| Grok Build | `~/.grok/config.toml` | Not managed; Grok may also load Claude/Cursor MCP entries through native compatibility imports |
-| Muse Code | `$XDG_CONFIG_HOME/muse/settings.json` | Not managed in this release |
-
-Claude HTTP entries require an explicit transport type; a URL alone is
-reported as differing. The documented `streamable-http` alias is recognized.
-OpenCode JSONC wins if both files exist. V2 global options are preserved even
-when the config has no server dictionary yet. Entries using the other layout's
-state flag (`enabled` in V2 or `disabled` in V1) show **Differs** until applied
-with the correct flag. Codex uses a pinned vendored TOML
-syntax tree; nested tables, arrays of tables and unrelated comments are preserved.
-All provider writes share the native-settings serialization queue with skills,
-follow existing file/directory symlinks, reject stale revisions/retargeting and
-publish atomically with owner-only permissions. Other applications can still
-race between the final check and rename; this is not a cross-process transaction.
-With credential persistence enabled, Claude's default `.claude.json` also lives
-on the state volume. Custom roots need their own persistent mounts.
-
-Only Codex and OpenCode have a disabled state managed by this tab. Claude also
-has native per-project MCP toggles, which this page leaves unchanged. For
-Claude and Cursor, unlink to remove the global copy. Changing the definition’s
-enabled flag does not stop old copies or existing sessions. A disabled definition with an
-old copy remains visible as **Differs** and can always be unlinked.
-
-Environment/header values load only in the authenticated editor. Polling and
-lists contain key names/counts, and remote URLs show only their origin (paths
-and queries can contain credentials). Commands are displayed, so put secrets in
-Environment or Headers. Credentials in URL userinfo are rejected. OAuth is not
-shared: sign in through `claude mcp login`, `codex mcp login`, `opencode mcp auth`
-or `cursor-agent mcp login` where required. Legacy SSE-only endpoints are not a
-portable substitute for Streamable HTTP.
-
-Native checks on 2026-10-19 passed local and HTTP handshakes, environment/header
-translation and unlink for Claude 2.1.303, Codex 0.163.0, OpenCode 1.14.19,
-OpenCode 2.0.18/2.0.32 and Cursor 2026.10.18-ea085cb. Codex/OpenCode disabled
-entries are checked not to start/connect. Checks use disposable homes and
-fixture servers, without a model prompt or real credentials. This verifies
-native configuration and MCP negotiation, not model-selected tool calls or
-OAuth. Reproduce with `node scripts/mcp-native-smoke.mjs PROVIDER /absolute/path`.
-
-Native contracts: [Claude](https://code.claude.com/docs/en/mcp),
-[Codex](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
-[OpenCode V1](https://opencode.ai/docs/mcp-servers/),
-[OpenCode V2](https://dev.opencode.ai/v2/docs/mcp-servers/),
-[Cursor](https://cursor.com/docs/cli/mcp),
-[Antigravity](https://antigravity.google/docs/cli/gcli-migration/),
-[Grok](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/07-mcp-servers.md),
-and [Muse](https://meta-models.github.io/muse-code-sdk/next/guides/extend/mcp-servers/).
-
-`t3-browser-mcp` remains a separate quick CLI path for the bundled browser
-servers; it writes provider entries directly and does not create shared definitions.
+See [MCP servers](mcp-servers.md) for the separate server library, native agent copies and sign-in.
 
 ## Validation
 

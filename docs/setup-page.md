@@ -132,10 +132,9 @@ allow/ask/deny user policies and reports the Build agent's effective rule.
 Unmanaged shared skills can be added, edited and removed from Codex/OpenCode.
 Other providers show **Found** with a discovery-only explanation. Phone layouts
 use grouped lists and bottom sheets. Status polling does not rescan skills or reset drafts.
-The **MCP servers** tab holds one shared list of local and remote servers and
-applies each entry to Claude Code, Codex, OpenCode or Cursor. Saving a shared
-definition leaves existing provider copies unchanged until explicitly applied
-or unlinked. Antigravity, Grok Build and Muse Code are not managed here.
-Provider-only servers stay in place; switches indicate config presence rather
-than runtime connectivity.
+The separate **[MCP servers](mcp-servers.md)** page defines servers once and
+compares every installed agent’s native copy. Add/Remove, per-agent On/Off,
+difference review, snippet import, editing, sharing and removal all check native
+revisions and preserve backups. Its inspector masks credentials until revealed.
+Grok Build is imports only; Muse Code and Antigravity are not managed here.
 See [Context management](context-management.md) for paths and verification.

@@ -95,10 +95,11 @@ Issues and pull requests are welcome. Before opening one:
 For shared MCP changes, run `node scripts/mcp-native-smoke.mjs PROVIDER
 /absolute/path/to/executable` for Claude, Codex, OpenCode (both V1 and V2) and
 Cursor. It uses disposable homes and fixture servers without model requests.
-`node scripts/mcp-ui-audit.js` checks the MCP tab's apply/unlink controls,
-revisions, JSON values and failed/late reads in both themes at phone, desktop
+`node scripts/mcp-ui-audit.js` checks the MCP page’s matrix, per-agent Off/On,
+snippet import, masked values, edit/update, sharing consent, partial removal,
+revision conflicts and failed/late reads in both themes at phone, desktop
 and embedded sizes. It uses response fixtures, with screenshots under
-`/tmp/t3-mcp-ui-audit`. The standard screenshot matrix includes `instructions/mcp`.
+`/tmp/t3-mcp-ui-audit`. The standard screenshot matrix includes `mcp`.
 
 For OpenCode credential changes, run
 `node scripts/opencode-auth-smoke.mjs /absolute/path/to/opencode` against both

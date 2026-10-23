@@ -1,0 +1,106 @@
+{
+  "about": "Expected results for POST /context/mcp/parse. Each case is a node:test case. 'servers' use the shared store's canonical shape (validateMcpServer in docker/setup/mcp/store.mjs), without 'enabled'. 'placeholders' lists fields whose values still look like placeholders. Names are suggestions the user can edit.",
+  "rules": {
+    "order": "Try TOML first when any line starts a [mcp_servers.<name>] table (Codex snippets start with [, like a JSON array). Then JSON when the text starts with { or [. Then a 'claude mcp add' command, then a single http(s) URL, then a command line. Text that starts with { or [ and is neither TOML nor valid JSON is a JSON error, never a command line.",
+    "jsonShapes": "mcpServers.<name> (Claude Code, Cursor, .mcp.json) through fromClaudeEntry / fromCursorEntry; mcp.<name> (OpenCode 1) and mcp.servers.<name> (OpenCode 2) through fromOpenCodeEntry; a bare { command, args, env } or { url, headers } object with no name.",
+    "lexer": "POSIX-style: single quotes literal, double quotes with backslash escapes, backslash outside quotes escapes the next character. No expansion of $VARS, globs or ~. Nothing is executed.",
+    "names": "Config formats: the key. Command lines: the package after npx/bunx/uvx/pnpm dlx (the first argument that isn't an option), the image after docker run (the first argument after run that is neither an option nor the value of -e, --env, -v, --volume, -p, --publish, --name, --network, -w or --workdir; then its last path segment), else the executable's base name. Then lowercase, drop @scope/, @version and :tag, drop a leading mcp-server- or server- and a trailing -mcp-server, -mcp or -server, replace anything outside [a-z0-9-] with -, collapse and trim hyphens. URLs: the first host label that isn't www, mcp or api, excluding the last label. Fallback: 'server'.",
+    "placeholders": "A value containing <...>, YOUR_ or your-, or equal to xxx, ..., changeme, replace-me or todo (case-insensitive). ${VAR} references are not placeholders; they get a note that each agent resolves them its own way.",
+    "rejections": "type sse, or a URL ending in /sse with no transport: 'SSE-only servers aren't portable. Use the server's Streamable HTTP address.' URL user:password: 'Put credentials in a header, not in the URL.' More than 64 KiB: 'That's too long to be a server snippet.'"
+  },
+  "cases": [
+    {
+      "id": "claude-json-local",
+      "input": "{ \"mcpServers\": { \"issues\": {\n    \"command\": \"npx\",\n    \"args\": [\"-y\", \"@acme/issues-mcp\", \"--read-only\"],\n    \"env\": { \"ISSUES_TOKEN\": \"<your token>\" }\n} } }",
+      "expect": { "format": "claude-json", "servers": [ { "name": "issues", "type": "local", "command": ["npx", "-y", "@acme/issues-mcp", "--read-only"], "env": { "ISSUES_TOKEN": "<your token>" } } ], "placeholders": ["env.ISSUES_TOKEN"] }
+    },
+    {
+      "id": "cursor-json-url-only",
+      "input": "{\"mcpServers\":{\"docs\":{\"url\":\"https://docs.example.test/mcp\",\"headers\":{\"Authorization\":\"Bearer YOUR_TOKEN\"}}}}",
+      "expect": { "format": "claude-json", "servers": [ { "name": "docs", "type": "remote", "url": "https://docs.example.test/mcp", "headers": { "Authorization": "Bearer YOUR_TOKEN" } } ], "placeholders": ["header.Authorization"] }
+    },
+    {
+      "id": "claude-json-http",
+      "input": "{\"mcpServers\":{\"docs\":{\"type\":\"http\",\"url\":\"https://docs.example.test/mcp\"}}}",
+      "expect": { "format": "claude-json", "servers": [ { "name": "docs", "type": "remote", "url": "https://docs.example.test/mcp", "headers": {} } ], "placeholders": [] }
+    },
+    {
+      "id": "claude-json-several",
+      "input": "{\"mcpServers\":{\"alpha\":{\"command\":\"alpha-mcp\"},\"beta\":{\"type\":\"http\",\"url\":\"https://beta.example.test/mcp\"}}}",
+      "expect": { "format": "claude-json", "servers": [ { "name": "alpha", "type": "local", "command": ["alpha-mcp"], "env": {} }, { "name": "beta", "type": "remote", "url": "https://beta.example.test/mcp", "headers": {} } ], "placeholders": [] },
+      "ui": "Show 'Found 2 servers' with a choice; fill the form from the chosen one. Add the others afterwards."
+    },
+    {
+      "id": "codex-toml-local",
+      "input": "[mcp_servers.database]\ncommand = \"database-mcp\"\nargs = [\"--readonly\"]\nenv = { DATABASE_URL = \"postgres://localhost/app\" }\n",
+      "expect": { "format": "codex-toml", "servers": [ { "name": "database", "type": "local", "command": ["database-mcp", "--readonly"], "env": { "DATABASE_URL": "postgres://localhost/app" } } ], "placeholders": [] }
+    },
+    {
+      "id": "codex-toml-remote",
+      "input": "[mcp_servers.docs]\nurl = \"https://docs.example.test/mcp\"\nhttp_headers = { Authorization = \"Bearer <token>\" }\n",
+      "expect": { "format": "codex-toml", "servers": [ { "name": "docs", "type": "remote", "url": "https://docs.example.test/mcp", "headers": { "Authorization": "Bearer <token>" } } ], "placeholders": ["header.Authorization"] }
+    },
+    {
+      "id": "opencode-v1",
+      "input": "{\"mcp\":{\"filesystem\":{\"type\":\"local\",\"command\":[\"npx\",\"-y\",\"@modelcontextprotocol/server-filesystem\",\"/workspace\"],\"enabled\":true}}}",
+      "expect": { "format": "opencode-json", "servers": [ { "name": "filesystem", "type": "local", "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"], "env": {} } ], "placeholders": [] }
+    },
+    {
+      "id": "opencode-v2",
+      "input": "{\"mcp\":{\"servers\":{\"docs\":{\"type\":\"remote\",\"url\":\"https://docs.example.test/mcp\",\"headers\":{\"Authorization\":\"Bearer abc\"}}}}}",
+      "expect": { "format": "opencode-json", "servers": [ { "name": "docs", "type": "remote", "url": "https://docs.example.test/mcp", "headers": { "Authorization": "Bearer abc" } } ], "placeholders": [] }
+    },
+    {
+      "id": "claude-mcp-add-http",
+      "input": "claude mcp add --transport http docs https://docs.example.test/mcp --header \"Authorization: Bearer YOUR_TOKEN\"",
+      "expect": { "format": "claude-mcp-add", "servers": [ { "name": "docs", "type": "remote", "url": "https://docs.example.test/mcp", "headers": { "Authorization": "Bearer YOUR_TOKEN" } } ], "placeholders": ["header.Authorization"] }
+    },
+    {
+      "id": "claude-mcp-add-stdio",
+      "input": "claude mcp add --env ISSUES_TOKEN=\"<your token>\" issues -- npx -y @acme/issues-mcp",
+      "expect": { "format": "claude-mcp-add", "servers": [ { "name": "issues", "type": "local", "command": ["npx", "-y", "@acme/issues-mcp"], "env": { "ISSUES_TOKEN": "<your token>" } } ], "placeholders": ["env.ISSUES_TOKEN"] }
+    },
+    {
+      "id": "command-line",
+      "input": "npx -y @acme/issues-mcp --read-only",
+      "expect": { "format": "command", "servers": [ { "name": "issues", "type": "local", "command": ["npx", "-y", "@acme/issues-mcp", "--read-only"], "env": {} } ], "placeholders": [] }
+    },
+    {
+      "id": "command-line-quoting",
+      "input": "notes-mcp --root \"/work space\" --label ''",
+      "expect": { "format": "command", "servers": [ { "name": "notes", "type": "local", "command": ["notes-mcp", "--root", "/work space", "--label", ""], "env": {} } ], "placeholders": [] },
+      "ui": "An empty argument or one with a newline opens the command in one-per-line mode."
+    },
+    {
+      "id": "docker-image",
+      "input": "docker run -i --rm -e GITHUB_PERSONAL_ACCESS_TOKEN ghcr.io/github/github-mcp-server",
+      "expect": { "format": "command", "servers": [ { "name": "github", "type": "local", "command": ["docker", "run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"], "env": {} } ], "placeholders": [] },
+      "ui": "-e NAME with no value passes the variable through from the environment. Suggest adding GITHUB_PERSONAL_ACCESS_TOKEN as an environment row."
+    },
+    {
+      "id": "uvx-prefix",
+      "input": "uvx mcp-server-fetch",
+      "expect": { "format": "command", "servers": [ { "name": "fetch", "type": "local", "command": ["uvx", "mcp-server-fetch"], "env": {} } ], "placeholders": [] }
+    },
+    {
+      "id": "url",
+      "input": "https://mcp.example.test/mcp",
+      "expect": { "format": "url", "servers": [ { "name": "example", "type": "remote", "url": "https://mcp.example.test/mcp", "headers": {} } ], "placeholders": [] }
+    },
+    {
+      "id": "sse-only",
+      "input": "{\"mcpServers\":{\"legacy\":{\"type\":\"sse\",\"url\":\"https://legacy.example.test/sse\"}}}",
+      "expect": { "format": "claude-json", "servers": [], "errors": ["legacy: SSE-only servers aren’t portable. Use the server’s Streamable HTTP address."] }
+    },
+    {
+      "id": "url-credentials",
+      "input": "https://user:secret@docs.example.test/mcp",
+      "expect": { "format": "url", "servers": [], "errors": ["Put credentials in a header, not in the URL."] }
+    },
+    {
+      "id": "broken-json",
+      "input": "{ \"mcpServers\": { \"issues\": ",
+      "expect": { "format": "json", "servers": [], "errors": ["Couldn’t read that as JSON. Check that it’s complete."] }
+    }
+  ]
+}

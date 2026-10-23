@@ -108,11 +108,17 @@ try {
     if (provider === "opencode" && major === 2) assert.equal(result.data.find(row => row.name === "fixture").status.status, "connected");
     let currentRevision = created.revision;
     if (["codex", "opencode"].includes(provider)) {
-      currentRevision = (await svc.save('fixture', currentRevision, { ...input, enabled: false })).revision;
-      await svc.setLink(provider, 'fixture', true, currentRevision, (await svc.list(provider)).revision);
+      await svc.setLink(provider, 'fixture', true, currentRevision, (await svc.list(provider)).revision, false);
       const count = transport === 'local' ? (await fs.readFile(marker, 'utf8')).length : requests.length;
       await inventory(env, home, major);
       assert.equal(transport === 'local' ? (await fs.readFile(marker, 'utf8')).length : requests.length, count, 'a disabled server must not start or connect');
+      assert.deepEqual((await svc.list(provider)).disabled, ['fixture']);
+      await svc.setLink(provider, 'fixture', true, currentRevision, (await svc.list(provider)).revision, true);
+      const enabled = await inventory(env, home, major);
+      assert.deepEqual((await svc.list(provider)).disabled, []);
+      assert.ok(transport === 'local' ? (await fs.readFile(marker, 'utf8')).length > count : requests.length > count, 'turning the copy back on must start it in a fresh native read');
+      if (provider === 'codex') assert.ok(enabled.data.some(row => row.tools?.fixture));
+      if (provider === 'opencode' && major === 2) assert.equal(enabled.data.find(row => row.name === 'fixture').status.status, 'connected');
     }
     await svc.setLink(provider, "fixture", false, currentRevision, (await svc.list(provider)).revision);
     assert.equal((await svc.list(provider)).shared[0].linked, false);

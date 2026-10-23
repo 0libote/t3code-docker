@@ -352,10 +352,10 @@ const audit = () => {
   };
   const STATES = [
     ['MCP servers', async (page) => {
-      await page.evaluate(() => { location.hash = 'instructions/mcp'; });
-      await page.waitForSelector('.tc-mcp:not([hidden])');
+      await page.evaluate(() => { location.hash = 'mcp'; });
+      await page.waitForSelector('#mcp-library .tc-mcp-table:visible, #mcp-library .tc-sk-phone-list:visible, #mcp-library .tc-empty:visible');
     }],
-    ...ROUTES.map((route) => [route, async (page) => {
+    ...ROUTES.filter(route => route !== 'mcp').map((route) => [route, async (page) => {
       await page.evaluate((r) => { location.hash = r; }, route);
       await page.waitForSelector(`#page-${route}:not([hidden]) .tc-section, #page-${route}:not([hidden]) .tc-group`, { timeout: 60000 });
     }]),

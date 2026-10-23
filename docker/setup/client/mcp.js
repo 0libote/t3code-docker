@@ -1,236 +1,164 @@
-// Shared MCP servers: one canonical list, linked per provider. Status polls
-// carry redacted summaries; secrets load only in the editor.
+// On-demand MCP library. Status polls cannot morph its owned subtree, focused
+// cells, menus or drafts. Every mutation refreshes native truth before unlock.
 const T3McpUI = (() => {
   'use strict';
-  const { html, raw, icon } = Kit;
-  const M = T3Model;
-  const providers = [['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['cursor', 'Cursor'], ['grok', 'Grok Build'], ['muse', 'Muse Code'], ['antigravity', 'Antigravity']];
-  const providerName = (id) => providers.find(([key]) => key === id)?.[1] || id;
-
+  const { html, raw, icon } = Kit, S = T3McpModel, M = T3Model;
+  const disabled = value => value ? raw(' disabled') : '';
+  const mark = id => html`<span class="tc-tile tc-tile--mark tc-tile--xs" aria-hidden="true">${raw(T3C.agentMark(id))}</span>`;
   const create = ({ api, getStatus, render }) => {
-    let provider = null, shared = null, loading = false, error = null, generation = 0, viewer = null, linking = null;
-    const snapshot = () => ({ ...getStatus(), context: { ...getStatus()?.context, mcp: shared || getStatus()?.context?.mcp } });
-
-    const chooseDefault = () => {
-      const installed = (getStatus()?.harnesses || []).filter((row) => row.installed).map((row) => row.id);
-      return providers.find(([id]) => installed.includes(id))?.[0] || 'claude';
+    let data = null, query = '', agent = '', needsAttention = false, error = null, started = false, scanning = false, epoch = 0, scan = null, markup = null;
+    const mutationErrors = new Map(), undos = new Map();
+    const changing = new Map(), collapsed = new Set(), differences = new Map();
+    const installed = () => S.providers.filter(p => getStatus()?.harnesses?.some(h => h.id === p.id && h.installed)).map(p => p.id);
+    const managed = () => S.providers.filter(p => p.managed && installed().includes(p.id));
+    const columns = () => S.providers.filter(p => installed().includes(p.id) && (p.managed || p.id === 'grok' && data?.providers?.find(row => row.provider === 'grok')?.imports?.length));
+    const rows = () => S.rows(data);
+    const library = () => ({ data, installed: installed(), managed: managed(), changing, home: getStatus()?.paths?.volume });
+    const pathLabel = value => T3SkillModel.displayPath(value || '', library().home);
+    const detail = row => row.shared || row.identical ? row.type === 'remote' ? row.url : T3McpCommand.line(row.command || [])
+      : (row.providers?.length === 2 ? 'Two' : row.providers?.length) + ' different versions, in ' + M.listOf((row.providers || []).map(S.nameOf));
+    const keyChips = row => html`<span class="tc-keys">${[...(row.envKeys || []), ...(row.headerKeys || [])].map(key => html`<span class="tc-key" title="${key}">${icon('key-round')}${key}</span>`)}</span>`;
+    const paint = () => {
+      markup = body(); render();
+      const mount = document.getElementById('mcp-library'); if (mount) Kit.patch(mount, markup);
+      inspector.repaint();
     };
-
-    const load = async (refresh = false) => {
-      if (loading) return;
-      provider ||= chooseDefault();
-      const current = ++generation;
-      loading = true; error = null; render();
-      const response = await api('/context/mcp' + (refresh ? '?refresh=1' : ''));
-      if (current !== generation) return;
-      loading = false;
-      if (response.ok) shared = response.data;
-      else error = response.error;
-      render();
+    const load = (force = false) => {
+      if (scan && !force) return scan;
+      const version = ++epoch; started = true; scanning = true; error = null; paint();
+      const request = api('/context/mcp' + (force ? '?refresh=1' : '')).then(response => {
+        if (version !== epoch) return false;
+        const usableInventory = response.status === 200 && Array.isArray(response.data?.shared?.servers) && Array.isArray(response.data?.providers);
+        if (!response.ok && !usableInventory) { error = response.error; return false; }
+        data = response.data; differences.clear();
+        for (const [id, undo] of undos) if (undo.sharedRevision !== data.shared.revision || undo.providerRevision !== data.providers.find(p => p.provider === id)?.revision) undos.delete(id);
+        if (getStatus()?.context) getStatus().context.mcp = data;
+        // At most three detail reads; no credentials or values enter the list.
+        const attention = S.attention(data, installed()).filter(item => item.kind === 'differs').slice(0, 3);
+        for (const item of attention) void api('/context/mcp/diff?provider=' + item.provider + '&name=' + encodeURIComponent(item.name)).then(result => {
+          if (version !== epoch || !result.ok || result.data.sharedRevision !== data.shared.revision || result.data.providerRevision !== data.providers.find(p => p.provider === item.provider)?.revision) return;
+          differences.set(item.provider + ':' + item.name, { fields: result.data.fields.map(({ field, key }) => ({ field, key })), extraOptions: result.data.extraOptions });
+          paint();
+        });
+        return true;
+      }).finally(() => { if (version === epoch) { scanning = false; scan = null; paint(); } });
+      scan = request; return request;
     };
-
-    const parseJson = (text, array) => {
-      let out;
-      try { out = JSON.parse(text); } catch { throw new Error(array ? 'Enter the command as a JSON array of strings.' : 'Enter values as a JSON object of strings.'); }
-      if (!out || typeof out !== 'object' || Array.isArray(out) !== array || !Object.values(out).every((value) => typeof value === 'string')) throw new Error(array ? 'Enter a JSON array of strings.' : 'Enter a JSON object of strings.');
-      return out;
-    };
-
-    const serverRow = (server, selected) => {
-      const differs = selected?.diverged?.includes(server.name);
-      const linked = differs || selected?.linked?.includes(server.name);
-      const managed = selected?.supported && !selected.error;
-      const canApply = server.enabled !== false || ['codex', 'opencode'].includes(provider);
-      const busy = loading || Boolean(linking);
-      const detail = server.type === 'local' ? (server.command || []).join(' ') : server.url;
-      return html`<div class="tc-row tc-row--compact tc-mcp-row" data-key="mcp-${server.name}">
-        <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('plug')}</span>
-        <button class="tc-row-main tc-mcp-open" type="button" data-cmd="mcp.view" data-id="${server.name}" aria-label="Edit ${server.name}">
-          <span class="tc-row-title"><span class="tc-row-name">${server.name}</span>
-            <span class="tc-badge">${server.type === 'local' ? 'Local' : 'Remote'}</span>
-            ${server.enabled === false ? html`<span class="tc-badge" title="Disabled when applied to Codex or OpenCode">Disabled</span>` : ''}
-            ${differs ? html`<span class="tc-badge tc-badge--warn">Differs</span>` : ''}</span>
-          ${detail ? html`<span class="tc-mcp-description" title="${detail}">${detail}</span>` : ''}
-        </button>
-        <div class="tc-row-actions">
-          ${managed ? html`${differs && canApply ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="mcp.apply" data-provider="${provider}" data-id="${server.name}"${busy ? raw(' disabled') : ''}>Apply</button>` : ''}
-            <label class="tc-switch-hit" title="${linked ? differs ? 'This copy differs from shared. Apply to replace it, or switch off to unlink.' : 'Matches the shared definition. Switch off to unlink.' : canApply ? 'Link this server to ' + providerName(provider) : 'Enable the shared definition before linking to ' + providerName(provider)}"><button class="tc-switch" type="button" role="switch" aria-checked="${String(Boolean(linked))}" aria-label="${providerName(provider)} configured for ${server.name}" data-cmd="mcp.link" data-provider="${provider}" data-id="${server.name}"${busy || (!linked && !canApply) ? raw(' disabled') : ''}${linking ? raw(' aria-busy="true"') : ''}></button></label>` : ''}
-        </div>
-      </div>`;
-    };
-
-    const content = () => {
-      const view = M.mcpView(snapshot());
-      const selected = shared?.providers?.find((row) => row.provider === (provider || chooseDefault()));
-      const servers = shared?.shared?.servers || [];
-      const unavailable = selected?.supported && selected.error;
-      return html`<div class="tc-group tc-mcp">
-        <div class="tc-mcp-toolbar"><label class="tc-label" for="mcp-provider">Agent</label><select class="tc-select tc-select--sm" id="mcp-provider"${linking ? raw(' disabled') : ''}>${providers.map(([id, name]) => html`<option value="${id}"${(provider || chooseDefault()) === id ? raw(' selected') : ''}>${name}</option>`)}</select><span class="tc-hint tc-mcp-count">${shared && !loading ? M.plural(servers.length, 'shared server') : ''}</span><span class="tc-spacer"></span><div class="tc-mcp-actions">
-          <button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-cmd="mcp.refresh" aria-label="Refresh MCP servers" title="Refresh MCP servers"${loading || linking ? raw(' disabled') : ''}>${icon('refresh-cw')}</button>
-          <button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="mcp.add">${icon('plus')}Add server</button></div></div>
-        <div class="tc-mcp-body" aria-live="polite" aria-busy="${String(loading)}">
-          ${loading ? html`<p class="tc-mcp-message tc-muted"><span class="tc-spinner" aria-hidden="true"></span>Reading MCP servers…</p>` : ''}
-          ${error ? html`<p class="tc-mcp-message tc-danger" role="alert">${icon('circle-alert')}<span>Couldn’t read MCP servers: ${error}</span></p>` : ''}
-          ${view.error && !loading ? html`<p class="tc-mcp-message tc-warning" role="status">${icon('triangle-alert')}<span>${view.error}</span></p>` : ''}
-          ${!loading && !error && shared ? html`
-            ${selected && (!selected.supported || selected.error) ? html`<p class="tc-mcp-message${unavailable ? ' tc-warning' : ' tc-muted'}" role="status">${icon(unavailable ? 'triangle-alert' : 'info')}<span>${unavailable ? 'Couldn’t read ' + providerName(provider) + ' settings: ' : ''}${selected.error || 'MCP settings for this agent are not managed here.'} You can still edit shared definitions.</span></p>` : ''}
-            ${selected?.warning ? html`<p class="tc-mcp-message tc-warning" role="status">${icon('triangle-alert')}<span>${selected.warning}</span></p>` : ''}
-            ${servers.length ? html`<div class="tc-list">${servers.map((server) => serverRow(server, selected))}</div>` : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-media" aria-hidden="true"><span class="tc-empty-icon">${icon('plug')}</span></span><span class="tc-empty-title">No shared servers yet</span><span class="tc-empty-desc">Add a server, then choose which agents should use it.</span></div>`}
-            ${selected?.path ? html`<details class="tc-mcp-locations" data-key="mcp-location-${provider}"><summary>${providerName(provider)} settings${selected.ownCount ? ' · ' + M.plural(selected.ownCount, 'other server') : ''}</summary><code>${selected.path}</code><p class="tc-hint">${selected.ownCount ? 'Other servers in this file: ' + (selected.own?.join(', ') || selected.ownCount) + '. They stay unchanged.' : 'Only same-name entries are changed when you link, apply or unlink.'}</p></details>` : ''}
-            <details class="tc-mcp-locations" data-key="mcp-support"><summary>How sharing works</summary><p class="tc-hint">Definitions are shared across agents. Saving leaves existing agent copies unchanged; choose Apply to update a copy marked Differs. Switches show saved entries, including disabled ones. They do not show live connection status.</p><p class="tc-hint">This page manages global settings. Project settings and custom T3 agent profiles can differ. Codex and OpenCode support disabled definitions here; unlink for Claude and Cursor. Start a new session to load changes.</p><p class="tc-hint">Remote servers use Streamable HTTP. Sign in through your agent when required: claude mcp login, codex mcp login, opencode mcp auth or cursor-agent mcp login.</p></details>
-          ` : ''}
-        </div>
-        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Choose an agent, then link the shared servers it should use. After editing a definition, Apply updates that agent’s copy.</span></div>
-      </div>`;
-    };
-
-    const open = async (name = null) => {
-      if (viewer && !await viewer.close('replace')) return;
-      const creating = !name;
-      const current = { creating, name: name || '', loading: !creating, data: null, revision: null, error: null, layer: null, saving: false,
-        draft: { name: name || '', type: 'local', command: '', url: '', env: '{}', headers: '{}', enabled: true }, original: '' };
-      current.original = JSON.stringify(current.draft);
-      const dirty = () => JSON.stringify(current.draft) !== current.original;
-      const cannotSave = () => current.saving || current.loading || (!creating && !current.data) || !current.draft.name.trim() || (!creating && !dirty());
-      const beforeUnload = event => { if (current.saving || dirty()) { event.preventDefault(); event.returnValue = ''; } };
-      const requestClose = async (reason = 'close') => {
-        if (current.saving || current.closing) return false;
-        if (dirty()) {
-          current.closing = true;
-          const yes = await Kit.confirm({ title: 'Discard changes?', body: 'Your edits to this shared server have not been saved.', confirm: 'Discard changes', tone: 'danger' });
-          current.closing = false;
-          if (!yes || viewer !== current || current.saving) return false;
-        }
-        current.layer.close(reason); return true;
-      };
-      current.close = requestClose;
-      const title = creating ? 'Add shared MCP server' : 'Edit ' + name;
-      current.layer = Kit.open({ kind: 'center',
-        panel: { tag: 'div', class: 'tc-sheet tc-context-sheet tc-mcp-editor ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'mcp-title' },
-        backdrop: 'ignore', onEscape: () => { void requestClose('escape'); },
-        onClose: () => { window.removeEventListener('beforeunload', beforeUnload); if (viewer === current) viewer = null; },
-        render: () => html`<div class="tc-sheet-head"><span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('plug')}</span><div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="mcp-title">${title}</h2><span class="tc-small tc-muted">Shared definition for all agents</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-mcp="close" aria-label="Close"${current.saving ? raw(' disabled') : ''}>${icon('x')}</button></div>
-          <div class="tc-sheet-body">
-            ${current.error ? html`<p class="tc-danger" role="alert">${current.error}</p>` : ''}
-            ${current.loading ? html`<p class="tc-muted" role="status">Reading server…</p>` : creating || current.data ? html`
-            <label class="tc-label" for="mcp-name">Name</label>
-            <input class="tc-input tc-mono" id="mcp-name" data-key="mcp-name" value="${current.draft.name}" maxlength="64" autocapitalize="none" spellcheck="false"${current.saving || !creating ? raw(' disabled') : ''}>
-            <p class="tc-hint">Use lowercase letters, numbers and single hyphens. To rename a server, remove it and add it again.</p>
-            <label class="tc-label" for="mcp-type">Type</label>
-            <select class="tc-select" id="mcp-type"${current.saving ? raw(' disabled') : ''}><option value="local"${current.draft.type === 'local' ? raw(' selected') : ''}>Local command</option><option value="remote"${current.draft.type === 'remote' ? raw(' selected') : ''}>Remote URL</option></select>
-            ${current.draft.type === 'local' ? html`<label class="tc-label" for="mcp-command">Command and arguments (JSON array)</label><textarea class="tc-input tc-input--mono" id="mcp-command" placeholder='["npx", "-y", "package-name"]' rows="3" spellcheck="false"${current.saving ? raw(' disabled') : ''}>${current.draft.command}</textarea>` : html`<label class="tc-label" for="mcp-url">URL</label><input class="tc-input tc-mono" id="mcp-url" value="${current.draft.url}" placeholder="https://…" spellcheck="false"${current.saving ? raw(' disabled') : ''}>`}
-            <label class="tc-label" for="mcp-pairs">${current.draft.type === 'local' ? 'Environment (JSON object)' : 'Headers (JSON object)'}</label>
-            <textarea class="tc-input tc-input--mono" id="mcp-pairs" data-key="mcp-pairs-${current.draft.type}" rows="3" spellcheck="false"${current.saving ? raw(' disabled') : ''}>${current.draft.type === 'local' ? current.draft.env : current.draft.headers}</textarea>
-            <label class="tc-switch-hit" for="mcp-enabled"><button class="tc-switch" id="mcp-enabled" type="button" role="switch" aria-checked="${String(current.draft.enabled)}" aria-label="Enabled"${current.saving ? raw(' disabled') : ''}></button><span class="tc-small">Enabled for Codex and OpenCode</span></label>
-            <p class="tc-hint">For Claude and Cursor, unlink to disable. Saving does not change existing agent copies.</p>
-            <p class="tc-hint">Put secrets in environment values or headers; commands are visible in the list. Variable references follow each agent’s own rules.</p>
-            ` : ''}
-          </div><div class="tc-sheet-foot"><button class="tc-btn tc-btn--ghost" type="button" data-mcp="close"${current.saving ? raw(' disabled') : ''}>Cancel</button>
-          ${!creating ? html`<button class="tc-btn tc-btn--danger" type="button" data-mcp="remove"${current.saving || current.loading || !current.data ? raw(' disabled') : ''}>Remove…</button>` : ''}
-          <button class="tc-btn tc-btn--primary" type="button" data-mcp="save"${cannotSave() ? raw(' disabled') : ''}>${current.saving ? 'Saving…' : creating ? 'Add server' : 'Save'}</button></div>`,
-      });
-      viewer = current;
-      window.addEventListener('beforeunload', beforeUnload);
-      const panel = current.layer.panel;
-      const sync = () => current.layer.render();
-      const syncSave = () => { panel.querySelector('[data-mcp=save]').disabled = cannotSave(); };
-      panel.addEventListener('keydown', (event) => {
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-          event.preventDefault(); panel.querySelector('[data-mcp=save]').click();
-        }
-      });
-      panel.addEventListener('input', (event) => {
-        if (event.target.id === 'mcp-name') current.draft.name = event.target.value;
-        if (event.target.id === 'mcp-url') current.draft.url = event.target.value;
-        if (event.target.id === 'mcp-command') current.draft.command = event.target.value;
-        if (event.target.id === 'mcp-pairs') current.draft[current.draft.type === 'local' ? 'env' : 'headers'] = event.target.value;
-        syncSave();
-      });
-      panel.addEventListener('change', (event) => {
-        if (event.target.id === 'mcp-type') { current.draft.type = event.target.value; sync(); }
-      });
-      panel.addEventListener('click', async (event) => {
-        const button = event.target.closest('button');
-        if (!button || button.disabled) return;
-        if (button.hasAttribute('data-mcp') && button.getAttribute('data-mcp') === 'close') { await requestClose(); return; }
-        if (button.id === 'mcp-enabled') { current.draft.enabled = !current.draft.enabled; button.setAttribute('aria-checked', String(current.draft.enabled)); syncSave(); return; }
-        if (button.getAttribute('data-mcp') === 'remove') {
-          const yes = await Kit.confirm({ title: 'Remove ' + current.name + '?', body: 'Unlink this server from every agent first. Removing it here deletes the shared definition. Existing sessions and compatibility imports can still use their own copies.', confirm: 'Remove server', tone: 'danger' });
-          if (!yes || viewer !== current || current.saving) return;
-          current.saving = true; current.error = null; current.layer.render();
-          const response = await api('/context/mcp/remove', { body: { name: current.name, revision: current.revision } });
-          current.saving = false;
-          if (!response.ok) { if (viewer === current) { current.error = response.error; current.layer.render(); } return; }
-          if (viewer === current) current.layer.close('saved');
-          Kit.toast('Removed shared MCP server');
-          generation++; loading = false;
-          await load(true);
-          return;
-        }
-        if (button.getAttribute('data-mcp') === 'save') {
-          try {
-            const pairs = parseJson(current.draft[current.draft.type === 'local' ? 'env' : 'headers'], false);
-            const server = current.draft.type === 'local'
-              ? { name: (current.draft.name || '').trim(), type: 'local', enabled: current.draft.enabled,
-                  command: parseJson(current.draft.command, true), env: pairs }
-              : { name: (current.draft.name || '').trim(), type: 'remote', enabled: current.draft.enabled,
-                  url: (current.draft.url || '').trim(), headers: pairs };
-            current.saving = true; current.error = null; current.layer.render();
-            const response = creating
-              ? await api('/context/mcp/create', { body: { server } })
-              : await api('/context/mcp/save', { body: { name: current.name, revision: current.revision, server } });
-            current.saving = false;
-            if (!response.ok) { if (viewer === current) { current.error = response.error; current.layer.render(); } return; }
-            if (viewer === current) current.layer.close('saved');
-            Kit.toast(creating ? 'Added shared MCP server' : 'Saved shared MCP server');
-            generation++; loading = false;
-            await load(true);
-          } catch (err) {
-            current.saving = false; current.error = err.message; current.layer.render();
-          }
-        }
-      });
-      if (creating) { current.loading = false; current.layer.render(); return; }
-      const response = await api('/context/mcp/read?name=' + encodeURIComponent(name));
-      if (viewer !== current) return;
-      current.loading = false;
-      if (!response.ok) { current.error = response.error; current.layer.render(); return; }
-      const server = response.data.server;
-      current.revision = response.data.revision;
-      current.data = server;
-      current.draft = { name: server.name, type: server.type, enabled: server.enabled !== false,
-        command: JSON.stringify(server.command || [], null, 2), url: server.url || '',
-        env: JSON.stringify(server.env || {}, null, 2), headers: JSON.stringify(server.headers || {}, null, 2) };
-      current.original = JSON.stringify(current.draft);
-      current.layer.render();
-    };
-
-    const setLink = async (provider, name, apply = false) => {
-      if (linking) return;
-      if (loading || error) return;
-      const current = shared?.providers?.find((row) => row.provider === provider);
-      const sharedRevision = shared?.shared?.revision;
-      if (!current?.revision) return;
-      const differs = (current.diverged || []).includes(name);
-      const linked = apply || ![...(current.linked || []), ...(current.diverged || [])].includes(name);
-      if (differs || !linked) {
-        const yes = await Kit.confirm({ title: linked ? 'Apply shared ' + name + '?' : 'Unlink ' + name + '?', body: linked ? 'Replaces the complete ' + providerName(provider) + ' entry, including its agent-specific options. A private backup is kept beside the settings file.' : 'Removes this entry from ' + providerName(provider) + ' global settings. A private backup is kept. Existing sessions, project settings and compatibility imports can still use the server.', confirm: linked ? 'Apply shared' : 'Unlink', tone: linked ? 'primary' : 'danger' });
-        if (!yes || linking) return;
+    const change = async (provider, name, linked, options = {}) => {
+      const current = data?.providers?.find(p => p.provider === provider);
+      if (!current?.revision || changing.has(provider) || data.shared.error) return false;
+      const diverged = current.diverged?.includes(name), wasOff = current.disabled?.includes(name);
+      const sharedRevision = options.sharedRevision || data.shared.revision, providerRevision = options.providerRevision || current.revision;
+      if (diverged && !options.reviewed) {
+        const yes = await Kit.confirm({ title: linked ? 'Update ' + name + ' in ' + S.nameOf(provider) + '?' : 'Remove ' + name + ' from ' + S.nameOf(provider) + '?',
+          body: linked ? 'Replaces the complete native entry, including agent-specific options. A private backup is kept beside the settings file.' : 'This agent’s copy differs from the shared server. Its own changes are removed too. A private backup is kept beside the settings file.',
+          confirm: linked ? 'Update to shared' : 'Remove', tone: linked ? 'primary' : 'danger' });
+        if (!yes || changing.has(provider)) return false;
       }
-      linking = provider; render();
-      const response = await api('/context/mcp/link', { body: { provider, name, linked, sharedRevision, providerRevision: current.revision } });
-      linking = null;
-      if (!response.ok) Kit.toast('Could not change MCP link', { tone: 'danger', detail: response.error });
-      else Kit.toast(linked ? 'Applied ' + name + ' to ' + providerName(provider) : 'Removed ' + name + ' from ' + providerName(provider) + ' global config');
-      generation++; loading = false;
-      await load(true);
+      const focusedKey = document.activeElement?.getAttribute('data-key');
+      const fromInspector = Boolean(document.activeElement?.closest('.tc-mcp-inspector'));
+      const restoreFocus = () => {
+        if (document.activeElement !== document.body && !document.activeElement?.matches('.tc-mcp-inspector')) return;
+        if (focusedKey) document.querySelector('[data-key="' + CSS.escape(focusedKey) + '"]')?.focus({ preventScroll: true });
+        if (fromInspector) inspector.restoreFocus(provider);
+      };
+      mutationErrors.delete(provider); undos.delete(provider); changing.set(provider, name); paint();
+      let response;
+      try {
+        response = await api('/context/mcp/link', { body: { provider, name, linked, sharedRevision, providerRevision,
+          ...(options.enabled !== undefined ? { enabled: options.enabled } : {}) } });
+        await load(true);
+      } finally { changing.delete(provider); paint(); restoreFocus(); }
+      if (!response?.ok) {
+        const title = response?.status === 409 || response?.data?.code === 'conflict' ? 'Settings changed elsewhere. Showing the current state.' : 'Couldn’t change ' + name + ' in ' + S.nameOf(provider);
+        mutationErrors.set(provider, { name, title, error: response?.error }); paint();
+        Kit.toast(title, { tone: 'danger', detail: response?.error });
+        return false;
+      }
+      const text = linked ? options.enabled === false ? 'Turned off ' + name + ' in ' + S.nameOf(provider) : options.enabled === true ? 'Turned on ' + name + ' in ' + S.nameOf(provider) : 'Added ' + name + ' to ' + S.nameOf(provider) : 'Removed ' + name + ' from ' + S.nameOf(provider);
+      // Undo only a matched copy. It is revision checked against the post-write
+      // snapshot and preserves Off; it never replaces a newly changed copy.
+      const undoSharedRevision = data.shared.revision, undoProviderRevision = data.providers.find(p => p.provider === provider).revision;
+      const undo = !linked && !diverged ? { label: 'Undo', run: () => change(provider, name, true, { enabled: wasOff ? false : undefined,
+        sharedRevision: undoSharedRevision, providerRevision: undoProviderRevision }) } : null;
+      if (undo) undos.set(provider, { name, run: undo.run, sharedRevision: undoSharedRevision, providerRevision: undoProviderRevision });
+      paint(); Kit.toast(text, { action: undo }); Kit.announce(text); return true;
     };
-
-    return { content, load, beforeNavigate: () => viewer ? viewer.close('route') : true, refresh: () => load(true), add: () => open(null), view: (id) => open(id),
-      activate: () => { if (!shared && !loading && !error) load(); },
-      toggle: (provider, name) => setLink(provider, name),
-      apply: (provider, name) => setLink(provider, name, true),
-      select: (id) => { if (!linking && providers.some(([key]) => key === id)) { provider = id; render(); } },
+    const context = { api, library, mutationErrors, undos, refresh: () => load(true), change,
+      edit: name => edit(name), share: (name, provider, replace = false) => share(name, provider, replace), remove: name => remove(name), mark, keyChips, pathLabel };
+    const inspector = T3McpInspector.create(context), editor = T3McpEditor.create(context);
+    const prepare = async () => { if (!data && !await load()) return false; return true; };
+    const edit = async name => { if (changing.size) return; if (!await prepare() || !await inspector.close('edit')) return; await editor.open({ name }); };
+    const share = async (name, provider, replace = false) => { if (changing.size) return; if (!await prepare() || !await inspector.close('share')) return; await editor.open({ name, provider, mode: 'share', replace }); };
+    const remove = async name => { if (!await prepare()) return; await editor.remove(name, () => inspector.close('removed')); };
+    const cell = (row, provider) => {
+      const state = S.state(data, row, provider.id), busy = changing.has(provider.id), pending = changing.get(provider.id) === row.name;
+      const label = row.name + ' in ' + provider.name + ': ' + state.label.toLowerCase();
+      const key = 'mcp-cell-' + row.key + ':' + provider.id;
+      if (pending) return html`<span class="tc-cell" role="status"><span class="tc-spinner" aria-hidden="true"></span><span class="tc-sr">Saving ${row.name} in ${provider.name}</span></span>`;
+      if (['via', 'own', 'error', 'unsupported'].includes(state.kind)) return html`<span class="tc-cell tc-cell--${state.kind}" title="${state.kind === 'via' ? 'Grok Build may import ' + S.nameOf(state.source || 'claude') + '’s servers. It isn’t managed here and doesn’t report what it loads.' : state.reason || ''}"><span>${state.label}</span></span>`;
+      if (state.kind === 'none') return html`<button class="tc-cell tc-cell--none" type="button" data-key="${key}" data-cmd="${row.shared ? 'mcp.link' : 'mcp.share'}" data-provider="${provider.id}" data-id="${row.name}" aria-label="${row.shared ? 'Add' : 'Share'} ${row.name} ${row.shared ? 'to' : 'with'} ${provider.name}"${disabled(busy || !row.shared && !row.recognized || data.shared.error)}><span class="tc-cell-dash">—</span><span class="tc-cell-add">${icon('plus')}Add</span></button>`;
+      return html`<button class="tc-cell" data-tone="${state.kind === 'differs' ? 'warn' : state.kind === 'off' ? 'muted' : ''}" type="button" data-key="${key}" data-cmd="mcp.cell" data-provider="${provider.id}" data-id="${row.name}" aria-label="${label}" aria-haspopup="menu"${disabled(busy || data.shared.error)}>${state.kind === 'differs' ? html`<span class="tc-dot tc-dot--warn"></span>` : ''}${state.label}${icon('chevron-down')}</button>`;
+    };
+    const groupLabel = shared => shared ? 'Shared servers' : 'Only in an agent’s settings';
+    const footer = () => html`<div class="tc-sk-library-foot"><span>${icon('info', 'tc-icon--sm')}Agents load servers when a session starts. Remote servers that need sign-in sign in from each agent.</span><span class="tc-sk-scan-time" title="${M.absTime(data?.scannedAt)}">${data?.scannedAt ? 'Read ' + M.relTime(data.scannedAt, Date.now()) : ''}</span><button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-cmd="mcp.refresh"${disabled(scanning || changing.size)}>${scanning ? html`<span class="tc-spinner"></span>Scanning` : html`${icon('refresh-cw')}Rescan`}</button></div>`;
+    const table = filtered => html`<div class="tc-group tc-sk-table tc-mcp-table"><div class="tc-mx-scroll" tabindex="0" aria-label="MCP servers by agent"><div class="tc-mx" role="table" aria-label="MCP servers and agent settings" data-no-agents="${String(!columns().length)}" style="--mx-agent-count:${columns().length};--mx-main-count:${Math.max(0, columns().length - 1)}">
+      <div class="tc-mx-head" role="row"><div class="tc-mx-head-label" role="columnheader">Server</div>${columns().map((provider, index) => html`<div class="tc-mx-agent" role="columnheader" data-key="mcp-head-${provider.id}"><span class="tc-mx-agent-name">${mark(provider.id)}${provider.name}${data.providers.find(p => p.provider === provider.id)?.supported && data.providers.find(p => p.provider === provider.id)?.error ? html`<span class="tc-dot tc-dot--warn" aria-label="Settings unreadable"></span>` : ''}${index === columns().length - 1 ? html`<button class="tc-btn tc-btn--ghost tc-btn--xs tc-mcp-extra" type="button" data-key="mcp-extra" data-cmd="mcp.columns" aria-label="Other agents: Muse Code and Antigravity" title="Muse Code and Antigravity aren’t managed here yet" aria-haspopup="menu">+2</button>` : ''}</span><span class="tc-mx-agent-kind">${provider.control}</span></div>`)}</div>
+      ${[true, false].map(shared => { const group = filtered.filter(row => row.shared === shared); if (!group.length) return ''; return html`<div role="rowgroup" data-key="mcp-group-${shared}"><div role="row"><div class="tc-mx-group" role="cell" aria-colspan="${columns().length + 1}"><button class="tc-mx-group-toggle" type="button" data-cmd="mcp.group" data-id="${String(shared)}" aria-expanded="${String(!collapsed.has(shared))}">${icon(collapsed.has(shared) ? 'chevron-right' : 'chevron-down')}${groupLabel(shared)}</button>${shared ? html`<code title="${data.shared.path || ''}">${pathLabel(data.shared.path || '~/.t3/setup/mcp/servers.json')}</code>` : ''}<span>${group.length}</span><span>·</span><span class="tc-mx-readers">${shared ? 'Defined once, added to each agent you choose' : 'Not shared. Share one to manage it for every agent from here.'}</span></div></div>
+      ${collapsed.has(shared) ? '' : group.map(row => html`<div class="tc-mx-row" role="row" data-key="mcp-${row.key}"><div class="tc-mx-skill" role="cell"><div class="tc-mx-skill-copy"><div class="tc-mx-name"><button class="tc-skill-name" type="button" data-key="mcp-name-${row.key}" data-cmd="${shared ? 'mcp.view' : 'mcp.share'}" data-id="${row.name}"${disabled(!shared && (!row.recognized || data.shared.error))}>${row.name}</button>${row.type ? html`<span class="tc-badge">${row.type === 'remote' ? 'Remote' : 'Local'}</span>` : ''}${!shared ? html`<button class="tc-btn tc-btn--xs" type="button" data-cmd="mcp.share" data-id="${row.name}" title="${row.recognized ? 'Manage this server for your other agents' : 'This entry’s format isn’t supported here.'}"${disabled(!row.recognized || data.shared.error)}>Share…</button>` : ''}</div><div class="tc-mcp-detail${!row.shared && !row.identical ? ' tc-mcp-detail--prose' : ''}" title="${detail(row)}">${row.shared || row.identical ? icon(row.type === 'remote' ? 'globe' : 'terminal') : ''}<span>${detail(row) || 'Unsupported native entry'}</span></div>${row.shared || row.identical ? keyChips(row) : ''}</div></div>${columns().map(provider => html`<div class="tc-cellwrap" role="cell" data-key="mcp-${row.key}-${provider.id}">${cell(row, provider)}</div>`)}</div>`)}</div>`; })}
+      </div></div>${footer()}</div>`;
+    const phone = filtered => html`<div class="tc-sk-phone-list">${[true, false].map(shared => { const group = filtered.filter(row => row.shared === shared); if (!group.length) return ''; return html`<div class="tc-group tc-plist"><div class="tc-plist-group">${groupLabel(shared)}<span>· ${group.length}</span></div>${group.map(row => {
+        const used = S.used(data, row, installed()), differs = used.filter(id => S.state(data, row, id).kind === 'differs'), off = used.filter(id => S.state(data, row, id).kind === 'off');
+        return html`<button class="tc-prow" type="button" data-key="mcp-phone-${row.key}" data-cmd="${shared ? 'mcp.view' : 'mcp.share'}" data-id="${row.name}"${disabled(!shared && (!row.recognized || data.shared.error))}><span class="tc-prow-name tc-prow-name-line">${row.name}${row.type ? html`<span class="tc-badge">${row.type === 'remote' ? 'Remote' : 'Local'}</span>` : ''}</span>${shared || row.identical ? html`<span class="tc-prow-detail">${detail(row)}</span>` : ''}<span class="tc-prow-agents">${shared ? html`<span class="tc-agent-stack" aria-hidden="true">${used.map(mark)}</span><span>${off.length && !differs.length ? 'Off in ' + M.listOf(off.map(S.nameOf)) : M.plural(used.length, 'agent')}${differs.length ? html` · <span class="tc-warnline">Differs in ${M.listOf(differs.map(S.nameOf))}</span>` : ''}</span>` : M.listOf((row.providers || []).map(S.nameOf)) + (row.recognized ? ' · tap to share' : ' · unsupported format')}</span>${icon('chevron-right')}</button>`;
+      })}</div>`; })}</div>`;
+    const body = () => {
+      const all = rows(), filtered = S.filter(data, { query, agent, attention: needsAttention, installed: installed() }), attention = S.attention(data, installed());
+      return html`<div class="tc-sk-toolbar"><label class="tc-sk-search">${icon('search')}<input class="tc-input" id="mcp-search" data-key="mcp-search" value="${query}" type="search" placeholder="Search ${all.length} servers" aria-label="Search MCP servers"><kbd class="tc-kbd">/</kbd></label><div class="tc-sk-desktop-filters"><button class="tc-btn tc-btn--sm" type="button" data-cmd="mcp.agent" aria-haspopup="menu">Used by: <span class="tc-btn-value">${agent ? S.nameOf(agent) : 'Any agent'}</span>${icon('chevron-down', 'tc-chev')}</button>${attention.length ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="mcp.attention" aria-pressed="${String(needsAttention)}"><span class="tc-dot tc-dot--warn"></span>Needs attention ${attention.length}</button>` : ''}</div><span class="tc-spacer"></span><div class="tc-sk-desktop-actions"><button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="mcp.add"${disabled(data?.shared?.error || changing.size)}>${icon('plus')}Add server…</button></div></div>
+      <div class="tc-sk-agent-chips" aria-label="Filter by agent"><button class="tc-chip-btn" type="button" data-cmd="mcp.filter" aria-pressed="${String(!agent)}">All <span>${all.length}</span></button>${columns().filter(p => p.managed).map(p => html`<button class="tc-chip-btn" type="button" data-cmd="mcp.filter" data-provider="${p.id}" aria-pressed="${String(agent === p.id)}">${mark(p.id)}${p.name}<span>${all.filter(row => S.has(data?.providers?.find(a => a.provider === p.id), row.name)).length}</span></button>`)}</div>
+      ${error ? html`<div class="tc-notice tc-notice--danger" role="alert">${icon('circle-alert')}<div class="tc-notice-body"><strong class="tc-notice-title">Couldn’t read MCP servers</strong><span class="tc-notice-desc">${error}${data ? ' · Showing the last successful read.' : ''}</span></div><button class="tc-btn tc-btn--sm" type="button" data-cmd="mcp.refresh"${disabled(scanning)}>Try again</button></div>` : ''}
+      ${data?.shared?.error ? html`<div class="tc-notice tc-notice--danger" role="alert">${icon('circle-alert')}<div class="tc-notice-body"><strong class="tc-notice-title">Shared servers unavailable</strong><span class="tc-notice-desc">${data.shared.error}${data.shared.path ? html` <code>${pathLabel(data.shared.path)}</code>` : ''}</span></div></div>` : ''}
+      ${attention.length ? html`<button class="tc-sk-phone-notice tc-mcp-phone-attention" type="button" data-cmd="${attention[0].kind === 'differs' ? 'mcp.view' : 'mcp.refresh'}" data-id="${attention[0].name || ''}" data-provider="${attention[0].provider}"${disabled(scanning)}>${icon('triangle-alert')}<span><strong>${attention[0].kind === 'differs' ? attention[0].name + ' differs in ' + S.nameOf(attention[0].provider) : 'Couldn’t read ' + S.nameOf(attention[0].provider) + '’s settings'}</strong><span>${attention[0].kind === 'differs' ? 'Review it to update or keep that copy.' : 'Rescan to try again.'}${attention.length > 1 ? ' · ' + (attention.length - 1) + ' more need attention' : ''}</span></span>${scanning ? html`<span class="tc-spinner"></span>` : icon('chevron-right')}</button>` : ''}
+      <div class="tc-sk-notices">${attention.slice(0, 3).map(item => html`<div class="tc-notice tc-notice--warn tc-mcp-attention" role="status">${icon('triangle-alert')}<div class="tc-notice-body"><strong class="tc-notice-title">${item.kind === 'differs' ? item.name + ' differs in ' + S.nameOf(item.provider) : 'Couldn’t read ' + S.nameOf(item.provider) + '’s settings'}</strong><span class="tc-notice-desc">${item.error || S.describeDiff(differences.get(item.provider + ':' + item.name))}</span></div>${item.kind === 'differs' ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="mcp.view" data-id="${item.name}" data-provider="${item.provider}">Review…</button>` : ''}</div>`)}${attention.length > 3 ? html`<button class="tc-btn tc-btn--ghost tc-btn--sm" type="button" data-cmd="mcp.attention">and ${attention.length - 3} more</button>` : ''}</div>
+      ${!data && scanning ? html`<div class="tc-mcp-loading" role="status"><span class="tc-spinner"></span>Reading MCP servers…</div>` : data && all.length ? html`${!data.shared.servers.length ? html`<p class="tc-hint">Your agents already have ${M.plural(all.length, 'server')}. Share them to manage them here.</p>` : ''}${filtered.length ? html`${table(filtered)}${phone(filtered)}` : html`<div class="tc-empty tc-sk-empty"><strong class="tc-empty-title">No servers match</strong><span class="tc-empty-desc">Try another search or agent filter.</span><button class="tc-btn tc-btn--sm" type="button" data-cmd="mcp.filter">Clear filters</button></div>`}` : data && !data.shared.error ? html`<div class="tc-group tc-empty tc-sk-empty"><span class="tc-tile tc-tile--icon" aria-hidden="true">${icon('plug')}</span><strong class="tc-empty-title">No MCP servers yet</strong><span class="tc-empty-desc">Add one, or paste a snippet from a server’s README.</span><button class="tc-btn tc-btn--primary" type="button" data-cmd="mcp.add">${icon('plus')}Add server…</button></div>` : ''}
+      ${data && all.length && filtered.length ? html`<div class="tc-mcp-mobile-footer">${footer()}</div>` : footer()}
+      <div class="tc-sk-phone-actions"><button class="tc-btn tc-btn--primary tc-btn--block" type="button" data-cmd="mcp.add"${disabled(data?.shared?.error || changing.size)}>${icon('plus')}Add server</button></div>`;
+    };
+    const cellMenu = (name, provider, trigger) => {
+      const row = rows().find(row => row.name === name && row.shared), p = S.providers.find(p => p.id === provider), native = data?.providers?.find(p => p.provider === provider);
+      if (!row || !p || changing.has(provider)) return;
+      const state = S.state(data, row, provider), footer = html`Saved in <code>${pathLabel(native?.path)}</code>. Applies to new sessions.`;
+      const remove = { label: 'Remove from ' + p.name, icon: 'trash-2', danger: true, run: () => change(provider, name, false) };
+      let items = [remove];
+      if (state.kind === 'differs') items = [
+        { label: 'Update to the shared version', icon: 'refresh-cw', description: 'Replaces ' + p.name + '’s copy. A backup is kept.', run: () => change(provider, name, true) },
+        { label: 'Show what differs', icon: 'columns-2', run: () => inspector.open(name, provider) },
+        { label: 'Make this the shared version…', icon: 'share-2', run: () => share(name, provider, true) }, { sep: true }, remove,
+      ];
+      else if (p.canDisable) items = [
+        { label: 'On', radio: true, checked: state.kind === 'on', description: p.name + ' starts it in new sessions.', run: () => state.kind !== 'on' && change(provider, name, true, { enabled: true }) },
+        { label: 'Off', radio: true, checked: state.kind === 'off', description: 'Kept in ' + pathLabel(native?.path) + ' but not started.', run: () => state.kind !== 'off' && change(provider, name, true, { enabled: false }) }, { sep: true }, remove,
+      ];
+      Kit.menu(trigger, { label: p.name + ' · ' + name, head: { title: p.name + ' · ' + name },
+        status: state.kind === 'differs' ? html`<div class="tc-menu-status">${icon('triangle-alert')}<span>${S.describeDiff(differences.get(provider + ':' + name))}</span></div>` : null, items, footer });
+    };
+    window.matchMedia('(max-width: 1023.98px)').addEventListener('change', () => { paint(); editor.repaint(); });
+    document.addEventListener('input', event => { if (event.target.id === 'mcp-search') { query = event.target.value; paint(); } });
+    return {
+      content: () => html`<div id="mcp-library" class="tc-skills-library tc-mcp-library" data-key="mcp-library" data-keep>${markup || body()}</div>`,
+      phoneHead: () => html`<header class="tc-instructions-phone-head"><a class="tc-btn tc-btn--ghost" href="#more">${icon('chevron-right', 'tc-back-icon')}Setup</a><h1>MCP servers</h1>${document.documentElement.hasAttribute('data-embed') ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon" type="button" data-cmd="embed.close" aria-label="Close setup">${icon('x')}</button>` : html`<a class="tc-btn tc-btn--ghost tc-btn--icon" href="#more" aria-label="Close MCP servers">${icon('x')}</a>`}</header>`,
+      activate: (force = false) => {
+        if (!started || force && !scanning && !changing.size) { void load(force); return; }
+        for (const label of document.querySelectorAll('#mcp-library .tc-sk-scan-time')) label.textContent = data?.scannedAt ? 'Read ' + M.relTime(data.scannedAt, Date.now()) : '';
+      },
+      refresh: async () => { if (changing.size) return; const ok = await load(true); if (ok) Kit.announce('MCP servers scanned'); },
+      add: async () => { if (changing.size) return; if (await prepare() && await inspector.close('add')) await editor.open({}); }, view: async (name, provider) => { if (await prepare() && await editor.close('inspect')) await inspector.open(name, provider); }, share,
+      toggle: (provider, name) => change(provider, name, true), apply: (provider, name) => change(provider, name, true), cellMenu,
+      beforeNavigate: async () => await editor.close('route') && await inspector.close('route'),
+      focusSearch: () => document.getElementById('mcp-search')?.focus(),
+      filterAgent: id => { agent = id; if (!id) { query = ''; needsAttention = false; } paint(); const field = document.getElementById('mcp-search'); if (field) field.value = query; },
+      attention: () => { needsAttention = !needsAttention; paint(); }, group: id => { const key = id === 'true'; if (collapsed.has(key)) collapsed.delete(key); else collapsed.add(key); paint(); },
+      agentMenu: trigger => Kit.menu(trigger, { label: 'Used by', items: [{ label: 'Any agent', radio: true, checked: !agent, run: () => { agent = ''; paint(); } }, ...columns().filter(p => p.managed).map(p => ({ label: p.name, radio: true, checked: agent === p.id, run: () => { agent = p.id; paint(); } }))] }),
+      columnsMenu: trigger => Kit.menu(trigger, { label: 'Other agents', head: { title: 'Not managed here yet' }, items: ['muse', 'antigravity'].map(id => ({ label: S.nameOf(id), description: data?.providers?.find(p => p.provider === id)?.error || 'Native settings aren’t integrated yet.', disabled: true })), footer: 'These agents’ settings stay unchanged.' }),
     };
   };
   return { create };

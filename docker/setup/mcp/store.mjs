@@ -162,6 +162,7 @@ export async function createMcpServer(fs, baseDir, input) {
 }
 
 export async function saveMcpServer(fs, baseDir, name, revision, input) {
+  if (input?.name !== undefined && input.name !== name) return { ok: false, error: "The server name cannot be changed. Add it under the new name instead." };
   const checked = validateMcpServer({ ...(input ?? {}), name });
   if (!checked.ok) return checked;
   if (checked.server.name !== String(name ?? "").trim()) return { ok: false, error: "The server name cannot be changed. Remove it and add a new one." };
@@ -194,7 +195,7 @@ export async function removeMcpServer(fs, baseDir, name, revision, beforeRemove 
 }
 
 export function redactMcpServer(server) {
-  const { env, headers, ...rest } = server;
+  const { env, headers, enabled, ...rest } = server;
   // Paths and query strings may contain signed credentials. Only the origin
   // belongs in polling/list summaries; the full URL loads with the editor.
   if (rest.url) { try { rest.url = new URL(rest.url).origin; } catch { rest.url = "(invalid URL)"; } }
@@ -205,6 +206,27 @@ export function redactMcpServer(server) {
     headerCount: Object.keys(headers ?? {}).length,
     secretCount: Object.keys(env ?? {}).length + Object.keys(headers ?? {}).length,
   };
+}
+
+// Read the source while holding the store queue. Adopting never writes the
+// source agent; its revision is checked again just before the atomic commit.
+export async function adoptMcpServer(fs, baseDir, name, revision, source, replace = false) {
+  return withStore(mcpStorePathFor(baseDir), async () => {
+    const read = await readMcpStore(fs, baseDir);
+    if (read.error) throw problem(read.code || "unavailable", read.error);
+    if (read.revision !== revision) throw problem("conflict", changedStore().error);
+    const exists = read.servers.some(s => s.name === name);
+    if (exists !== replace) throw problem("conflict", exists ? "A shared MCP server with that name already exists." : "The shared MCP server no longer exists.");
+    const loaded = await source();
+    const { enabled, ...definition } = loaded.server;
+    const checked = validateMcpServer({ ...definition, name });
+    if (!checked.ok) throw problem("unsupported", "This entry’s format isn’t supported here.");
+    const servers = exists ? read.servers.map(s => s.name === name ? checked.server : s) : [...read.servers, checked.server];
+    if (servers.length > MAX_SERVERS) throw problem("too_large", "The shared MCP store holds at most 128 servers.");
+    await loaded.verify();
+    await writeFileAtomic(fs, mcpStorePathFor(baseDir), JSON.stringify({ version: 1, servers }, null, 2) + "\n");
+    return { ok: true, server: redactMcpServer(checked.server), revision: mcpRevision(servers), dropped: loaded.dropped };
+  });
 }
 
 // Fingerprint of the translated provider entry, so link state is derived by

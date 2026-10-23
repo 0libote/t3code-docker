@@ -1,166 +1,226 @@
 #!/usr/bin/env node
-// MCP tab behavior with deterministic, isolated API responses. No real config writes.
+// The actual MCP interface against isolated, synthetic settings. All POSTs
+// are intercepted; no real agent configuration or MCP server is touched.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-let chromium;
-try { ({chromium} = require('playwright')); } catch { ({chromium} = require('playwright-core')); }
-const {statusFor, portsFor, routeConsole, framed, unlock, visit} = require('./lib/console-fixtures.cjs');
-const base = process.argv[2] || 'http://127.0.0.1:23780/__setup/';
-const key = process.argv[3] || 'dev';
-const out = process.env.T3_MCP_UI_OUTPUT || '/tmp/t3-mcp-ui-audit';
-fs.mkdirSync(out, {recursive:true});
+let chromium; try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('playwright-core')); }
+const { statusFor, portsFor, routeConsole, framed, unlock, visit } = require('./lib/console-fixtures.cjs');
+const { createMcpFixtures } = require('./lib/mcp-fixtures.cjs');
+const base = process.argv[2] || 'http://127.0.0.1:23804/__setup/', key = process.argv[3] || 'dev';
+const out = process.env.T3_MCP_UI_OUTPUT || '/tmp/t3-mcp-ui-audit'; fs.mkdirSync(out, { recursive: true });
+const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 (async () => {
-  const browser = await chromium.launch({executablePath:process.env.CHROME_PATH || '/usr/bin/chromium',args:['--no-sandbox']});
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] });
   try {
-    for (const theme of ['light','dark']) for (const variant of ['phone','desktop','embedded']) {
-      const viewport = variant === 'phone' ? {width:375,height:667} : variant === 'embedded' ? {width:1198,height:878} : {width:1440,height:900};
-      const context = await browser.newContext({viewport,colorScheme:theme,reducedMotion:'reduce'});
-      const page = await context.newPage();
-      const errors = []; page.on('pageerror',e=>errors.push(e.message));
-      let revision = 'shared-1', nativeRevision = 1, configured = false, differs = false, claudePresent = false, readError = false, pendingRead, pendingSave;
-      let definition = {name:'probe',type:'local',enabled:true,command:['server'],env:{}};
-      const calls = [];
-      const snapshot = () => ({ok:true,shared:{present:true,count:1,revision,servers:[{name:'probe',type:definition.type,enabled:definition.enabled,command:definition.command,secretCount:Object.keys(definition.env).length}]},providers:[
-        {provider:'codex',supported:true,path:'/home/t3/.codex/config.toml',revision:'native-'+nativeRevision,linked:configured&&!differs?['probe']:[],diverged:configured&&differs?['probe']:[],unlinked:configured?[]:['probe']},
-        {provider:'claude',supported:true,path:'/home/t3/.claude.json',revision:'native-'+nativeRevision,linked:[],diverged:claudePresent?['probe']:[],unlinked:claudePresent?[]:['probe']}
-      ]});
-      const status = statusFor('skills'); status.context.mcp = snapshot();
-      await routeConsole(page,{status:()=>status,ports:()=>portsFor('ready')});
-      await page.route('**/*',async route=>{
+    for (const theme of ['light', 'dark']) for (const variant of ['desktop', 'phone', 'embedded', 'embedded-phone']) {
+      const embedded = variant.startsWith('embedded'), phone = variant === 'phone' || variant === 'embedded-phone', viewport = phone ? { width: 390, height: 844 } : variant === 'embedded' ? { width: 1198, height: 878 } : { width: 1440, height: 900 };
+      const context = await browser.newContext({ viewport, colorScheme: theme, reducedMotion: 'reduce' });
+      const page = await context.newPage(), mcp = createMcpFixtures(), errors = [], calls = [];
+      let failRead = false, failRemoval = false, linkGate = null, readGate = null, parseGate = null, createGate = null, conflictLink = false, conflictSave = false, unreadableStore = false;
+      page.on('pageerror', error => errors.push(error.message));
+      const status = () => { const s = statusFor('skills'); s.context.mcp = mcp.status(); return s; };
+      await routeConsole(page, { status, ports: () => portsFor('ready') });
+      await page.route('**/*', async route => {
         const req = route.request(), url = new URL(req.url());
         if (!url.pathname.includes('/context/mcp')) return route.fallback();
-        if (req.method() === 'GET') {
-          if (url.pathname.endsWith('/read')) {
-            const value = {ok:true,server:structuredClone(definition),revision};
-            if (pendingRead) await pendingRead.promise;
-            return route.fulfill({status:readError?500:200,json:readError?{ok:false,error:'Fixture read failure'}:value});
-          }
-          return route.fulfill({json:snapshot()});
-        }
-        if (url.pathname.endsWith('/save') && pendingSave) await pendingSave;
-        const body = req.postDataJSON(); calls.push({route:url.pathname,body});
-        if (url.pathname.endsWith('/link')) {
-          assert.equal(body.providerRevision,'native-'+nativeRevision);
-          assert.equal(body.sharedRevision,revision);
-          if(body.provider==='codex') {configured=body.linked;differs=false;} else claudePresent=body.linked;
-          nativeRevision++;
-        } else if (url.pathname.endsWith('/save')) {
-          assert.equal(body.revision,revision,'Save must use the revision loaded with the editor');
-          definition=body.server; revision += '-saved'; differs=configured;
-        }
-        return route.fulfill({json:{ok:true}});
+        const input = req.method() === 'POST' ? req.postDataJSON() : {};
+        if (req.method() === 'POST') calls.push({ route: url.pathname.split('/').at(-1), ...input });
+        if (url.pathname.endsWith('/parse') && parseGate) await parseGate.promise;
+        if (url.pathname.endsWith('/create') && createGate) await createGate.promise;
+        if (url.pathname.endsWith('/link') && conflictLink) { conflictLink = false; return route.fulfill({ status: 409, json: { ok: false, code: 'conflict', error: 'Synthetic settings conflict' } }); }
+        if (url.pathname.endsWith('/save') && conflictSave) { conflictSave = false; return route.fulfill({ status: 409, json: { ok: false, code: 'conflict', error: 'Synthetic shared conflict' } }); }
+        if (url.pathname.endsWith('/read') && readGate) await readGate.promise;
+        if (url.pathname.endsWith('/read') && failRead) return route.fulfill({ status: 500, json: { ok: false, error: 'Synthetic read failure' } });
+        if (url.pathname.endsWith('/link') && input.provider === 'codex' && linkGate) await linkGate.promise;
+        if (url.pathname.endsWith('/link') && !input.linked && input.provider === 'opencode' && failRemoval) return route.fulfill({ status: 503, json: { ok: false, error: 'Synthetic native write failure' } });
+        const result = await mcp.respond(req.method(), url, input);
+        if (unreadableStore && req.method() === 'GET' && url.pathname.endsWith('/context/mcp')) { result.body.ok = false; Object.assign(result.body.shared, { error: 'Synthetic unreadable store', revision: null, count: 0, servers: [] }); }
+        return route.fulfill({ status: result.status, json: result.body });
       });
-      const url = new URL(base); url.searchParams.set('theme',theme);
-      if(variant==='embedded')url.searchParams.set('embed','t3');
-      const target = variant==='embedded'?await framed(page,url.href):page;
-      if(variant!=='embedded')await page.goto(url.href);
-      await unlock(target,key); await visit(target,page,'instructions/mcp');
-      await target.locator('#mcp-provider').selectOption('codex');
-      const toggle=target.getByRole('switch',{name:'Codex configured for probe'});
-      await toggle.click(); await toggle.waitFor({state:'visible'});
-      await target.waitForFunction(()=>document.querySelector('[aria-label="Codex configured for probe"]')?.getAttribute('aria-checked')==='true');
-      await toggle.click(); await target.getByRole('button',{name:'Unlink',exact:true}).click();
-      await target.waitForFunction(()=>document.querySelector('[aria-label="Codex configured for probe"]')?.getAttribute('aria-checked')==='false');
-      assert.deepEqual(calls.filter(c=>c.route.endsWith('/link')).map(c=>c.body.linked),[true,false]);
-      // The list and global /status remain stale; the editor must use its read response.
-      revision='externally-updated'; definition={...definition,command:['server',' spaced ',''],env:{MULTILINE:'line one\nline two',SPACES:' value '}};
-      await target.getByRole('button',{name:'Edit probe',exact:true}).click();
-      await target.locator('#mcp-command').waitFor();
-      await target.waitForFunction(()=>document.querySelector('#mcp-command')?.value.includes('spaced'));
-      assert.equal(await target.getByRole('button',{name:'Save',exact:true}).isDisabled(),true);
-      // Each transport keeps its own values, including when the DOM is morphed.
-      const originalEnv=await target.locator('#mcp-pairs').inputValue();
-      await target.locator('#mcp-type').selectOption('remote');
-      assert.equal(await target.locator('#mcp-pairs').inputValue(),'{}');
-      await target.locator('#mcp-pairs').fill('{"Authorization":"fixture"}');
-      await target.locator('#mcp-type').selectOption('local');
-      assert.equal(await target.locator('#mcp-pairs').inputValue(),originalEnv);
-      await target.locator('#mcp-command').fill('["server", " spaced ", ""]');
-      let finishSave; pendingSave=new Promise(resolve=>{finishSave=resolve;});
-      await target.getByRole('button',{name:'Save',exact:true}).click();
-      await target.getByRole('button',{name:'Saving…',exact:true}).waitFor();
-      assert.equal(await target.locator('.tc-mcp-editor [aria-label=Close]').isDisabled(),true);
-      await page.keyboard.press('Escape');
-      assert.equal(await target.locator('.tc-mcp-editor').count(),1);
-      await target.evaluate(() => { location.hash = 'instructions/skills'; });
-      await target.waitForFunction(() => location.hash === '#instructions/mcp');
-      assert.equal(await target.locator('#cx-tab-mcp').getAttribute('aria-selected'), 'true', 'navigation waits for a save');
-      finishSave(); pendingSave=null;
-      await target.locator('.tc-mcp-editor').waitFor({state:'detached'});
-      assert.deepEqual(definition.command,['server',' spaced ','']);
-      assert.deepEqual(definition.env,{MULTILINE:'line one\nline two',SPACES:' value '});
-      configured=true; differs=true;
-      await target.getByRole('button',{name:'Refresh MCP servers'}).click();
-      await target.getByRole('button',{name:'Apply',exact:true}).click();
-      await target.getByRole('button',{name:'Apply shared',exact:true}).click();
-      await target.getByRole('button',{name:'Apply',exact:true}).waitFor({state:'detached'});
-      assert.equal(differs,false);assert.equal(configured,true);
-      // A disabled definition with a surviving Claude entry must remain removable.
-      definition.enabled=false;claudePresent=true;
-      await target.getByRole('button',{name:'Refresh MCP servers'}).click();
-      await target.locator('#mcp-provider').selectOption('claude');
-      const claude=target.getByRole('switch',{name:'Claude Code configured for probe'});
-      await target.waitForFunction(()=>document.querySelector('[aria-label="Claude Code configured for probe"]')?.getAttribute('aria-checked')==='true');
-      await claude.click();await target.getByRole('button',{name:'Unlink',exact:true}).click();
-      await target.waitForFunction(()=>document.querySelector('[aria-label="Claude Code configured for probe"]')?.getAttribute('aria-checked')==='false');
-      assert.equal(claudePresent,false);
-      await target.locator('#mcp-provider').selectOption('codex');
-      assert.equal(await toggle.getAttribute('aria-checked'),'true');
-      // A dismissed read must never populate a newly opened Add dialog.
-      let release;pendingRead={promise:new Promise(resolve=>{release=resolve;})};
-      await target.getByRole('button',{name:'Edit probe',exact:true}).click();
-      await target.locator('.tc-mcp-editor [data-mcp=close][aria-label=Close]').click();
-      await target.getByRole('button',{name:'Add server',exact:true}).click();
-      release();pendingRead=null;
-      await target.locator('#mcp-name').waitFor();
-      assert.equal(await target.locator('#mcp-name').inputValue(),'');
-      await target.locator('#mcp-name').fill('new-server');
-      await target.locator('#mcp-command').fill('not JSON');
-      const count=calls.length;
-      await target.getByRole('button',{name:'Add server',exact:true}).last().click();
-      await target.getByRole('alert').filter({hasText:'JSON array'}).waitFor();
-      assert.equal(calls.length,count,'invalid JSON must not submit');
-      assert.equal(await target.locator('#mcp-command').inputValue(),'not JSON');
-      await page.keyboard.press('Escape');
-      await target.getByRole('alertdialog').getByRole('button',{name:'Cancel',exact:true}).click();
-      assert.equal(await target.locator('#mcp-command').inputValue(),'not JSON');
-      await target.locator('.tc-mcp-editor [data-mcp=close][aria-label=Close]').click();
-      await target.getByRole('button',{name:'Discard changes',exact:true}).click();
-      // Page/history navigation shares the new library's draft protections.
-      await target.getByRole('button',{name:'Edit probe',exact:true}).click();
-      await target.locator('#mcp-command').waitFor();
-      await target.locator('#mcp-command').fill('["unsaved-server"]');
-      assert.equal(await target.evaluate(() => {
-        const event = new Event('beforeunload', { cancelable: true });
-        window.dispatchEvent(event); return event.defaultPrevented;
-      }), true, 'reload warns while an MCP draft is dirty');
-      await target.evaluate(() => { location.hash = 'instructions/skills'; });
-      await target.getByRole('alertdialog').getByRole('button',{name:'Cancel',exact:true}).click();
-      await target.waitForFunction(() => location.hash === '#instructions/mcp');
-      assert.equal(await target.locator('#cx-tab-mcp').getAttribute('aria-selected'), 'true');
-      assert.equal(await target.locator('#mcp-command').inputValue(), '["unsaved-server"]');
-      await target.evaluate(() => { location.hash = 'instructions/skills'; });
-      await target.getByRole('button',{name:'Discard changes',exact:true}).click();
-      await target.locator('.tc-skills-library').waitFor();
-      assert.equal(await target.locator('.tc-mcp-editor').count(), 0);
-      await target.waitForFunction(() => document.querySelector('#cx-tab-skills')?.textContent.trim() === 'Skills 22');
-      assert.equal(await target.locator('#cx-tab-skills').innerText(), 'Skills 22');
-      await target.evaluate(() => { location.hash = 'instructions'; });
-      await target.locator('.tc-doc-preview .tc-code').waitFor();
+      const url = new URL(base); if (embedded) url.search = '?embed=1&theme=' + theme;
+      const target = embedded ? await framed(page, url.href) : page;
+      if (!embedded) await page.goto(url.href);
+      await unlock(target, key); await visit(target, page, 'mcp');
+      await target.locator('#mcp-search').waitFor();
+      await target.locator('[data-key="mcp-shared:docs"]').waitFor({ state: 'attached' });
       await target.evaluate(() => { location.hash = 'instructions/mcp'; });
-      await target.locator('#mcp-provider').waitFor();
-      readError=true;
-      await target.getByRole('button',{name:'Edit probe',exact:true}).click();
-      await target.getByRole('alert').filter({hasText:'Fixture read failure'}).waitFor();
-      assert.equal(await target.getByRole('button',{name:'Save',exact:true}).isDisabled(),true);
-      assert.equal(await target.getByRole('button',{name:'Remove…',exact:true}).isDisabled(),true);
-      await page.screenshot({path:path.join(out,`${variant}-${theme}-read-error.png`)});
-      await target.locator('.tc-mcp-editor [data-mcp=close][aria-label=Close]').click();
-      assert.equal(await target.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-      assert.deepEqual(errors,[]);
+      await target.waitForFunction(() => location.hash === '#mcp');
+      await target.evaluate(() => { location.hash = 'overview'; });
+      await target.locator('#page-overview:not([hidden])').waitFor();
+      await page.keyboard.press('g'); await page.keyboard.press('m');
+      await target.locator('#page-mcp:not([hidden])').waitFor();
+      await page.keyboard.press('/');
+      assert.equal(await target.evaluate(() => document.activeElement.id), 'mcp-search');
+      await page.keyboard.press('Tab');
+      const screenshot = async name => { await page.screenshot({ path: path.join(out, `${variant}-${theme}-${name}.png`) }); };
+      const noOverflow = async () => assert.equal(await target.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, 'Document must not overflow');
+      const openServer = async name => { await target.locator(phone ? `.tc-sk-phone-list [data-cmd="mcp.view"][data-id="${name}"]` : `.tc-mx [data-cmd="mcp.view"][data-id="${name}"]`).click(); await target.locator('.tc-mcp-inspector .tc-mcp-connection').waitFor(); };
+      const closeInspector = () => target.getByRole('button', { name: 'Close server inspector', exact: true }).click();
+      await noOverflow(); await screenshot('library');
+      if (phone) {
+        const add = await target.locator('.tc-sk-phone-actions button').boundingBox();
+        assert.ok(add && add.y + add.height <= viewport.height && add.y > 0, 'Phone Add stays reachable');
+        assert.equal(await target.locator('.tc-tabbar').isVisible(), false);
+      } else {
+        assert.equal(await target.locator('.tc-mcp-table [role="columnheader"]').count(), 6);
+        await target.locator('[data-cmd="mcp.columns"]').click();
+        await screenshot('other-agents');
+        assert.match(await target.getByRole('menu').innerText(), /Muse Code/);
+        await page.keyboard.press('Escape');
+        // The selected menu survives an unrelated /status refresh.
+        await target.getByRole('button', { name: 'docs in Codex: on', exact: true }).click();
+        await target.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+        assert.equal(await target.getByRole('menu').isVisible(), true);
+        await screenshot('cell-menu');
+        linkGate = deferred();
+        await target.getByRole('menuitemradio', { name: /^Off/ }).click();
+        await target.locator('.tc-mcp-table [role="status"]').waitFor();
+        assert.equal(await target.getByRole('button', { name: 'Share filesystem with Codex', exact: true }).isEnabled(), false);
+        assert.equal(await target.getByRole('button', { name: 'docs in OpenCode: on', exact: true }).isEnabled(), true);
+        linkGate.resolve(); linkGate = null;
+        await target.getByRole('button', { name: 'docs in Codex: off', exact: true }).waitFor();
+      }
+      await openServer('docs');
+      assert.equal(await target.locator('.tc-mcp-inspector').getByText('Bearer synthetic-shared-token', { exact: true }).count(), 0, 'No secret DOM before reveal');
+      if (phone) await target.getByRole('button', { name: 'Review', exact: true }).click();
+      await target.locator('.tc-diff-vals').waitFor();
+      assert.equal(await target.locator('.tc-diff').innerText().then(text => /synthetic-.*token/.test(text)), false);
+      await target.getByRole('button', { name: 'Reveal Authorization', exact: true }).click();
+      assert.equal(await target.locator('.tc-mcp-secret-value').innerText(), 'Bearer synthetic-shared-token');
+      await target.getByRole('button', { name: 'Hide Authorization', exact: true }).click();
+      await screenshot('inspector');
+      if (phone) {
+        await target.locator('[data-mcp-policy="codex"]').selectOption('off');
+        await target.locator('[data-mcp-policy="codex"]').waitFor();
+        assert.equal(await target.locator('[data-mcp-policy="codex"]').inputValue(), 'off');
+      }
+      conflictLink = true;
+      await target.locator('[data-mcp-policy="codex"]').selectOption('on');
+      await target.locator('.tc-mcp-inspector').getByText('Settings changed elsewhere. Showing the current state.', { exact: true }).waitFor();
+      assert.equal(await target.locator('[data-mcp-policy="codex"]').inputValue(), 'off');
+      await target.getByRole('button', { name: 'Edit server…', exact: true }).click();
+      await target.locator('#mcp-url').waitFor();
+      await target.locator('#mcp-url').fill('https://docs.example.test/v2/mcp');
+      await target.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      assert.equal(await target.locator('#mcp-url').inputValue(), 'https://docs.example.test/v2/mcp');
+      await screenshot('edit');
+      if (variant === 'desktop') {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await target.locator('.tc-wizard-rail-toggle').waitFor();
+        await page.setViewportSize(viewport);
+        await target.locator('.tc-mcp-editor .tc-agentpick').waitFor();
+        assert.equal(await target.locator('#mcp-url').inputValue(), 'https://docs.example.test/v2/mcp');
+      }
+      await page.keyboard.press('Escape');
+      await target.getByRole('button', { name: 'Cancel', exact: true }).last().click(); // keep draft
+      assert.equal(await target.locator('#mcp-url').inputValue(), 'https://docs.example.test/v2/mcp');
+      conflictSave = true;
+      await target.getByRole('button', { name: 'Save and update 2 agents', exact: true }).click();
+      await target.getByRole('button', { name: 'Reload current settings', exact: true }).waitFor();
+      assert.equal(await target.locator('#mcp-url').inputValue(), 'https://docs.example.test/v2/mcp');
+      assert.equal(await target.getByRole('button', { name: 'Save and update 2 agents', exact: true }).isEnabled(), false);
+      await target.getByRole('button', { name: 'Reload current settings', exact: true }).click();
+      await target.getByRole('button', { name: 'Discard changes', exact: true }).click();
+      await target.waitForFunction(() => document.querySelector('#mcp-url')?.value === 'https://docs.example.test/mcp');
+      await target.locator('#mcp-url').fill('https://docs.example.test/v2/mcp');
+      await target.getByRole('button', { name: 'Save and update 2 agents', exact: true }).click();
+      await target.locator('.tc-mcp-editor').waitFor({ state: 'detached' });
+      assert.equal(mcp.status().providers.find(p => p.provider === 'codex').disabled.includes('docs'), true, 'Editing preserves Off');
+      assert.equal(mcp.status().providers.find(p => p.provider === 'claude').diverged.includes('docs'), true, 'Differing copies untouched by default');
+
+      await target.locator(phone ? '.tc-sk-phone-actions [data-cmd="mcp.add"]' : '.tc-sk-desktop-actions [data-cmd="mcp.add"]').click();
+      parseGate = deferred();
+      await target.locator('#mcp-snippet').fill('{"mcpServers":{"issues":{"command":"npx","args":["-y","@acme/issues-mcp",""],"env":{"ISSUES_TOKEN":"<your token>"}}}}');
+      await target.locator('#mcp-name').waitFor();
+      await target.locator('.tc-paste-meta').filter({ hasText: 'Reading snippet…' }).waitFor();
+      await target.locator('#mcp-name').fill('manual-draft');
+      parseGate.resolve(); parseGate = null;
+      await target.getByRole('button', { name: 'Use snippet', exact: true }).waitFor();
+      assert.equal(await target.locator('#mcp-name').inputValue(), 'manual-draft', 'Late parse must not overwrite manual edits');
+      await target.getByRole('button', { name: 'Use snippet', exact: true }).click();
+      await target.waitForFunction(() => document.querySelector('#mcp-name')?.value === 'issues');
+      assert.equal(await target.locator('#mcp-arg-3').inputValue(), '', 'Empty argument stays lossless');
+      assert.equal(await target.getByText(/still holds the snippet’s placeholder/).isVisible(), true);
+      await target.locator('[data-mcp-editor="type"][data-type="remote"]').click();
+      await target.locator('#mcp-url').fill('https://transport-draft.test/mcp');
+      await target.locator('[data-mcp-editor="type"][data-type="local"]').click();
+      assert.equal(await target.locator('#mcp-arg-3').inputValue(), '');
+      assert.equal(await target.locator('[data-mcp-field="pair-value"]').inputValue(), '<your token>');
+      await target.locator('[data-mcp-editor="type"][data-type="remote"]').click();
+      assert.equal(await target.locator('#mcp-url').inputValue(), 'https://transport-draft.test/mcp');
+      await target.locator('[data-mcp-editor="type"][data-type="local"]').click();
+      await screenshot('add-snippet');
+      const beforeCreates = calls.filter(c => c.route === 'create').length;
+      createGate = deferred();
+      await target.getByRole('button', { name: 'Add to 4 agents', exact: true }).click();
+      await target.getByRole('button', { name: 'Adding', exact: true }).waitFor();
+      assert.equal(await target.getByRole('button', { name: 'Cancel', exact: true }).isEnabled(), false);
+      await page.keyboard.press('Control+Enter'); await page.keyboard.press('Control+Enter');
+      createGate.resolve(); createGate = null;
+      await target.locator('.tc-mcp-editor').waitFor({ state: 'detached' });
+      assert.equal(calls.filter(c => c.route === 'create').length, beforeCreates + 1);
+      assert.deepEqual(calls.filter(c => c.route === 'link' && c.name === 'issues').map(c => c.provider).sort(), ['claude', 'codex', 'cursor', 'opencode']);
+
+      await target.locator(phone ? '.tc-sk-phone-list [data-cmd="mcp.share"][data-id="github"]' : '.tc-mx [data-cmd="mcp.share"][data-id="github"]').first().click();
+      await target.locator('[data-mcp-consent="opencode"]').waitFor();
+      assert.equal(await target.getByRole('button', { name: 'Share and use in 4 agents', exact: true }).isEnabled(), false);
+      await target.locator('[data-mcp-consent="opencode"]').check();
+      await screenshot('share-consent');
+      await target.getByRole('button', { name: 'Share and use in 4 agents', exact: true }).click();
+      await target.locator('.tc-mcp-editor').waitFor({ state: 'detached' });
+      assert.equal(mcp.status().ownGroups.some(g => g.name === 'github'), false);
+      assert.equal(mcp.status().shared.servers.some(s => s.name === 'github'), true);
+
+      // One source needs a summary card, not a vacant radio track.
+      await target.locator(phone ? '.tc-sk-phone-list [data-cmd="mcp.share"][data-id="filesystem"]' : '.tc-mx [data-cmd="mcp.share"][data-id="filesystem"]').first().click();
+      await target.locator('.tc-choice--summary').waitFor();
+      assert.ok((await target.locator('.tc-choice-head').boundingBox()).width > 100);
+      await target.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+      await openServer('docs');
+      if (phone) { await target.getByRole('button', { name: 'Server actions', exact: true }).click(); await target.getByRole('menuitem', { name: 'Remove…', exact: true }).click(); }
+      else await target.getByRole('button', { name: 'Remove…', exact: true }).click();
+      failRemoval = true;
+      await target.locator('[data-mcp-remove="confirm"]').click();
+      await target.locator('.tc-mcp-remove [role="alert"]').waitFor();
+      assert.equal(mcp.status().shared.servers.some(s => s.name === 'docs'), true, 'Partial remove retains shared definition');
+      await screenshot('remove-partial');
+      failRemoval = false;
+      await target.locator('[data-mcp-remove="confirm"]').click();
+      await target.locator('.tc-mcp-remove').waitFor({ state: 'detached' });
+      assert.equal(mcp.status().shared.servers.some(s => s.name === 'docs'), false);
+
+      await openServer('database');
+      await target.locator('[data-mcp-policy="codex"]').selectOption('remove');
+      await target.waitForFunction(() => getComputedStyle(document.getElementById('toaster')).visibility === 'hidden');
+      await target.locator('.tc-mcp-inspector [data-mcp-inspect="undo"]').click();
+      await target.waitForFunction(() => document.querySelector('[data-mcp-policy="codex"]')?.value === 'off');
+      assert.equal(mcp.status().providers.find(p => p.provider === 'codex').disabled.includes('database'), true, 'Undo preserves Off');
+      await closeInspector();
+
+      failRead = true; await target.locator(phone ? '.tc-sk-phone-list [data-cmd="mcp.view"][data-id="issues"]' : '.tc-mx [data-cmd="mcp.view"][data-id="issues"]').click();
+      await target.locator('.tc-mcp-inspector [role="alert"]').waitFor();
+      failRead = false; await target.getByRole('button', { name: 'Try again', exact: true }).click();
+      await target.locator('.tc-mcp-inspector .tc-mcp-connection').waitFor(); await closeInspector();
+      readGate = deferred();
+      await target.locator(phone ? '.tc-sk-phone-list [data-cmd="mcp.view"][data-id="issues"]' : '.tc-mx [data-cmd="mcp.view"][data-id="issues"]').click();
+      await closeInspector(); readGate.resolve(); readGate = null;
+      await target.locator('.tc-mcp-inspector').waitFor({ state: 'detached' });
+      unreadableStore = true;
+      await target.getByRole('button', { name: 'Rescan', exact: true }).click();
+      await target.getByText('Shared servers unavailable', { exact: true }).waitFor();
+      assert.equal(await target.locator(phone ? '.tc-sk-phone-list [data-id="filesystem"]' : '.tc-mx [data-id="filesystem"]').first().isVisible(), true, 'Readable native entries survive an unreadable shared store');
+      assert.equal(await target.locator(phone ? '.tc-sk-phone-actions [data-cmd="mcp.add"]' : '.tc-sk-desktop-actions [data-cmd="mcp.add"]').isEnabled(), false);
+      await screenshot('unreadable-store');
+      if (embedded && phone) {
+        await page.evaluate(() => { window.mcpMessages = []; window.addEventListener('message', event => window.mcpMessages.push(event.data)); });
+        await target.getByRole('button', { name: 'Close setup', exact: true }).click();
+        await page.waitForFunction(() => window.mcpMessages.some(message => message?.source === 't3-setup' && message.type === 'close'));
+      }
+      await noOverflow(); assert.deepEqual(errors, [], 'No browser exceptions');
+      console.log(`${variant} ${theme}: matrix, secrets, per-agent off, draft/poll guards, snippet, consent, partial removal, failed/late reads passed`);
       await context.close();
-      console.log(`${variant} ${theme}: agent selection, links, editor revisions, separate transport drafts, guarded saves/discard, apply/unlink, failed and late reads passed.`);
     }
-  } finally {await browser.close();}
-})().catch(error=>{console.error(error);process.exitCode=1;});
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

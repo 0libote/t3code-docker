@@ -31,10 +31,10 @@ export function fromClaudeEntry(name, entry) {
   if (typeof entry.command === "string" && entry.command) return { name, type: "local", command: [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])], env: { ...(entry.env ?? {}) }, enabled: true };
   return null;
 }
-export function toCodexEntry(s) {
+export function toCodexEntry(s, enabled = s.enabled !== false) {
   const entry = s.type === "local" ? { command: s.command[0], args: s.command.slice(1), ...(Object.keys(s.env).length ? { env: { ...s.env } } : {}) }
     : { url: s.url, ...(Object.keys(s.headers).length ? { http_headers: { ...s.headers } } : {}) };
-  if (s.enabled === false) entry.enabled = false;
+  if (!enabled) entry.enabled = false;
   return entry;
 }
 export function fromCodexEntry(name, entry) {
@@ -43,8 +43,8 @@ export function fromCodexEntry(name, entry) {
   if (typeof entry.command === "string" && entry.command) return { name, type: "local", command: [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])], env: { ...(entry.env ?? {}) }, enabled: entry.enabled !== false };
   return null;
 }
-export function toOpenCodeEntry(s, v2 = false) {
-  const state = v2 ? { disabled: s.enabled === false } : { enabled: s.enabled !== false };
+export function toOpenCodeEntry(s, v2 = false, enabled = s.enabled !== false) {
+  const state = v2 ? { disabled: !enabled } : { enabled };
   return s.type === "local" ? { type: "local", command: [...s.command], ...(Object.keys(s.env).length ? { environment: { ...s.env } } : {}), ...state }
     : { type: "remote", url: s.url, ...(Object.keys(s.headers).length ? { headers: { ...s.headers } } : {}), ...state };
 }
@@ -65,7 +65,7 @@ export function fromCursorEntry(name, entry) {
 }
 export const isSupportedMcpProvider = (provider) => ["claude", "codex", "opencode", "cursor"].includes(provider);
 
-function jsonDocument(raw, strict) {
+export function jsonDocument(raw, strict) {
   const errors = [];
   const tree = parseTree(raw || "{}", errors, { allowTrailingComma: !strict, disallowComments: strict });
   const check = (node) => {
@@ -80,7 +80,7 @@ function jsonDocument(raw, strict) {
   return parse(raw || "{}", [], { allowTrailingComma: !strict, disallowComments: strict });
 }
 
-function containerFor(provider, value) {
+export function containerFor(provider, value) {
   const key = provider === "opencode" ? "mcp" : "mcpServers";
   const root = value[key];
   if (root !== undefined && !object(root)) throw problem("unsupported", "The MCP configuration has an unsupported server section.");
@@ -105,13 +105,14 @@ async function fileFor(io, provider, home, env) {
 
 // Unknown provider options must be shown as differing, rather than implying
 // that cwd/auth/tool-policy differences are represented by the shared entry.
-export function hasExtraMcpOptions(provider, entry, v2 = false) {
+export function extraMcpOptions(provider, entry, v2 = false) {
   const remote = typeof entry?.url === "string";
   const keys = provider === "codex" ? [...(remote ? ["url", "http_headers"] : ["command", "args", "env"]), "enabled"]
     : provider === "opencode" ? [...(remote ? ["url", "headers"] : ["command", "environment"]), "type", v2 ? "disabled" : "enabled"]
       : [...(remote ? ["url", "headers"] : ["command", "args", "env"]), "type"];
-  return !object(entry) || Object.keys(entry).some((k) => !keys.includes(k));
+  return object(entry) ? Object.keys(entry).filter((k) => !keys.includes(k)) : [];
 }
+export const hasExtraMcpOptions = (provider, entry, v2 = false) => !object(entry) || extraMcpOptions(provider, entry, v2).length > 0;
 
 export async function readProviderMcp(io, provider, { home, env = {} }) {
   const file = await fileFor(io, provider, home, env);
@@ -133,7 +134,8 @@ export async function readProviderMcp(io, provider, { home, env = {} }) {
           (!object(entry[k]) || ![null, Object.prototype].includes(Object.getPrototypeOf(entry[k])) || !Object.values(entry[k]).every(v => typeof v === 'string')))
         || (['claude', 'cursor'].includes(provider) && entry.type !== undefined &&
           !(canonical?.type === 'remote' ? ['http', 'streamable-http'] : ['stdio']).includes(entry.type));
-      return { name, entry, canonical: !malformed && canonical && validateMcpServer(canonical).ok ? canonical : null, extra: hasExtraMcpOptions(provider, entry, v2) };
+      return { name, entry, canonical: !malformed && canonical && validateMcpServer(canonical).ok ? canonical : null,
+        extra: hasExtraMcpOptions(provider, entry, v2), extraOptions: extraMcpOptions(provider, entry, v2) };
     }) };
 }
 

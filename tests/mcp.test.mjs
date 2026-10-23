@@ -120,14 +120,16 @@ test("links write provider files and derive state by comparison", async (t) => {
   assert.match(grok.error, /not implemented/);
 });
 
-test("disabled shared servers link only where the provider has an enabled flag", async (t) => {
+test("legacy disabled definitions allow each agent to choose its own state", async (t) => {
   const f = await fixture(t);
   const svc = svcFor(f);
   const created = await svc.create({ name: "quiet", type: "local", enabled: false, command: ["cmd"], env: {} });
   await svc.setLink("codex", "quiet", true, created.revision);
   await svc.setLink("opencode", "quiet", true, created.revision);
   assert.equal((await svc.list("codex")).shared[0].linked, true);
-  await assert.rejects(svc.setLink("claude", "quiet", true, created.revision), { code: "unsupported" });
+  await svc.setLink("claude", "quiet", true, created.revision);
+  assert.equal((await svc.list("claude")).shared[0].linked, true);
+  await assert.rejects(svc.setLink("claude", "quiet", true, created.revision, undefined, false), { code: "unsupported" });
   await assert.rejects(svc.setLink("grok", "quiet", true, created.revision), /not implemented/);
 });
 
@@ -140,7 +142,7 @@ test("unsupported and unknown MCP shapes stay in place with a warning", async (t
   const status = await svc.status({ refresh: true });
   const codex = status.providers.find((entry) => entry.provider === "codex");
   assert.match(codex.warning ?? "", /unsupported shape/);
-  assert.deepEqual(codex.own, ["weird"]);
+  assert.deepEqual(codex.own, [{ name: "weird", recognized: false, extra: ["startup_timeout_ms"] }]);
   const list = await svc.list("codex");
   assert.deepEqual(list.unsupported, ["weird"]);
   await assert.rejects(svc.list("nope"), { code: "invalid" });

@@ -650,6 +650,7 @@ skills_editor_works() {
   [ "$HAS_BROWSER" -eq 1 ] || return 0
   docker cp scripts/skills-ui-audit.js "$NAME:/tmp/skills-ui-audit.js" >/dev/null 2>&1 || return 1
   docker exec "$NAME" mkdir -p /tmp/lib /tmp/fixtures || return 1
+  docker cp scripts/lib/mcp-fixtures.cjs "$NAME:/tmp/lib/mcp-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/skills-fixtures.cjs "$NAME:/tmp/lib/skills-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/fixtures/console "$NAME:/tmp/fixtures/" >/dev/null 2>&1 || return 1
@@ -710,11 +711,12 @@ check "shared MCP servers list without secrets" mcp_servers_list_without_secrets
 mcp_editor_works() {
   [ "$HAS_BROWSER" -eq 1 ] || return 0
   docker exec "$NAME" mkdir -p /tmp/t3-mcp-audit/lib /tmp/t3-mcp-audit/fixtures || return 1
+  docker cp scripts/lib/mcp-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/mcp-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/mcp-ui-audit.js "$NAME:/tmp/t3-mcp-audit/mcp-ui-audit.js" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/skills-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/skills-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/fixtures/console "$NAME:/tmp/t3-mcp-audit/fixtures/console" >/dev/null 2>&1 || return 1
-  docker exec -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3/node_modules \
+  docker exec -e T3_SETUP_MODULE=/opt/t3-setup/mcp.mjs -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3/node_modules \
     "$NAME" node /tmp/t3-mcp-audit/mcp-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
 }
 check "MCP controls refresh immediately and preserve editor revisions and values" mcp_editor_works

@@ -213,7 +213,7 @@
         tellAttention();
         checkHere();
         if (state.route === 'instructions' && state.contextTab === 'skills') skillsUI.activate();
-        if (state.route === 'instructions' && state.contextTab === 'mcp') mcpUI.activate();
+        if (state.route === 'mcp') mcpUI.activate();
         if (state.route === 'instructions' && state.contextTab === 'instructions') void loadInstructionsPreview();
       } else if (!locked) {
         // Name the URL and the reason. "Could not read status" sent someone
@@ -1617,8 +1617,8 @@
     </div>`;
   };
 
-  const CONTEXT_TABS = [['instructions', 'Instructions'], ['skills', 'Skills'], ['mcp', 'MCP servers']];
-  /** Instructions, skills and MCP servers: three tabs on one page, each at an address of its own. */
+  const CONTEXT_TABS = [['instructions', 'Instructions'], ['skills', 'Skills']];
+  /** Instructions and skills: two tabs on one page, each at an address of its own. */
   const instructionsPage = (s) => {
     const tab = state.contextTab;
     const rows = M.contextProviderRows(s);
@@ -1626,8 +1626,6 @@
     const previewLines = instructionsPreview.content.split('\n', 19);
     const panel = tab === 'skills'
       ? skillsUI.content()
-      : tab === 'mcp'
-        ? mcpUI.content()
       : html`
         ${view.error ? notice('danger', 'circle-alert', 'Couldn’t read the instructions', view.error) : ''}
         <div class="tc-ins-grid"><section class="tc-ins-section"><div class="tc-ins-section-head"><h2 class="tc-insp-label">Shared instructions</h2><span class="tc-hint">${M.contextAgentsMdRow(s).readers.length ? 'Read by ' + M.listOf(M.contextAgentsMdRow(s).readers) : 'No agents set to Shared'}</span></div><div class="tc-group">
@@ -1642,7 +1640,7 @@
     return html`
       <header class="tc-instructions-phone-head"><a class="tc-btn tc-btn--ghost" href="#more">${icon('chevron-right', 'tc-back-icon')}Setup</a><h1>Instructions & skills</h1>${EMBED ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon" type="button" data-cmd="embed.close" aria-label="Close setup">${icon('x')}</button>` : html`<a class="tc-btn tc-btn--ghost tc-btn--icon" href="${T3Routes.docUrl('context-management.md', s.image?.version)}" target="_blank" rel="noopener" aria-label="Instructions and skills guide">${icon('info')}</a>`}</header>
       ${pageHead('instructions')}
-      <div class="tc-tabs" role="tablist" aria-label="Instructions, skills and MCP servers" data-key="cx-tabs">${CONTEXT_TABS.map(([value, label]) => html`<button class="tc-tab-button" type="button" role="tab" id="cx-tab-${value}" aria-controls="cx-panel" aria-selected="${String(tab === value)}" tabindex="${tab === value ? '0' : '-1'}" data-cmd="context.tab" data-value="${value}">${label}${value === 'skills' && skillsUI.count() ? html` <span class="tc-tab-count">${skillsUI.count()}</span>` : ''}</button>`)}</div>
+      <div class="tc-tabs" role="tablist" aria-label="Instructions and skills" data-key="cx-tabs">${CONTEXT_TABS.map(([value, label]) => html`<button class="tc-tab-button" type="button" role="tab" id="cx-tab-${value}" aria-controls="cx-panel" aria-selected="${String(tab === value)}" tabindex="${tab === value ? '0' : '-1'}" data-cmd="context.tab" data-value="${value}">${label}${value === 'skills' && skillsUI.count() ? html` <span class="tc-tab-count">${skillsUI.count()}</span>` : ''}</button>`)}</div>
       ${pageNotices('instructions')}
       <div class="tc-tabpanel" role="tabpanel" id="cx-panel" aria-labelledby="cx-tab-${tab}" data-key="cx-panel-${tab}">${panel}</div>`;
   };
@@ -1788,6 +1786,7 @@
   // ---------------------------------------------------------------- shell --
   const PAGES = {
     overview: overviewPage, access: accessPage, agents: agentsPage, instructions: instructionsPage,
+    mcp: () => html`${mcpUI.phoneHead()}${pageHead('mcp', { sub: 'Servers your agents can start or connect to. Define one once, then add it to the agents you choose.' })}${mcpUI.content()}`,
     toolchains: toolchainsPage, sourcecontrol: sourceControlPage, ports: portsPage,
     updates: updatesPage, storage: storagePage, server: serverPage, more: morePage,
   };
@@ -1852,9 +1851,10 @@
   // Access), which is rewritten in place so the address bar says where it is.
   const routeFromHash = () => {
     const [name, sub] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
+    if (name === 'instructions' && sub === 'mcp') { history.replaceState(null, '', '#mcp'); return 'mcp'; }
     const route = T3Routes.resolve(name);
     if (route && route !== name) history.replaceState(null, '', '#' + route + (sub ? '/' + sub : ''));
-    if (route === 'instructions') state.contextTab = sub === 'skills' ? 'skills' : sub === 'mcp' ? 'mcp' : 'instructions';
+    if (route === 'instructions') state.contextTab = sub === 'skills' ? 'skills' : 'instructions';
     return route && PAGES[route] ? route : 'overview';
   };
   const go = (route) => {
@@ -1884,7 +1884,7 @@
     if (route === 'ports' && !state.ports) loadPorts();
     if (route === 'instructions' && state.contextTab === 'skills' && state.status) skillsUI.activate(true);
     if (route === 'instructions' && state.contextTab === 'instructions' && state.status) void loadInstructionsPreview(true);
-    if (route === 'instructions' && state.contextTab === 'mcp' && state.status) mcpUI.activate();
+    if (route === 'mcp' && state.status) mcpUI.activate(true);
   };
   const navigateFromHash = async focus => {
     const version = ++navigationVersion;
@@ -3516,8 +3516,15 @@
     'skills.copy': (a) => skillsUI.copy(a.id, a.provider),
     'skills.copy-group': (a) => skillsUI.copyGroup(a.id),
     'mcp.refresh': () => mcpUI.refresh(),
-    'mcp.view': (a) => mcpUI.view(a.id),
+    'mcp.view': (a) => mcpUI.view(a.id, a.provider),
     'mcp.add': () => mcpUI.add(),
+    'mcp.cell': (a, el) => mcpUI.cellMenu(a.id, a.provider, el),
+    'mcp.agent': (a, el) => mcpUI.agentMenu(el),
+    'mcp.filter': (a) => mcpUI.filterAgent(a.provider || ''),
+    'mcp.attention': () => mcpUI.attention(),
+    'mcp.columns': (a, el) => mcpUI.columnsMenu(el),
+    'mcp.group': (a) => mcpUI.group(a.id),
+    'mcp.share': (a) => mcpUI.share(a.id, a.provider),
     'mcp.link': (a) => mcpUI.toggle(a.provider, a.id),
     'mcp.apply': (a) => mcpUI.apply(a.provider, a.id),
     'storage.goto': () => go('storage'),
@@ -3748,7 +3755,7 @@
     'link.revoke': (a) => confirmRevoke('pairing', a.id),
 
     'context.tab': (a) => {
-      const hash = '#instructions' + (a.value === 'skills' ? '/skills' : a.value === 'mcp' ? '/mcp' : '');
+      const hash = '#instructions' + (a.value === 'skills' ? '/skills' : '');
       if (location.hash !== hash) location.hash = hash;
     },
     'context.preview.retry': () => loadInstructionsPreview(true),
@@ -3921,7 +3928,7 @@
 
   // ------------------------------------------------------------ shortcuts --
   Kit.bind('mod+k', openPalette);
-  Kit.bind('/', () => state.route === 'instructions' && state.contextTab === 'skills' ? skillsUI.focusSearch() : openPalette());
+  Kit.bind('/', () => state.route === 'mcp' ? mcpUI.focusSearch() : state.route === 'instructions' && state.contextTab === 'skills' ? skillsUI.focusSearch() : openPalette());
   for (const page of T3Routes.PAGES) {
     if (page.key) Kit.bind('g ' + page.key, () => { keyboardNav = true; go(page.route); });
   }

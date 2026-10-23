@@ -9,11 +9,14 @@ const require = createRequire(import.meta.url);
 const { statusFor, portsFor, fixture } = require('./lib/console-fixtures.cjs');
 const { createSkillsFixtures } = require('./lib/skills-fixtures.cjs');
 const { createStorageFixtures } = require('./lib/storage-fixtures.cjs');
+const { createMcpFixtures } = require('./lib/mcp-fixtures.cjs');
+const mcp = createMcpFixtures();
 const api = createSkillsFixtures();
 const storage = createStorageFixtures();
 const port = Number(process.argv[process.argv.indexOf('--port') + 1]) || 23785;
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/.well-known/t3/environment') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ environmentId: 'fixture-preview', serverVersion: 'fixture', label: 'Fixture preview' })); return; }
   if (url.pathname === '/__setup/' || url.pathname === '/') {
     res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store', 'content-security-policy': contentSecurityPolicy('fixture') });
     res.end(renderConsole({ assets: loadAssets(), nonce: 'fixture', mount: '/__setup', embed: url.searchParams.has('embed') }));
@@ -24,7 +27,7 @@ http.createServer(async (req, res) => {
   let input;
   try { input = chunks.length ? JSON.parse(Buffer.concat(chunks)) : {}; }
   catch { res.writeHead(400); res.end(); return; }
-  const result = storage.respond(req.method, url, input) || api.respond(req.method, url, input) || (url.pathname.endsWith('/status') ? { body: { ...statusFor('skills'), storage: storage.status() } }
+  const result = await mcp.respond(req.method, url, input) || storage.respond(req.method, url, input) || api.respond(req.method, url, input) || (url.pathname.endsWith('/status') ? { body: { ...statusFor('skills'), storage: storage.status(), context: { ...statusFor('skills').context, mcp: mcp.status() } } }
     : url.pathname.endsWith('/ports') ? { body: portsFor('ready') }
       : url.pathname.endsWith('/providers') ? { body: fixture('providers.json') }
         : { status: 404, body: { ok: false, error: 'This is a read-only fixture preview. No live API is connected.' } });

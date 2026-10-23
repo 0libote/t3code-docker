@@ -50,7 +50,7 @@ test("native OpenCode 2 dictionaries are inventoried, updated and unlinked in pl
   const created = await f.svc.create(server("probe", { enabled: false }));
   assert.equal((await f.svc.list("opencode")).shared[0].linked, true);
   const saved = await f.svc.save("probe", created.revision, server("probe"));
-  await f.svc.setLink("opencode", "probe", true, saved.revision, (await f.svc.list("opencode")).revision);
+  await f.svc.setLink("opencode", "probe", true, saved.revision, (await f.svc.list("opencode")).revision, true);
   assert.equal((await f.svc.list("opencode")).shared[0].linked, true);
   assert.match(await fs.readFile(file, "utf8"), /"disabled": false/);
   await f.svc.setLink("opencode", "probe", false, saved.revision, (await f.svc.list("opencode")).revision);
@@ -95,12 +95,12 @@ test("provider revisions refuse external edits and retargeted symlinks", async (
   assert.equal(await fs.readFile(b, 'utf8'), '{}');
 });
 
-test("shared disable stays visibly divergent until unlink and removal requires unlink", async (t) => {
+test("legacy shared disable does not change Claude’s native state and removal requires unlink", async (t) => {
   const f = await fixture(t), created = await f.svc.create(server("probe"));
   await f.svc.setLink("claude", "probe", true, created.revision);
   const saved = await f.svc.save("probe", created.revision, server("probe", { enabled: false }));
   const state = (await f.svc.status({ refresh: true })).providers.find(p => p.provider === 'claude');
-  assert.deepEqual(state.diverged, ['probe']); assert.deepEqual(state.unlinked, []);
+  assert.deepEqual(state.linked, ['probe']); assert.deepEqual(state.diverged, []); assert.deepEqual(state.unlinked, []);
   await assert.rejects(f.svc.remove("probe", saved.revision), { code: 'conflict' });
   await f.svc.setLink("claude", "probe", false, saved.revision, state.revision);
   assert.equal((await f.svc.remove("probe", saved.revision)).ok, true);
@@ -240,7 +240,7 @@ test("OpenCode inventory distinguishes V1 enabled and V2 disabled flags", async 
     const native = await readProviderMcp(fs,'opencode',f);
     assert.equal(native.servers[0].extra,true);
     assert.equal(native.servers[0].canonical.enabled,true,'the other format’s flag must not change native state');
-    await f.svc.setLink('opencode','probe',true,created.revision,native.revision);
+    await f.svc.setLink('opencode','probe',true,created.revision,native.revision,enabled);
     const repaired = await readProviderMcp(fs,'opencode',f);
     assert.equal((await f.svc.list('opencode')).shared[0].linked,true);
     assert.equal(repaired.servers[0].canonical.enabled,enabled);

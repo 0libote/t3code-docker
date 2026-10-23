@@ -84,4 +84,27 @@ test("shared MCP API creates, links and removes servers without leaking secrets"
   const removed = await post("/context/mcp/remove", { name: "playwright", revision: created.revision });
   assert.equal(removed.status, 200);
   assert.equal((await get("/context/mcp/read?name=playwright")).status, 404);
+  const malformed = await fetch(base + '/context/mcp/create', { method: 'POST', headers: { 'x-t3-setup-key': 'mcp-fixture-key', 'content-type': 'application/json' }, body: '{\"server\":{\"env\":{\"TOKEN\":\"fixture-secret-malformed\"' });
+  assert.equal(malformed.status, 400); assert.equal((await malformed.text()).includes('fixture-secret-malformed'), false);
+  const parsed = await (await post('/context/mcp/parse', { text: 'uvx mcp-server-fetch' })).json();
+  assert.equal(parsed.servers[0].name, 'fetch');
+  assert.equal((await post('/context/mcp/parse', { text: 'x'.repeat(65537) })).status, 413);
+  assert.equal((await post('/context/mcp/parse', { text: 123 })).status, 400);
+  await fs.mkdir(path.join(home, '.claude'), { recursive: true });
+  await fs.writeFile(path.join(home, '.claude/.claude.json'), JSON.stringify({ mcpServers: { docs: { type: 'http', url: 'https://docs.test/mcp', headers: { Authorization: 'fixture-private-header' }, timeout: 10 } } }));
+  const own = await (await get('/context/mcp?refresh=1')).json();
+  assert.equal(own.ownGroups[0].name, 'docs');
+  assert.equal(JSON.stringify(own).includes('fixture-private-header'), false);
+  const claude = own.providers.find(p => p.provider === 'claude');
+  assert.equal((await fetch(base + '/context/mcp/read?provider=claude&name=docs')).status, 401);
+  assert.equal((await fetch(base + '/context/mcp/diff?provider=claude&name=docs')).status, 401);
+  assert.equal((await post('/context/mcp/adopt', { provider: 'claude', name: 'docs', providerRevision: 'stale', sharedRevision: own.shared.revision })).status, 409);
+  const adopted = await (await post('/context/mcp/adopt', { provider: 'claude', name: 'docs', providerRevision: claude.revision, sharedRevision: own.shared.revision })).json();
+  assert.deepEqual(adopted.dropped, ['timeout']);
+  const diff = await (await get('/context/mcp/diff?provider=claude&name=docs')).json();
+  assert.equal(diff.adoptable, true); assert.equal(JSON.stringify(diff).includes('fixture-private-header'), false);
+  const agentRead = await (await get('/context/mcp/read?provider=claude&name=docs')).json();
+  assert.equal(agentRead.server.headers.Authorization, 'fixture-private-header');
+  assert.equal((await post('/context/mcp/link', { provider: 'claude', name: 'docs', linked: true, enabled: false, providerRevision: claude.revision, sharedRevision: adopted.revision })).status, 403);
+
 });

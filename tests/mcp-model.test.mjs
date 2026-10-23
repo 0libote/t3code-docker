@@ -1,0 +1,52 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+const context = vm.createContext({}); vm.runInContext(readFileSync(new URL('../docker/setup/client/mcp-model.js', import.meta.url), 'utf8') + '\nthis.S = T3McpModel;', context);
+const S = context.S;
+const fixture = () => JSON.parse(readFileSync(new URL('../scripts/fixtures/console/mcp.json', import.meta.url)));
+const plain = value => JSON.parse(JSON.stringify(value));
+test('definition comparison ignores only the agent state, never named credential values', () => {
+  const a = { name: 'server', type: 'local', command: ['server'], enabled: true, env: { enabled: 'one', TOKEN: 'secret' } };
+  assert.equal(S.sameDefinition(a, { ...a, enabled: false }), true);
+  assert.equal(S.sameDefinition(a, { ...a, env: { TOKEN: 'secret', enabled: 'one' } }), true);
+  assert.equal(S.sameDefinition(a, { ...a, env: { enabled: 'two', TOKEN: 'secret' } }), false);
+  assert.equal(S.sameValue(a.env, { ...a.env, enabled: 'two' }), false);
+  assert.equal(S.sameValue({ enabled: 'one' }, {}), false);
+  assert.equal(S.sameDefinition({ headers: { enabled: 'one' } }, { headers: { enabled: 'two' } }), false);
+});
+test('MCP rows join shared and own entries without claiming live connections', () => {
+  const data = fixture(), rows = S.rows(data);
+  assert.equal(rows.length, 5); assert.equal(rows.filter(r => r.shared).length, 3);
+  const docs = rows.find(r => r.name === 'docs'), db = rows.find(r => r.name === 'database'), own = rows.find(r => r.name === 'github');
+  assert.equal(S.state(data, docs, 'claude').kind, 'differs');
+  assert.equal(S.state(data, docs, 'codex').kind, 'on');
+  assert.equal(S.state(data, db, 'codex').kind, 'off');
+  assert.equal(S.state(data, docs, 'cursor').kind, 'none');
+  assert.equal(S.state(data, own, 'claude').kind, 'own');
+  assert.equal(S.state(data, own, 'codex').kind, 'none');
+  assert.equal(S.state(data, docs, 'grok').label, 'Via Claude Code');
+  assert.equal(S.state(data, db, 'grok').label, '—');
+  assert.equal(S.state(data, docs, 'muse').kind, 'unsupported');
+  data.providers.find(p => p.provider === 'cursor').error = 'Unreadable';
+  assert.equal(S.state(data, docs, 'cursor').kind, 'error');
+});
+test('Grok imports prefer Claude, then Cursor, and do not assert effective discovery', () => {
+  const data = fixture(), docs = S.rows(data).find(r => r.name === 'docs');
+  data.providers.find(p => p.provider === 'claude').diverged = [];
+  data.providers.find(p => p.provider === 'cursor').linked = ['docs'];
+  assert.equal(S.state(data, docs, 'grok').label, 'Via Cursor');
+  data.providers.find(p => p.provider === 'grok').imports = [];
+  assert.equal(S.state(data, docs, 'grok').label, '—');
+});
+test('filters include native command and URL summaries and attention counts are per copy', () => {
+  const data = fixture();
+  assert.deepEqual(plain(S.filter(data, { query: 'ghcr.io' }).map(r => r.name)), ['github']);
+  assert.deepEqual(plain(S.filter(data, { query: 'docs.example' }).map(r => r.name)), ['docs']);
+  assert.equal(S.filter(data, { agent: 'codex' }).length, 3);
+  assert.equal(S.filter(data, { attention: true }).length, 1);
+  data.providers.find(p => p.provider === 'cursor').error = 'Unreadable';
+  assert.equal(S.attention(data).length, 2);
+  assert.equal(S.attention(data, ['codex']).length, 0);
+  assert.equal(S.providers.length, 7);
+});
