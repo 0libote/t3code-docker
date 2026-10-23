@@ -41,3 +41,28 @@ npm install --prefix /tmp/jsonc-build --no-audit --no-fund jsonc-parser@3.3.1 es
 Bundle SHA-256: `bd0f3ce191c835fbd222afb0e0e416852d0ea1c917406bdd0a609a0b8655f5ef`.
 Inputs are bounded to 1 MiB; invalid syntax, duplicate keys and unsupported
 policy shapes disable controls rather than normalizing away existing settings.
+
+## TOML syntax tree
+
+`toml-patch.mjs` is the unmodified ESM distribution of
+`@decimalturn/toml-patch@3.1.2` (MIT; see `toml-patch.LICENSE`).
+Upstream: https://github.com/DecimalTurn/toml-patch
+
+```sh
+npm pack @decimalturn/toml-patch@3.1.2
+tar -xzf decimalturn-toml-patch-3.1.2.tgz
+cp package/dist/toml-patch.js toml-patch.mjs
+cp package/LICENSE toml-patch.LICENSE
+```
+
+Archive SHA-256: `aed417934ced4cd4d19da54eb286c16750ba9058ca2e47be4162e3c0e5449514`.
+Distribution SHA-256: `8872b6d74fd090a2e358b727ce68d055af802c9efa86d05a8a1d05cdba6ce869`.
+
+MCP editing validates the complete document and uses this pinned parser's CST
+locations to change only the selected server. Unrelated source, including
+comments attached to the end of a preceding table, stays in place. Inline-root
+edits are patched only inside that root assignment. The result is parsed again
+and checked against the intended data before publication. Nested tables,
+arrays of tables and multiline strings are covered by regression tests. Update
+the distribution, license, checksums and CST compatibility checks together.
+There is no runtime package installation and the bundle never reaches browsers.

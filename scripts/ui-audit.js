@@ -351,7 +351,11 @@ const audit = () => {
     await page.click(".tc-layer .tc-menu-item:has-text('Rename')");
   };
   const STATES = [
-    ...ROUTES.map((route) => [route, async (page) => {
+    ['MCP servers', async (page) => {
+      await page.evaluate(() => { location.hash = 'mcp'; });
+      await page.waitForSelector('#mcp-library .tc-mcp-table:visible, #mcp-library .tc-sk-phone-list:visible, #mcp-library .tc-empty:visible');
+    }],
+    ...ROUTES.filter(route => route !== 'mcp').map((route) => [route, async (page) => {
       await page.evaluate((r) => { location.hash = r; }, route);
       await page.waitForSelector(`#page-${route}:not([hidden]) .tc-section, #page-${route}:not([hidden]) .tc-group`, { timeout: 60000 });
     }]),

@@ -92,6 +92,15 @@ Issues and pull requests are welcome. Before opening one:
   Screenshots go to `/tmp/t3-auto-update-ui-audit` (`T3_AUTO_UPDATE_UI_OUTPUT`
   overrides it).
 
+For shared MCP changes, run `node scripts/mcp-native-smoke.mjs PROVIDER
+/absolute/path/to/executable` for Claude, Codex, OpenCode (both V1 and V2) and
+Cursor. It uses disposable homes and fixture servers without model requests.
+`node scripts/mcp-ui-audit.js` checks the MCP page’s matrix, per-agent Off/On,
+snippet import, masked values, edit/update, sharing consent, partial removal,
+revision conflicts and failed/late reads in both themes at phone, desktop
+and embedded sizes. It uses response fixtures, with screenshots under
+`/tmp/t3-mcp-ui-audit`. The standard screenshot matrix includes `mcp`.
+
 For OpenCode credential changes, run
 `node scripts/opencode-auth-smoke.mjs /absolute/path/to/opencode` against both
 1.x and 2.x (including 2.0.18, the supported V2 floor). It uses an isolated

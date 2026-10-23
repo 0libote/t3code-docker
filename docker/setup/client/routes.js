@@ -23,6 +23,8 @@ const T3Routes = (() => {
       summary: 'Install, sign in and update your coding agents.', doc: 'agents.md' },
     { route: 'instructions', title: 'Instructions & skills', icon: 'book-open', key: 'i', group: 'agents',
       summary: 'What your agents read at the start of every session.', doc: 'context-management.md' },
+    { route: 'mcp', title: 'MCP servers', icon: 'plug', key: 'm', group: 'agents',
+      summary: 'Servers your agents can start or connect to.', doc: 'mcp-servers.md' },
     { route: 'toolchains', title: 'Toolchains', icon: 'wrench', key: 't', group: 'tools',
       summary: 'Languages and tools on every agent’s path, at exact versions.', doc: 'toolchains.md' },
     { route: 'sourcecontrol', title: 'Source control', icon: 'git-pull-request', key: 's', group: 'tools',
