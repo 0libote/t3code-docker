@@ -1,7 +1,7 @@
 // Native metadata/settings exchanges. No thread, turn, prompt or model call.
 import { spawn } from "node:child_process";
 
-function codexRequest({ executable, home, env = process.env, timeoutMs = 6000, maxBytes = 2 * 1024 * 1024, spawnImpl = spawn }, method, params) {
+function codexRequest({ executable, home, env = process.env, timeoutMs = 6000, maxBytes = 2 * 1024 * 1024, spawnImpl = spawn, experimentalApi = false }, method, params) {
   return new Promise((resolve, reject) => {
     let child, timer, settled = false, buffer = "", bytes = 0, stage = "initialize";
     const finish = (error, result) => {
@@ -46,6 +46,7 @@ function codexRequest({ executable, home, env = process.env, timeoutMs = 6000, m
             send({ id: 2, method, params });
           } else if (stage === "request" && message.id === 2) {
             if (message.error || !message.result || typeof message.result !== "object" || Array.isArray(message.result)) {
+              if (experimentalApi) return finish(Object.assign(new Error(method === "config/batchWrite" ? "Codex could not save hook settings. Refresh and review the hooks again." : "This Codex version could not read plugin hooks and their settings."), { code: method === "config/batchWrite" ? "conflict" : "unsupported" }));
               return fail(method === "skills/list" ? "This Codex version could not list skills." : "Codex could not save skill availability. Refresh to check its current state.");
             }
             finish(null, message.result);
@@ -55,7 +56,7 @@ function codexRequest({ executable, home, env = process.env, timeoutMs = 6000, m
           }
         }
       });
-      send({ id: 1, method: "initialize", params: { clientInfo: { name: "t3-setup-skills", version: "1.0.0" } } });
+      send({ id: 1, method: "initialize", params: { clientInfo: { name: "t3-setup-skills", version: "1.0.0" }, ...(experimentalApi ? { capabilities: { experimentalApi: true } } : {}) } });
     } catch {
       fail("Could not start Codex skill discovery.");
     }
@@ -74,5 +75,27 @@ export async function writeCodexSkillConfig(options) {
   if (typeof result.effectiveEnabled !== "boolean" || result.effectiveEnabled !== options.enabled) {
     throw new Error("Codex did not confirm the requested availability. Refresh to check its current state.");
   }
+  return result;
+}
+
+export async function listCodexHooks(options) {
+  const native = { ...options, experimentalApi: true };
+  const result = await codexRequest(native, "hooks/list", { cwds: [options.home] });
+  const entry = result.data?.find?.(item => item?.cwd === options.home);
+  if (!entry || !Array.isArray(entry.hooks) || !Array.isArray(entry.errors) || !Array.isArray(entry.warnings)) throw new Error("Codex returned an incomplete hook inventory.");
+  const config = await codexRequest(native, "config/read", { includeLayers: true });
+  const user = config.layers?.find(layer => layer.name?.type === "user" && [options.configPath, options.resolvedConfigPath].includes(layer.name.file));
+  if (!user || typeof user.version !== "string") throw new Error("Codex could not verify the user hook settings revision.");
+  return { ...entry, configVersion: user.version };
+}
+
+export async function writeCodexHookConfig(options) {
+  const key = "hooks.state." + JSON.stringify(options.key);
+  const edits = options.action === "trust" ? [{ keyPath: key + ".trusted_hash", value: options.currentHash, mergeStrategy: "replace" }]
+    : [{ keyPath: key + ".enabled", value: options.action === "enable", mergeStrategy: "replace" }];
+  const result = await codexRequest({ ...options, experimentalApi: true }, "config/batchWrite", {
+    edits, filePath: options.resolvedConfigPath, expectedVersion: options.configVersion,
+  });
+  if (result.status !== "ok" || result.filePath !== options.resolvedConfigPath) throw new Error("Codex did not confirm the hook setting. Refresh to check its state.");
   return result;
 }

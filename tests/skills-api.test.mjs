@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 
-test("skill endpoints require authentication and only read discovered installations", { timeout: 20000 }, async (t) => {
+test("skill endpoints require authentication and only read discovered installations", { timeout: 30000 }, async (t) => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "t3-skills-api-"));
   const directory = path.join(home, ".claude/skills/one"); await fs.mkdir(directory, { recursive: true });
   const file = path.join(directory, "SKILL.md");
@@ -30,6 +30,19 @@ readline.createInterface({input:process.stdin}).on('line', line => {
  else if(m.method === 'skills/config/write') {
   if(m.params.path !== ${JSON.stringify(nativeFile)}) process.exit(10);
   fs.writeFileSync(config, 'enabled = ' + m.params.enabled + '\\n'); result = {effectiveEnabled:m.params.enabled};
+ } else if(m.method === 'hooks/list') {
+  const content=fs.existsSync(config)?fs.readFileSync(config,'utf8'):'';
+  result={data:[{cwd:process.env.HOME,hooks:[{key:'fixture-hook',source:'plugin',sourcePath:config+'.hooks.json',pluginId:'fixture@local',eventName:'sessionStart',handlerType:'command',command:'node fixture.js',currentHash:'sha256:'+'a'.repeat(64),trustStatus:content.includes('trusted_hash')?'trusted':'untrusted',enabled:!content.includes('hook_disabled'),isManaged:false,matcher:null,timeoutSec:15,async:false}],errors:[],warnings:[]}]};
+ } else if(m.method === 'config/read') result={layers:[{name:{type:'user',file:config},version:'fixture-hook-version'}]};
+ else if(m.method === 'config/batchWrite') {
+  if(m.params.filePath!==config||m.params.expectedVersion!=='fixture-hook-version') process.exit(12);
+  let content=fs.existsSync(config)?fs.readFileSync(config,'utf8'):'';
+  for(const edit of m.params.edits) {
+   if(edit.keyPath==='hooks.state."fixture-hook".trusted_hash') content+='\\n# trusted_hash '+edit.value;
+   else if(edit.keyPath==='hooks.state."fixture-hook".enabled') content=edit.value?content.replaceAll('# hook_disabled',''):content+'\\n# hook_disabled';
+   else process.exit(13);
+  }
+  fs.writeFileSync(config,content);result={status:'ok',filePath:config};
  } else process.exit(11);
  process.stdout.write(JSON.stringify({id:m.id,result})+'\\n');
 });
@@ -78,7 +91,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   assert.equal((await fetch(base + "/context/skills/read?provider=claude&id=" + "a".repeat(32))).status, 401);
   assert.equal((await get("/context/skills?provider=__proto__")).status, 400);
   assert.equal((await get("/context/skills")).status, 400);
-  for (const operation of ["source", "plan", "install", "discard"]) {
+  for (const operation of ["source", "plan", "install", "discard", "check-update", "update/preview", "update"]) {
     assert.equal((await fetch(base + "/context/skills/" + operation, { method: "POST" })).status, 401);
     assert.equal((await post("/context/skills/" + operation, {}, { "sec-fetch-site": "cross-site" })).status, 403);
     assert.equal((await post("/context/skills/" + operation, null)).status, 400);
@@ -101,6 +114,16 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   const result = await (await get("/context/skills?provider=claude")).json();
   assert.equal(result.coverage, "policy"); assert.equal(result.skills.length, 1);
   const row = result.skills[0]; assert.equal(row.name, "one"); assert.ok(!("content" in row));
+  assert.equal((await post("/context/skills/check-update", { provider: "claude", id: row.id })).status, 403);
+  assert.equal((await post("/context/skills/update/preview", { provider: "claude", id: row.id, path: other })).status, 403);
+  assert.equal((await post("/context/skills/update/preview", { provider: "claude", id: other })).status, 400);
+  assert.equal((await post("/context/skills/update", { previewId: other, planId: other, replace: true })).status, 409);
+  assert.equal((await post("/context/skills/check-update", { skills: [] })).status, 400);
+  assert.equal((await post("/context/skills/check-update", { skills: [{ provider: "claude", id: "/etc/passwd" }] })).status, 400);
+  const batch = await (await post("/context/skills/check-update", { skills: [{ provider: "claude", id: row.id }] })).json();
+  assert.equal(batch.ok, true); assert.equal(batch.results.length, 1);
+  assert.equal(batch.results[0].id, row.id); assert.equal(batch.results[0].provider, "claude");
+  assert.equal(batch.results[0].ok, false); assert.equal(batch.results[0].code, "unsupported");
   const readPath = "/context/skills/read?provider=claude&id=" + row.id;
   assert.equal((await (await get(readPath + "&path=" + encodeURIComponent(other))).json()).content, markdown);
   assert.deepEqual((await (await get(readPath)).json()).files.map(file => file.name), ["SKILL.md"]);
@@ -167,6 +190,19 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   const sharedMarkdown = "---\nname: shared-api\ndescription: Shared API fixture\n---\nFixture.\n";
   assert.equal((await post("/context/skills/create", { provider: "codex", slug: "shared-api", content: sharedMarkdown, target: "shared" })).status, 200);
   assert.equal(await fs.readFile(path.join(home, ".agents/skills/shared-api/SKILL.md"), "utf8"), sharedMarkdown);
+  assert.equal((await fetch(base + '/context/skills/hooks')).status, 401);
+  assert.equal((await fetch(base + '/context/skills/hooks/state', { method: 'POST' })).status, 401);
+  assert.equal((await post('/context/skills/hooks/state', {}, { 'sec-fetch-site': 'cross-site' })).status, 403);
+  assert.equal((await post('/context/skills/hooks/state', null)).status, 400);
+  const hooks = await (await get('/context/skills/hooks')).json(); assert.equal(hooks.hooks.length, 1);
+  const hook = hooks.hooks[0]; assert.equal(hook.command, 'node fixture.js'); assert.equal(hook.currentHash, undefined);
+  assert.equal((await post('/context/skills/hooks/state', { id: other, revision: hook.revision, action: 'trust' })).status, 400);
+  assert.equal((await post('/context/skills/hooks/state', { id: hook.id, action: 'trust' })).status, 409);
+  const trustedHook = await (await post('/context/skills/hooks/state', { id: hook.id, revision: hook.revision, action: 'trust', key: 'forged' })).json();
+  assert.equal(trustedHook.hooks[0].trustStatus, 'trusted');
+  assert.equal((await post('/context/skills/hooks/state', { id: hook.id, revision: hook.revision, action: 'disable' })).status, 409);
+  const disabledHook = await (await post('/context/skills/hooks/state', { id: hook.id, revision: trustedHook.hooks[0].revision, action: 'disable' })).json();
+  assert.equal(disabledHook.hooks[0].enabled, false);
   const html = await (await fetch(base)).text();
   assert.ok(!html.includes(markdown), "skill contents are never inlined into the page");
 });

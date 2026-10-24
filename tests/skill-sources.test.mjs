@@ -82,6 +82,7 @@ test("Git discovery reads bounded blobs without checkout, shell execution, hooks
     assert.ok(args.includes("cat-file")); return { stdout: Buffer.from(args.at(-1) === "a".repeat(40) ? body : "check") };
   };
   const result = await f.resolve("https://github.com/org/repo/tree/main/skills/review", { run });
+  assert.equal(result.sourceType, "git");
   assert.equal(result.skills[0].files.length, 2); assert.equal(result.warnings.length, 2);
   assert.equal(result.sourceInfo.commit, "e".repeat(40));
   assert.equal(result.sourceInfo.ref, "main");
@@ -143,9 +144,74 @@ test("repository discovery prefers published skills over private workflow instru
   await f.put("library/skills/find-skills/SKILL.md", markdown("find-skills"));
   await f.put("library/.factory/workflows/triage/skills/triage/SKILL.md", markdown("triage"));
   const library = await f.resolve(path.join(f.home, "library")); assert.deepEqual(library.skills.map((skill) => skill.name), ["find-skills"]);
+  const selected = await f.resolve('npx skills add "' + path.join(f.home, "library") + '" --skill triage'); assert.deepEqual(selected.skills.map((skill) => skill.name), ["triage"]);
   const explicit = await f.resolve(path.join(f.home, "library/.factory/workflows/triage/skills/triage")); assert.deepEqual(explicit.skills.map((skill) => skill.name), ["triage"]);
   await f.put("custom/deep/bundles/review/SKILL.md", markdown("review"));
   assert.equal((await f.resolve(path.join(f.home, "custom"))).skills[0].name, "review", "Custom layouts retain bounded recursive discovery as a fallback");
   await f.put("custom/SKILL.md", "An invalid placeholder");
   assert.equal((await f.resolve(path.join(f.home, "custom"))).skills[0].name, "review", "An invalid placeholder cannot suppress the custom-layout fallback");
+});
+
+test("published skills take precedence over agent-specific copies without mixing their files", async (t) => {
+  const f = await fixture(t), root = path.join(f.home, "library");
+  const published = markdown("review", "Published instructions"), adapter = markdown("review", "Agent-specific instructions");
+  const agents = ['.claude', '.cursor', '.openclaw', '.example-agent'];
+  for (const agent of agents) {
+    await f.put('library/' + agent + '/skills/review/SKILL.md', adapter);
+    await f.put('library/' + agent + '/skills/review/adapter.md', 'Agent-only supporting file');
+  }
+  await f.put("library/.openclaw/skills/extra/SKILL.md", markdown("extra"));
+  await f.put("library/skills/review/SKILL.md", published);
+  await f.put("library/skills/review/guide.md", "Published supporting file");
+  for (const source of [root, 'npx skills add "' + root + '" --skill review']) {
+    const result = await f.resolve(source), review = result.skills.find(skill => skill.name === "review");
+    assert.equal(review.content, published);
+    assert.deepEqual(review.files.map(file => file.name).sort(), ["SKILL.md", "guide.md"]);
+    for (const agent of agents) assert(result.warnings.some(warning => warning.includes(agent + '/skills/review/SKILL.md') && warning.includes('by skills/review/SKILL.md')));
+    assert.equal(result.skills.length, source === root ? 2 : 1, "Unique agent-specific skills remain available");
+  }
+  for (const agent of agents) {
+    const explicit = await f.resolve(path.join(root, agent, 'skills/review'));
+    assert.equal(explicit.skills[0].content, adapter, 'Explicit folders retain their own variant');
+  }
+});
+
+test("Git repository commands and name selectors prefer published copies regardless of tree order", async (t) => {
+  const f = await fixture(t), published = markdown("review", "Published"), adapter = markdown("review", "Agent-specific");
+  const entries = [
+    { name: ".openclaw/skills/review/SKILL.md", object: "a".repeat(40), content: adapter },
+    { name: "skills/review/SKILL.md", object: "b".repeat(40), content: published },
+  ];
+  const run = async (command, args) => {
+    if (args.includes("clone")) return { stdout: Buffer.alloc(0) };
+    if (args.includes("rev-parse")) return { stdout: Buffer.from("c".repeat(40)) };
+    if (args.includes("ls-tree")) return { stdout: Buffer.from(entries.map(entry => `100644 blob ${entry.object} ${Buffer.byteLength(entry.content)}\t${entry.name}\0`).join("")) };
+    return { stdout: Buffer.from(entries.find(entry => entry.object === args.at(-1)).content) };
+  };
+  for (const source of ["npx skills add org/repo", "npx skills add org/repo --skill review", "https://skills.sh/org/repo/review"]) {
+    const result = await f.resolve(source, { run });
+    assert.equal(result.skills.length, 1); assert.equal(result.skills[0].content, published);
+  }
+});
+
+test("duplicates within the same discovery priority remain ambiguous", async (t) => {
+  const f = await fixture(t);
+  for (const directories of [["skills/a", "skills/b"], [".claude/skills/a", ".openclaw/skills/b"]]) {
+    const root = "duplicates-" + directories[0].split("/")[0];
+    for (const directory of directories) await f.put(root + "/" + directory + "/SKILL.md", markdown());
+    for (const source of [path.join(f.home, root), 'npx skills add "' + path.join(f.home, root) + '" --skill review']) {
+      await assert.rejects(f.resolve(source), { code: "conflict" });
+    }
+  }
+});
+
+test("skipped agent copies do not count toward the skill limit", async (t) => {
+  const f = await fixture(t), root = path.join(f.home, "library");
+  for (let i = 0; i < SOURCE_LIMITS.skills; i++) {
+    await f.put("library/skills/skill-" + i + "/SKILL.md", markdown("skill-" + i));
+  }
+  await f.put("library/.openclaw/skills/skill-0/SKILL.md", markdown("skill-0", "Agent variant"));
+  assert.equal((await f.resolve(root)).skills.length, SOURCE_LIMITS.skills);
+  await f.put("library/skills/overflow/SKILL.md", markdown("overflow"));
+  await assert.rejects(f.resolve(root), { code: "too_large" });
 });
