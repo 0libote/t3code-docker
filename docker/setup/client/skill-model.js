@@ -11,6 +11,52 @@ const T3SkillModel = (() => {
     { id: 'antigravity', name: 'Antigravity', control: 'Not reported' },
   ]);
   const nameOf = id => providers.find(p => p.id === id)?.name || id;
+  const pluginName = id => {
+    const value = String(id || 'Plugin'), at = value.lastIndexOf('@');
+    return at > 0 ? value.slice(0, at) : value;
+  };
+  const updateSummary = rows => {
+    const tracked = rows.filter(row => row.origin), checked = tracked.map(row => row.update?.checkedAt).filter(Number.isFinite);
+    return { tracked, available: tracked.filter(row => row.update?.status === 'available'), errors: tracked.filter(row => row.update?.status === 'error'),
+      checkedAt: checked.length ? Math.min(...checked) : null, sources: new Set(tracked.map(row => row.origin.source)).size };
+  };
+  const updateOrder = (a, b) => {
+    const rank = row => row.update?.status === 'available' ? 0 : row.update?.status === 'error' ? 1 : row.update?.status === 'current' ? 3 : 2;
+    return rank(a) - rank(b) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key);
+  };
+  const changeOrder = (a, b) => Number(b.name === 'SKILL.md') - Number(a.name === 'SKILL.md')
+    || ['modified', 'added', 'removed', 'unchanged'].indexOf(a.status) - ['modified', 'added', 'removed', 'unchanged'].indexOf(b.status) || a.name.localeCompare(b.name);
+  const hookLabels = Object.freeze({ sessionStart: 'When a session starts', sessionEnd: 'When a session ends', userPromptSubmit: 'When you send a prompt',
+    preToolUse: 'Before a tool runs', postToolUse: 'After a tool runs', subagentStart: 'When a subagent starts', subagentStop: 'When a subagent finishes',
+    stop: 'When a turn ends', preCompact: 'Before the conversation is compacted', notification: 'When Codex shows a notification' });
+  const hookLabel = event => hookLabels[event] || String(event || 'Hook').replace(/([A-Z])/g, ' $1').trim().toLowerCase().replace(/^./, letter => letter.toUpperCase());
+  const hookNeedsReview = hook => ['untrusted', 'modified'].includes(hook.trustStatus) && hook.enabled && !hook.readOnlyReason;
+  const hookStatus = hook => {
+    if (hook.handlerType !== 'command' || !hook.command) return { label: 'Review in Codex', tone: 'idle', rank: 5, readOnly: true };
+    if (hook.readOnlyReason || hook.isManaged || hook.trustStatus === 'managed') return { label: 'Managed', tone: 'idle', rank: 4, readOnly: true, icon: 'lock' };
+    if (hookNeedsReview(hook)) return { label: hook.trustStatus === 'modified' ? 'Changed since you trusted it' : 'Waiting for review', tone: 'warn', rank: 0, review: true };
+    if (hook.trustStatus !== 'trusted') return { label: 'Off · not trusted', tone: 'idle', rank: 1, untrusted: true };
+    return { label: hook.enabled ? 'Runs' : 'Off', tone: hook.enabled ? 'ok' : 'idle', rank: hook.enabled ? 2 : 3 };
+  };
+  const hooksSummary = hooks => {
+    const plugins = new Map();
+    for (const hook of hooks || []) {
+      if (!plugins.has(hook.pluginId)) plugins.set(hook.pluginId, { id: hook.pluginId, name: pluginName(hook.pluginId), hooks: [], waiting: [] });
+      const plugin = plugins.get(hook.pluginId); plugin.hooks.push(hook);
+      if (hookNeedsReview(hook)) plugin.waiting.push(hook);
+    }
+    return { plugins: [...plugins.values()], waiting: (hooks || []).filter(hookNeedsReview), total: hooks?.length || 0 };
+  };
+  const hookMatcher = hook => {
+    if (!hook.matcher) return { text: hook.eventName === 'userPromptSubmit' ? 'every prompt' : ['preToolUse', 'postToolUse'].includes(hook.eventName) ? 'every tool' : ['sessionStart', 'subagentStart'].includes(hook.eventName) ? 'every time' : '' };
+    if (hook.eventName === 'sessionStart') {
+      const parts = hook.matcher.split('|').filter(Boolean);
+      return { text: 'on ' + (parts.length > 1 ? parts.slice(0, -1).join(', ') + ' or ' + parts.at(-1) : parts[0] || hook.matcher) };
+    }
+    return { text: ['preToolUse', 'postToolUse'].includes(hook.eventName) ? 'for tools matching ' : 'matches ', code: hook.matcher };
+  };
+  const hookTimeout = hook => !hook.timeoutSec ? 'No limit' : hook.timeoutSec + (hook.timeoutSec === 1 ? ' second. ' : ' seconds. ')
+    + (hook.async ? 'Runs in the background.' : 'The ' + (hook.eventName === 'userPromptSubmit' ? 'prompt' : ['preToolUse', 'postToolUse'].includes(hook.eventName) ? 'tool' : 'session') + ' waits for it.');
   const clean = value => String(value || '').replace(/\/+$/, '') || '/';
   const contains = (root, file) => Boolean(root && file && (clean(root) === clean(file) || file.startsWith(clean(root) === '/' ? '/' : clean(root) + '/')));
   const directory = file => String(file || '').slice(0, String(file || '').lastIndexOf('/')) || '/';
@@ -121,5 +167,6 @@ const T3SkillModel = (() => {
       also: providers.map(p => p.id).filter(id => !agents.includes(id) && coverage(id).length),
       assignments: Object.fromEntries(agents.map(agent => [agent, (coverage(agent).find(d => d.provider === agent || d.also.includes(agent)) || coverage(agent)[0])?.provider || null])) };
   };
-  return { providers, nameOf, contains, directory, displayPath, available, state, attention, rootsFor, rootLabel, join, groups, filter, placement };
+  return { providers, nameOf, pluginName, updateSummary, updateOrder, changeOrder, hookLabel, hookNeedsReview, hookStatus, hooksSummary, hookMatcher, hookTimeout,
+    contains, directory, displayPath, available, state, attention, rootsFor, rootLabel, join, groups, filter, placement };
 })();

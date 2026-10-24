@@ -1,0 +1,103 @@
+{
+  "ok": true,
+  "previewId": "upd_7d1c\u2026",
+  "planId": "plan_2b9e\u2026",
+  "createdAt": 1792850000000,
+  "expiresAt": 1792850600000,
+  "canUpdate": true,
+  "name": "frontend-design",
+  "source": "vercel-labs/skills",
+  "sourceInfo": {
+    "type": "git",
+    "source": "https://github.com/vercel-labs/skills.git",
+    "ref": "main",
+    "commit": "8f2c1b5a3e9d4c7b6a5f4e3d2c1b0a9f8e7d6c5b"
+  },
+  "warnings": [],
+  "target": {
+    "provider": "claude",
+    "id": "3f2a9c0d1e4b5a6978c0d1e2f3a4b5c6",
+    "directory": "/home/t3/.claude/skills/frontend-design",
+    "resolvedDirectory": "/home/t3/.t3/agents/.claude/skills/frontend-design",
+    "linked": true,
+    "readers": [
+      "claude",
+      "cursor",
+      "grok",
+      "muse",
+      "opencode"
+    ]
+  },
+  "localChanges": true,
+  "summary": {
+    "added": 1,
+    "modified": 1,
+    "removed": 1,
+    "unchanged": 1
+  },
+  "changes": [
+    {
+      "name": "SKILL.md",
+      "status": "modified",
+      "before": {
+        "bytes": 1430,
+        "executable": false,
+        "linked": false
+      },
+      "after": {
+        "bytes": 1604,
+        "executable": false
+      },
+      "text": {
+        "before": "---\nname: frontend-design\ndescription: Distinctive, intentional visual design for new UI.\n---\n\n# Frontend design\n\n## Before you build\nCommit to one aesthetic direction before writing code. Name it in\na sentence: the tone, the type pairing and the one detail someone\nwill remember.\n\nDecide what the interface is for before deciding how it looks.\nWrite down who uses it, on what device, and what they came to do.\nAvoid defaults you didn't choose: stock fonts, even spacing and a\npalette with no point of view.\n\n## Choosing colour\nPick a dominant colour and one sharp accent. Evenly spread palettes read as timid.\nCheck contrast at the end.\n\n## Typography\nPair one expressive display face with a quiet text face.\nSet body text at 16px or larger on screens, with a line height near 1.5.\nLimit the scale to four or five sizes and use weight for emphasis.\n\n## Layout\nUse one spacing scale and stick to it.\nLet the most important element be the largest thing on the page.\nGroup related controls and separate unrelated ones with space, not lines.\n\n## Motion\nAnimate only what helps people follow a change.\nKeep transitions under 200 milliseconds and respect reduced motion.\n\n## Details\nCheck empty, loading and error states as carefully as the happy path.\n\n## Review\nLook at the result at 1280 and 390 pixels wide.\nRemove anything that doesn\u2019t serve the direction you chose.\nRun through references/old-checklist.md before you hand off.\n",
+        "after": "---\nname: frontend-design\ndescription: Distinctive, intentional and accessible visual design for new UI.\n---\n\n# Frontend design\n\n## Before you build\nCommit to one aesthetic direction before writing code. Name it in\na sentence: the tone, the type pairing and the one detail someone\nwill remember.\n\nDecide what the interface is for before deciding how it looks.\nWrite down who uses it, on what device, and what they came to do.\nAvoid defaults you didn't choose: stock fonts, even spacing and a\npalette with no point of view.\n\n## Choosing colour\nPick a dominant colour and one sharp accent. Evenly spread palettes read as timid.\nCheck contrast while you choose colours, not at the end: body\ntext needs 4.5:1, large text and icons 3:1.\n\n## Typography\nPair one expressive display face with a quiet text face.\nSet body text at 16px or larger on screens, with a line height near 1.5.\nLimit the scale to four or five sizes and use weight for emphasis.\n\n## Layout\nUse one spacing scale and stick to it.\nLet the most important element be the largest thing on the page.\nGroup related controls and separate unrelated ones with space, not lines.\n\n## Motion\nAnimate only what helps people follow a change.\nKeep transitions under 200 milliseconds and respect reduced motion.\n\n## Details\nCheck empty, loading and error states as carefully as the happy path.\n\n## Review\nLook at the result at 1280 and 390 pixels wide.\nReach every control with the keyboard alone, and check that\nfocus is always visible.\nSee references/accessibility.md for the full checklist.\nRemove anything that doesn\u2019t serve the direction you chose.\n"
+      }
+    },
+    {
+      "name": "references/accessibility.md",
+      "status": "added",
+      "before": null,
+      "after": {
+        "bytes": 381,
+        "executable": false
+      },
+      "text": {
+        "before": null,
+        "after": "# Accessibility checklist\n\n- Text contrast is at least 4.5:1, or 3:1 for large text and icons.\n- Every control can be reached and used with the keyboard alone.\n- Focus is always visible and moves in reading order.\n- Interactive targets are at least 44 by 44 pixels on touch screens.\n- Motion respects the reduced motion setting.\n- Images that carry meaning have text alternatives.\n"
+      }
+    },
+    {
+      "name": "references/old-checklist.md",
+      "status": "removed",
+      "before": {
+        "bytes": 128,
+        "executable": false,
+        "linked": false
+      },
+      "after": null,
+      "text": {
+        "before": "# Hand-off checklist\n\n- Screens checked at 1280 and 390 pixels wide.\n- Empty, loading and error states drawn.\n- Copy proofread.\n",
+        "after": null
+      }
+    },
+    {
+      "name": "scripts/research.py",
+      "status": "unchanged",
+      "before": {
+        "bytes": 912,
+        "executable": true,
+        "linked": false
+      },
+      "after": {
+        "bytes": 912,
+        "executable": true
+      },
+      "text": null,
+      "textOmitted": "unchanged"
+    }
+  ],
+  "markdown": {
+    "before": "---\nname: frontend-design\ndescription: Distinctive, intentional visual design for new UI.\n---\n\n# Frontend design\n\n## Before you build\nCommit to one aesthetic direction before writing code. Name it in\na sentence: the tone, the type pairing and the one detail someone\nwill remember.\n\nDecide what the interface is for before deciding how it looks.\nWrite down who uses it, on what device, and what they came to do.\nAvoid defaults you didn't choose: stock fonts, even spacing and a\npalette with no point of view.\n\n## Choosing colour\nPick a dominant colour and one sharp accent. Evenly spread palettes read as timid.\nCheck contrast at the end.\n\n## Typography\nPair one expressive display face with a quiet text face.\nSet body text at 16px or larger on screens, with a line height near 1.5.\nLimit the scale to four or five sizes and use weight for emphasis.\n\n## Layout\nUse one spacing scale and stick to it.\nLet the most important element be the largest thing on the page.\nGroup related controls and separate unrelated ones with space, not lines.\n\n## Motion\nAnimate only what helps people follow a change.\nKeep transitions under 200 milliseconds and respect reduced motion.\n\n## Details\nCheck empty, loading and error states as carefully as the happy path.\n\n## Review\nLook at the result at 1280 and 390 pixels wide.\nRemove anything that doesn\u2019t serve the direction you chose.\nRun through references/old-checklist.md before you hand off.\n",
+    "after": "---\nname: frontend-design\ndescription: Distinctive, intentional and accessible visual design for new UI.\n---\n\n# Frontend design\n\n## Before you build\nCommit to one aesthetic direction before writing code. Name it in\na sentence: the tone, the type pairing and the one detail someone\nwill remember.\n\nDecide what the interface is for before deciding how it looks.\nWrite down who uses it, on what device, and what they came to do.\nAvoid defaults you didn't choose: stock fonts, even spacing and a\npalette with no point of view.\n\n## Choosing colour\nPick a dominant colour and one sharp accent. Evenly spread palettes read as timid.\nCheck contrast while you choose colours, not at the end: body\ntext needs 4.5:1, large text and icons 3:1.\n\n## Typography\nPair one expressive display face with a quiet text face.\nSet body text at 16px or larger on screens, with a line height near 1.5.\nLimit the scale to four or five sizes and use weight for emphasis.\n\n## Layout\nUse one spacing scale and stick to it.\nLet the most important element be the largest thing on the page.\nGroup related controls and separate unrelated ones with space, not lines.\n\n## Motion\nAnimate only what helps people follow a change.\nKeep transitions under 200 milliseconds and respect reduced motion.\n\n## Details\nCheck empty, loading and error states as carefully as the happy path.\n\n## Review\nLook at the result at 1280 and 390 pixels wide.\nReach every control with the keyboard alone, and check that\nfocus is always visible.\nSee references/accessibility.md for the full checklist.\nRemove anything that doesn\u2019t serve the direction you chose.\n"
+  }
+}

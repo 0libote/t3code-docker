@@ -34,6 +34,7 @@ export const CONSOLE_SCRIPTS = [
   "client/skill-model.js",
   "client/skill-inspector.js",
   "client/skill-import.js",
+  "client/skill-diff.js",
   "client/skill-update.js",
   "client/skill-hooks.js",
   "client/skills.js",

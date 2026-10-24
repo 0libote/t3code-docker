@@ -18,7 +18,7 @@ async function fixture(t) {
     assert.equal(value, source); calls++;
     if (pause) await pause;
     if (failure) throw Error("Repository unavailable");
-    return { source, sourceType: "git", warnings: [], skills: removed ? [] : [{ name: "review", description: "Review changes", content, files: [
+    return { source, sourceType: "git", sourceInfo: { ref: "main", commit: "a".repeat(40) }, warnings: [], skills: removed ? [] : [{ name: "review", description: "Review changes", content, files: [
       { name: "SKILL.md", data: Buffer.from(content), mode: 0o600 },
       { name: "references/guide.md", data: Buffer.from(guide), mode: executable ? 0o700 : 0o600 },
     ] }] };
@@ -62,6 +62,21 @@ test("file executability changes count as updates; unavailable and removed sourc
   f.chmod(); assert.equal((await f.service.checkUpdate("claude", row.id)).update.status, "available");
   f.remove(); assert.match((await f.service.checkUpdate("claude", row.id)).update.error, /renamed or removed/);
   f.fail(); assert.match((await f.service.checkUpdate("claude", row.id)).update.error, /Repository unavailable/);
+});
+
+test("pinned source metadata is retained on current, available and missing-skill results", async t => {
+  const f = await fixture(t), row = await f.row();
+  for (const status of ["current", "available", "error"]) {
+    if (status === "available") f.change();
+    if (status === "error") f.remove();
+    const result = await f.service.checkUpdate("claude", row.id);
+    assert.equal(result.update.status, status);
+    assert.equal(result.update.ref, "main"); assert.equal(result.update.commit, "a".repeat(40));
+    assert.equal((await f.row()).update.commit, "a".repeat(40), "inventory retains checked source metadata until service restart");
+  }
+  f.fail();
+  const failed = await f.service.checkUpdate("claude", row.id);
+  assert.equal(failed.update.ref, null); assert.equal(failed.update.commit, null);
 });
 
 test("untracked, malformed and linked provenance cannot trigger repository checks", async (t) => {
@@ -185,6 +200,9 @@ test("duplicate-source precedence is preserved through tracked update checks and
   assert.equal((await service.installImport(preview.previewId, plan.planId)).results[0].status, "installed");
   const row = (await service.list("claude", { refresh: true })).skills[0];
   assert.equal(row.origin.source, source);
+  const checked = await service.checkUpdate("claude", row.id);
+  assert.equal(checked.update.ref, null, "a shorthand repository retains its default-branch selection");
+  assert.equal(checked.update.commit, "d".repeat(40));
   files[0].data = markdown("Changed agent variant");
   assert.equal((await service.checkUpdate("claude", row.id)).update.status, "current");
   files[2].data = "Updated published guide";

@@ -431,6 +431,29 @@ test("Muse records its exact release revision and never updates to an older revi
   assert.equal(world.useSpecs.length, before, "an older revision is not selected");
 });
 
+test("Codex recognizes legacy and current native auth status without trusting failed probes", async () => {
+  const entry = getHarness("codex"), facts = { executable: "/mise/codex", runnable: true };
+  let result;
+  const ctx = { home: HOME, env: {}, timeouts: { probe: 1000 }, run: async (argv) => {
+    assert.deepEqual(argv, [facts.executable, "login", "status"]);
+    return result;
+  } };
+  for (const text of ["Logged in using an API key - sk-test***", "Logged in using ChatGPT", "API key configured - sk-test***\nAuthentication is checked when you send a request."]) {
+    result = { code: 0, stdout: "", stderr: text, error: null };
+    assert.equal(await detectAuth(ctx, entry, facts), true, text);
+    assert.equal(await detectAuth(ctx, entry, { ...facts, runnable: false }), false);
+    for (const failure of [{ code: 1 }, { error: "timed out" }, { code: null }]) {
+      assert.equal(await detectAuth({ ...ctx, run: async () => ({ ...result, ...failure }) }, entry, facts), null, "failed or partial output is not affirmative");
+    }
+  }
+  for (const text of ["", "Unknown login state", "API key configured -", "An error mentions Logged in\nNot logged in"]) {
+    result = { code: 0, stdout: text, stderr: "", error: null };
+    assert.equal(await detectAuth(ctx, entry, facts), /Not logged in/.test(text) ? false : null, text);
+  }
+  result = { code: 1, stdout: "", stderr: "Not logged in", error: null };
+  assert.equal(await detectAuth(ctx, entry, facts), false);
+});
+
 test("Muse treats saved credentials as unverified and ignores inherited API keys", async () => {
   const fs = new MemoryFs();
   const entry = getHarness("muse");

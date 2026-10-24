@@ -22,6 +22,7 @@ async function fixture(t, provider = "claude", io = fs) {
   assert.equal((await service.installImport(preview.previewId, plan.planId)).results[0].status, "installed");
   const row = async () => (await service.list(provider, { refresh: true })).skills.find(row => row.name === "review");
   return { home, service, options, provider, markdown, row,
+    files: value => { files = value; },
     change: () => { files = [{ ...files[0], data: Buffer.from(markdown + "Updated instructions\n") }, { name: "scripts/check.sh", data: Buffer.from("echo reviewed\n"), mode: 0o700 }]; },
     pause: value => { pause = value; } };
 }
@@ -35,6 +36,9 @@ test("update review describes complete folder changes and needs explicit consent
   assert.equal(view.localChanges, false);
   assert.deepEqual(view.summary, { added: 1, modified: 1, removed: 1, unchanged: 0 });
   assert.equal(view.markdown.before, f.markdown); assert.match(view.markdown.after, /Updated instructions/);
+  assert.deepEqual(view.changes.find(file => file.name === "SKILL.md").text, view.markdown);
+  assert.deepEqual(view.changes.find(file => file.name === "scripts/check.sh").text, { before: null, after: "echo reviewed\n" });
+  assert.deepEqual(view.changes.find(file => file.name === "guide.md").text, { before: "Original guide", after: null });
   assert(!view.changes.some(file => file.name === ORIGIN_FILE));
   await assert.rejects(f.service.installUpdate(view.previewId, view.planId, false), { code: "conflict" });
   await assert.rejects(f.service.planImport(view.previewId, ["review"], ["codex"]), { code: "invalid" });
@@ -86,8 +90,68 @@ test("local edits and supporting links are disclosed without following the links
   const view = await review(f);
   assert.equal(view.localChanges, true);
   assert.equal(view.changes.find(file => file.name === "external.txt").before.linked, true);
+  assert.equal(view.changes.find(file => file.name === "external.txt").text, null);
+  assert.equal(view.changes.find(file => file.name === "external.txt").textOmitted, "linked");
   await commit(f, view);
   assert.equal(await fs.readFile(outside, "utf8"), "Keep this file");
+});
+
+test("supporting-file previews retain UTF-8 and empty files without text on unchanged entries", async t => {
+  const f = await fixture(t);
+  f.files([
+    { name: "SKILL.md", data: Buffer.from(f.markdown), mode: 0o600 },
+    { name: "guide.md", data: Buffer.from("Updated café guide\n"), mode: 0o600 },
+    { name: "empty.txt", data: Buffer.alloc(0), mode: 0o600 },
+  ]);
+  const view = await review(f);
+  assert.deepEqual(view.changes.find(file => file.name === "guide.md").text, { before: "Original guide", after: "Updated café guide\n" });
+  assert.deepEqual(view.changes.find(file => file.name === "empty.txt").text, { before: null, after: "" });
+  assert.equal(view.changes.find(file => file.name === "SKILL.md").text, null);
+  assert.equal(view.changes.find(file => file.name === "SKILL.md").textOmitted, "unchanged");
+});
+
+test("binary, invalid UTF-8 and oversized supporting files explain omitted text", async t => {
+  for (const [name, data, reason] of [
+    ["binary", Buffer.from([65, 0, 66]), "binary"],
+    ["invalid", Buffer.from([0xc3, 0x28]), "binary"],
+    ["large", Buffer.alloc(65537, 65), "large"],
+  ]) {
+    const f = await fixture(t), initial = await f.row();
+    await fs.writeFile(path.join(path.dirname(initial.path), "guide.md"), data);
+    f.files([
+      { name: "SKILL.md", data: Buffer.from(f.markdown), mode: 0o600 },
+      { name: "guide.md", data: Buffer.from("Valid incoming text"), mode: 0o600 },
+      { name: name + ".txt", data, mode: 0o600 },
+    ]);
+    const view = await review(f);
+    for (const file of ["guide.md", name + ".txt"]) {
+      const change = view.changes.find(entry => entry.name === file);
+      assert.equal(change.text, null); assert.equal(change.textOmitted, reason);
+    }
+    assert.equal(view.localChanges, true);
+  }
+});
+
+test("the 64 KiB text boundary is inclusive", async t => {
+  const f = await fixture(t), text = "a".repeat(65536);
+  f.files([{ name: "SKILL.md", data: Buffer.from(f.markdown), mode: 0o600 }, { name: "boundary.txt", data: Buffer.from(text), mode: 0o600 }]);
+  const view = await review(f);
+  assert.deepEqual(view.changes.find(file => file.name === "boundary.txt").text, { before: null, after: text });
+});
+
+test("the complete preview text stays within 1 MiB without omitting any replacement files", async t => {
+  const f = await fixture(t), initial = await f.row(), text = "a".repeat(32768), next = "b".repeat(32768);
+  const names = Array.from({ length: 20 }, (_, i) => "text-" + String(i).padStart(2, "0") + ".txt");
+  for (const name of names) await fs.writeFile(path.join(path.dirname(initial.path), name), text);
+  f.files([{ name: "SKILL.md", data: Buffer.from(f.markdown), mode: 0o600 }, ...names.map(name => ({ name, data: Buffer.from(next), mode: 0o600 }))]);
+  const view = await review(f);
+  const bytes = [view.markdown.before, view.markdown.after, ...view.changes.flatMap(file => file.text ? [file.text.before, file.text.after] : [])]
+    .reduce((total, text) => total + Buffer.byteLength(text || ""), 0);
+  assert(bytes <= 1024 * 1024);
+  const omitted = view.changes.find(file => file.textOmitted === "budget");
+  assert(omitted); assert.equal(omitted.status, "modified");
+  assert.equal((await commit(f, view)).results[0].status, "installed");
+  assert.equal(await fs.readFile(path.join(path.dirname(initial.path), omitted.name), "utf8"), next);
 });
 
 test("edits, removals and provenance changes after review reject publication", async t => {

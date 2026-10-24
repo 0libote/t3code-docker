@@ -11,21 +11,21 @@ const skills = [
   { id: 'admin', name: 'Organization skill', scope: 'admin' },
   { id: 'plugin', name: 'Plugin skill', scope: 'user', source: 'Plugin' },
 ].map(row => ({ ...row, path: '/skills/' + row.id + '/SKILL.md', resolvedPath: '/skills/' + row.id + '/SKILL.md', description: '', canEdit: row.scope === 'user' }));
-async function fixture(rows = skills, storage = new Map(), onRequest) {
-  const requests = [], installs = [], updates = [];
+async function fixture(rows = skills, storage = new Map(), onRequest, installed = ['codex', 'cursor']) {
+  const requests = [], installs = [], updates = [], menus = [];
   const context = vm.createContext({
-    Kit: { html: (parts, ...values) => parts.reduce((text, part, i) => text + part + (Array.isArray(values[i]) ? values[i].join('') : values[i] ?? ''), ''), raw: value => value, icon: () => '', announce() {}, menu: (_, config) => config.items.find(item => item.label.startsWith('Review'))?.run() },
+    Kit: { html: (parts, ...values) => parts.reduce((text, part, i) => text + part + (Array.isArray(values[i]) ? values[i].join('') : values[i] ?? ''), ''), raw: value => value, icon: () => '', announce() {}, isPhone: () => false, menu: (_, config) => { menus.push(config); return config.items.find(item => item.label?.startsWith('Review'))?.run(); } },
     T3Model: { plural: (count, name) => `${count} ${name}${count === 1 ? '' : 's'}`, listOf: names => names.join(', '), absTime: String, relTime: String },
     T3C: { agentMark: () => '' },
     T3SkillImport: { create: () => ({ open: options => installs.push(options) }) },
     T3SkillInspector: { create: () => ({ repaint() {} }) },
     T3SkillHooks: { create: () => ({ open() {}, close: () => true }) },
     T3SkillUpdate: { create: () => ({ open: (provider, id) => updates.push({ provider, id }), close: () => true }) },
-    document: { getElementById: () => null },
+    document: { getElementById: () => null, querySelector: () => null },
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
   });
   vm.runInContext(model + '\n' + source + '\nglobalThis.create = T3SkillsUI.create;', context);
-  const ui = context.create({ render() {}, getStatus: () => ({ harnesses: [{ installed: true, id: 'codex' }, { installed: true, id: 'cursor' }] }), api: async (url, options) => {
+  const ui = context.create({ render() {}, getStatus: () => ({ harnesses: installed.map(id => ({ installed: true, id })) }), api: async (url, options) => {
     requests.push({ url, options });
     const custom = await onRequest?.(url, options);
     if (custom) return custom;
@@ -33,7 +33,8 @@ async function fixture(rows = skills, storage = new Map(), onRequest) {
     return { ok: true, data: url.includes('/reach') ? { roots: [] } : { provider, scannedAt: Date.now(), skills: structuredClone(rows) } };
   } });
   await ui.refresh();
-  return { ui, requests, storage, installs, updates };
+  await new Promise(resolve => setImmediate(resolve));
+  return { ui, requests, storage, installs, updates, menus };
 }
 
 test('bundled filter hides physical system skills only and persists without provider writes', async () => {
@@ -42,12 +43,12 @@ test('bundled filter hides physical system skills only and persists without prov
   const before = requests.length;
   ui.toggleBundled();
   const content = ui.content();
-  assert.doesNotMatch(content, /Bundled skill/);
+  assert.doesNotMatch(content, /data-key="(?:phone-)?skill-[^\"]*system/);
   for (const name of ['My skill', 'Organization skill', 'Plugin skill']) assert.ok(content.includes(name));
-  assert.match(content, /1 skill hidden/);
+  assert.match(content, /1 bundled skill is hidden/);
   assert.equal(requests.length, before);
   const restored = await fixture(skills, storage);
-  assert.doesNotMatch(restored.ui.content(), /Bundled skill/);
+  assert.doesNotMatch(restored.ui.content(), /data-key="(?:phone-)?skill-[^\"]*system/);
   restored.ui.toggleBundled();
   assert.match(restored.ui.content(), /Bundled skill/);
 });
@@ -55,7 +56,7 @@ test('bundled filter hides physical system skills only and persists without prov
 test('filtered empty state has a working clear action', async () => {
   const { ui } = await fixture([skills[1]]);
   ui.toggleBundled();
-  assert.match(ui.content(), /1 skill hidden/);
+  assert.match(ui.content(), /1 bundled skill is hidden/);
   assert.match(ui.content(), /No skills match these filters/);
   ui.clear();
   assert.match(ui.content(), /Bundled skill/);
@@ -64,7 +65,7 @@ test('filtered empty state has a working clear action', async () => {
 test('blocked browser storage still allows filtering for the session', async () => {
   const { ui } = await fixture(skills, { get() { throw Error('blocked'); }, set() { throw Error('blocked'); } });
   ui.toggleBundled();
-  assert.doesNotMatch(ui.content(), /Bundled skill/);
+  assert.doesNotMatch(ui.content(), /data-key="(?:phone-)?skill-[^\"]*system/);
 });
 
 const tracked = { ...skills[0], origin: { source: 'org/repo', name: 'my-skill', fingerprint: 'a'.repeat(64) } };
@@ -113,4 +114,48 @@ test('different repositories use separate requests', async () => {
   await ui.checkUpdates();
   const checks = requests.filter(request => request.url.endsWith('/check-update'));
   assert.equal(checks.length, 2); assert.ok(checks.every(check => check.options.body.skills.length === 1));
+});
+
+
+test('View menu persists columns and bundled visibility; polling does not discover hooks', async () => {
+  const { ui, requests, menus, storage } = await fixture();
+  assert.equal(requests.filter(row => row.url === '/context/skills/hooks').length, 1);
+  const count = requests.length;
+  for (let index = 0; index < 3; index++) ui.activate(false);
+  assert.equal(requests.length, count);
+  ui.viewMenu({});
+  const menu = menus.at(-1);
+  assert.equal(menu.items.find(row => row.label === 'Show bundled skills').checkbox, true);
+  assert.equal(menu.items.find(row => row.label === 'Installed agents').checked, true);
+  menu.items.find(row => row.label === 'All agents').run();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(storage.get('t3-console-skill-columns'), 'all');
+  assert.doesNotMatch(ui.content(), /class="tc-btn tc-btn--ghost tc-btn--xs tc-mx-more"/);
+  menu.items.find(row => row.label === 'Show bundled skills').run();
+  assert.equal(storage.get('t3-console-hide-bundled-skills'), 'true');
+  await ui.refresh();
+  assert.equal(requests.filter(row => row.url === '/context/skills/hooks').length, 2);
+});
+
+test('Updates view keeps unchecked installations visible after a partial check and checks one installation on demand', async () => {
+  const second = { ...tracked, id: 'other', name: 'Other skill', path: '/skills/other/SKILL.md', resolvedPath: '/skills/other/SKILL.md' };
+  const { ui, requests } = await fixture([tracked, second], new Map(), (url, options) => url.endsWith('/check-update') ? { ok: true, data: { results: options.body.skills.map(row => ({ ...row, ok: true, update: { status: 'available', checkedAt: 1000 } })) } } : null);
+  ui.show('updates'); assert.match(ui.content(), /Check 2 skills for updates/);
+  await ui.checkOne(tracked.resolvedPath);
+  const check = requests.find(row => row.url.endsWith('/check-update'));
+  assert.equal(check.options.body.skills.length, 1);
+  const content = ui.content();
+  assert.match(content, /Not checked yet/); assert.match(content, /Review update/);
+  assert.ok(content.indexOf('update-row-' + tracked.path) < content.indexOf('update-row-' + second.path));
+  assert.doesNotMatch(content, /tc-sk-options|tc-mx-columns/);
+});
+
+
+test('hook discovery stays absent without Codex, and discovery failure leaves the library quiet', async () => {
+  const absent = await fixture(skills, new Map(), null, ['cursor']);
+  assert.equal(absent.requests.filter(row => row.url === '/context/skills/hooks').length, 0);
+  assert.doesNotMatch(absent.ui.content(), /data-cmd="skills.hooks"/);
+  const unavailable = await fixture(skills, new Map(), url => url === '/context/skills/hooks' ? { ok: false, error: 'unsupported native API' } : null);
+  assert.doesNotMatch(unavailable.ui.content(), /waiting for review|unsupported native API/);
+  assert.match(unavailable.ui.content(), /Codex plugin hooks…/);
 });

@@ -62,7 +62,12 @@ export async function detectAuth(ctx, entry, { executable, runnable, version = n
       const result = await probeCommand(ctx, executable, ["login", "status"]);
       const text = result.combined;
       if (/not logged in/i.test(text)) return false;
+      if (result.error || result.code !== 0) return null;
       if (/logged in/i.test(text)) return true;
+      // Codex 0.164 calls API-key auth "configured": the status command
+      // confirms the local credential, not whether the API will accept it.
+      // Older versions called this same state "Logged in using an API key".
+      if (/^API key configured - .+$/m.test(text)) return true;
       return null;
     }
     case "opencode": {
