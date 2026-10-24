@@ -282,7 +282,14 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
     return { ...detail, ...await fileManager.removal(provider, detail) };
   };
   const fileManager = createSkillFileManager({ home, env, io, rootsFor: (provider) => skillRoots(provider, { home, env }), metadata: skillMetadata, read, invalidate: () => cache.clear() });
-  const importer = createSkillImporter({ home, env, io, metadata: skillMetadata, policyFor: fileManager.policyFor, invalidate: () => cache.clear(), resolveSource });
+  const readersFor = async resolvedPath => {
+    const inventories = await Promise.all(skillProviders().map(async ({ id }) => ({ id, data: await scanSkillFiles(id, { home, env, io, limits }) })));
+    return inventories.flatMap(({ id, data }) => data.skills.filter(row => row.resolvedPath === resolvedPath).map(row => ({ provider: id, path: row.path })))
+      .sort((a, b) => a.provider.localeCompare(b.provider) || a.path.localeCompare(b.path));
+  };
+  const importer = createSkillImporter({ home, env, io, metadata: skillMetadata, policyFor: fileManager.policyFor, invalidate: () => cache.clear(), resolveSource,
+    readInstalled: async (provider, id) => { cache.delete(provider); return read(provider, id); }, readersFor,
+    managedRoots: async () => [...new Set((await Promise.all(skillProviders().map(async ({ id }) => (await fileManager.policyFor(id)).creationTargets.map(target => target.path)))).flat())] });
   const checkUpdate = async (provider, id, batchSources) => {
     const sources = batchSources || new Map();
     const row = await read(provider, id);

@@ -127,3 +127,32 @@ test('reviewing one plugin preserves the hooks of other installed plugins', asyn
   assert.equal(updated.hooks.find(hook => hook.pluginId === 'other-tools@local').trustStatus, 'untrusted');
   assert.equal(f.writes.length, 1); assert.equal(f.writes[0].key, f.hook.key);
 });
+
+test('legacy and composite native trust tokens are preserved exactly', async t => {
+  for (const token of ['sha256:' + 'a'.repeat(64), 'sha256:' + 'a'.repeat(64) + '/sha256:' + 'b'.repeat(64)]) {
+    const f = await fixture(t); f.hook.currentHash = token;
+    const row = await f.row();
+    const trusted = (await f.service.setHook(row.id, row.revision, 'trust')).hooks[0];
+    assert.equal(trusted.trustStatus, 'trusted');
+    assert.equal(f.writes[0].currentHash, token);
+    assert.equal(trusted.currentHash, undefined, 'Native consent tokens stay private');
+  }
+});
+
+test('a change to either native trust component invalidates the review', async t => {
+  const f = await fixture(t), prefix = 'sha256:' + 'a'.repeat(64);
+  f.hook.currentHash = prefix + '/sha256:' + 'b'.repeat(64);
+  const row = await f.row();
+  f.hook.currentHash = prefix + '/sha256:' + 'c'.repeat(64);
+  await assert.rejects(f.service.setHook(row.id, row.revision, 'trust'), { code: 'conflict' });
+  assert.equal(f.writes.length, 0);
+});
+
+test('malformed native trust tokens cannot grant consent', async t => {
+  const f = await fixture(t), valid = 'sha256:' + 'a'.repeat(64);
+  for (const token of [null, {}, valid + '/', valid + '/sha256:short', valid + '/md5:' + 'b'.repeat(64), valid + '/' + valid + '/' + valid, valid + '\n']) {
+    f.hook.currentHash = token;
+    await assert.rejects(f.service.listHooks(), { code: 'unavailable' });
+  }
+  assert.equal(f.writes.length, 0);
+});

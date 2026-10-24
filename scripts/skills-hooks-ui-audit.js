@@ -63,6 +63,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
       saveGate = deferred(); saveStarted = deferred();
       await first().getByRole('button', { name: 'Review and trust…' }).click(); await confirm.getByRole('button', { name: 'Trust this hook', exact: true }).click();
       await saveStarted.promise; await page.keyboard.press('Escape'); assert(await sheet.isVisible());
+      assert.match(await first().innerText(), /Saving trust/);
       assert(await sheet.getByRole('button', { name: 'Done', exact: true }).isDisabled());
       assert(await target.evaluate(() => { const event = new Event('beforeunload', { cancelable: true }); dispatchEvent(event); return event.defaultPrevented; }));
       saveGate.resolve(); await first().getByText('Trusted', { exact: true }).waitFor(); assert.equal(writes.length, 1);

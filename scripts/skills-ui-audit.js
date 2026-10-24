@@ -477,12 +477,11 @@ const checkSelect = async (page, select, theme) => {
       const trackedSkill = visible(target, '[data-cmd="skills.view"]').filter({ hasText: 'frontend-design' });
       await trackedSkill.click(); await target.locator('[data-inspect-review-source]').waitFor();
       await target.locator('[data-inspect-review-source]').click();
-      await target.locator('[data-import-replace]').waitFor();
-      assert.equal(await target.locator('[data-import-mode=each]').getAttribute('aria-pressed'), 'true');
-      const review = writes.filter(write => write.path.endsWith('/plan')).at(-1).input;
-      assert.deepEqual(review.skills, ['frontend-design']);
-      assert.deepEqual(review.providers, ['claude']);
-      assert.equal(await target.locator('[data-import-replace]').isChecked(), false, 'source review retains explicit replacement consent');
+      await target.locator('[data-update-consent]').waitFor();
+      const review = writes.filter(write => write.path.endsWith('/update/preview')).at(-1).input;
+      assert.deepEqual(review, { provider: 'claude', id: api.inventories.claude.skills.find(skill => skill.name === 'frontend-design').id });
+      assert.equal(await target.locator('[data-update-consent]').isChecked(), false, 'source review retains explicit replacement consent');
+      assert.equal(await target.locator('[data-import-mode]').count(), 0, 'an update cannot drift into choosing another destination');
       await shot('repository-review'); await close();
       updateStatus = 'error'; await checkUpdates.click();
       await visible(target, '.tc-badge').filter({ hasText: 'Update check failed' }).waitFor();

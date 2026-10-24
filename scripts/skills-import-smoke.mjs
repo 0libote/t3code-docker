@@ -54,6 +54,28 @@ try {
   assert.equal(await fs.readFile(path.join(directory, "scripts/check.sh"), "utf8"), "#!/bin/sh\nexit 2\n");
   await assert.rejects(fs.stat(path.join(directory, "obsolete.md")), { code: "ENOENT" });
   assert.equal(await fs.readFile(config, "utf8"), savedConfig, "Import updates preserve native policies byte for byte");
+  // Only repository discovery is synthetic; inventories/settings use the real
+  // provider in this disposable home. No model turn or source script is run.
+  const trackedSource = "example/native-skill-fixture";
+  const tracked = createSkillsService({ ...options, resolveSource: async () => {
+    const content = await fs.readFile(path.join(published, "SKILL.md"), "utf8");
+    return { source: trackedSource, sourceType: "git", warnings: [], skills: [{ name: "import-check", content, files: [
+      { name: "SKILL.md", data: Buffer.from(content), mode: 0o600 },
+      { name: "scripts/check.sh", data: await fs.readFile(path.join(published, "scripts/check.sh")), mode: 0o700 },
+    ] }] };
+  } });
+  const trackedPreview = await tracked.previewSource(trackedSource), trackedPlan = await tracked.planImport(trackedPreview.previewId, ["import-check"], [provider]);
+  assert.equal((await tracked.installImport(trackedPreview.previewId, trackedPlan.planId, true)).results[0].status, "installed");
+  await tracked.discardImport(trackedPreview.previewId);
+  row = (await tracked.list(provider, { refresh: true })).skills.find(skill => skill.path === path.join(directory, "SKILL.md"));
+  await writeSource(3);
+  const update = await tracked.previewUpdate(provider, row.id);
+  assert.equal(update.target.resolvedDirectory, await fs.realpath(directory));
+  assert.equal(update.markdown.before, markdown(2)); assert.equal(update.markdown.after, markdown(3));
+  await assert.rejects(tracked.installUpdate(update.previewId, update.planId, false), { code: "conflict" });
+  assert.equal((await tracked.installUpdate(update.previewId, update.planId, true)).results[0].status, "installed");
+  assert.equal(await fs.readFile(config, "utf8"), savedConfig, "Reviewed updates preserve native policies byte for byte");
+  assert.equal(await fs.readFile(path.join(directory, "SKILL.md"), "utf8"), markdown(3));
   service = createSkillsService(options); row = await inventory();
   assert.equal(row.state, provider === "codex" ? "disabled" : provider === "claude" ? "off" : "deny");
   const detail = await service.read(provider, row.id); assert.equal(detail.canRemove, true);
@@ -61,5 +83,5 @@ try {
   await assert.rejects(fs.stat(directory), { code: "ENOENT" });
   assert.equal((await service.list(provider, { refresh: true })).skills.some((skill) => skill.path === row.path), false);
   assert.equal(await fs.readFile(config, "utf8"), savedConfig);
-  console.log(provider + ": native import, policy preservation, complete update, restart discovery and removal passed.");
+  console.log(provider + ": native import, reviewed in-place update, policy preservation, restart discovery and removal passed.");
 } finally { await fs.rm(home, { recursive: true, force: true }); }

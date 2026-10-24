@@ -322,21 +322,38 @@ commits do not trigger an update. Ordinary inventory refreshes never fetch sourc
 Checks report **Up to date**, **Update available**, or **Update check failed**.
 These results last until the setup service restarts; source tracking survives restarts.
 
-Open a skill and choose **Review update** (or **Review source**) to preview its
-repository with that skill and its owning agent selected. Compatibility readers
-do not receive additional copies by default. Explicitly confirm replacing the existing
-folder, including local edits and removed/renamed supporting files. Checking alone
+Open a skill and choose **Review update** (or **Review source**) to review that
+existing installation. The review shows its exact folder and known global
+readers, added/changed/removed files, and installed and incoming `SKILL.md`
+contents. Local edits are flagged before consent. **Update skill** replaces that
+folder in place, including local edits and removed/renamed supporting files.
+Compatibility readers share the updated folder; no additional agent copies are
+created. **Copy to…** remains a separate operation. Checking alone
 never changes installed files, and local edits do not count as upstream updates.
 A ref pinned to a commit continues to check that commit. There are no scheduled
 checks or automatic replacements. Earlier installs and imports from local folders
 or direct Markdown links need a repository re-import to enable tracking.
+
+Tracked skills in the shared `.agents/skills` folder update there. Links into
+managed global skill folders keep their links and update the reviewed target;
+links into unrelated or protected locations cannot authorize replacing a folder.
+The server resolves destinations from discovered installation IDs and rechecks
+the folder, supporting files, tracking metadata and known readers before
+publication. Edits or retargeted links require a new review and fresh consent.
+File comparisons are bounded by the import limits and never follow supporting
+file links. Large local files are conservatively treated as local changes.
+Lost responses retry the same reviewed operation; a fresh review never silently
+replays an uncertain update.
+
+![Reviewing a repository skill update](media/skill-updates/desktop-light.png)
 
 Use **View → Remove** to delete an imported local skill. Files tracked
 in the upstream skills CLI lock remain read-only here, including during import;
 manage those packages with their package manager. Unreadable locks, known plugin/system
 roots (including Grok/Antigravity plugin folders and Codex admin skills), linked
 individual skill folders/files, unrelated existing folders and nested
-installations cannot be replaced through this flow.
+installations cannot be replaced by a new import. The tracked update flow can
+preserve links whose reviewed target is inside a managed global skill folder.
 
 This follows the state-format boundary discussed in PRs #25 and #31. The
 [upstream skills CLI](https://github.com/vercel-labs/skills) remains an alternative

@@ -12,7 +12,7 @@ const skills = [
   { id: 'plugin', name: 'Plugin skill', scope: 'user', source: 'Plugin' },
 ].map(row => ({ ...row, path: '/skills/' + row.id + '/SKILL.md', resolvedPath: '/skills/' + row.id + '/SKILL.md', description: '', canEdit: row.scope === 'user' }));
 async function fixture(rows = skills, storage = new Map(), onRequest) {
-  const requests = [], installs = [];
+  const requests = [], installs = [], updates = [];
   const context = vm.createContext({
     Kit: { html: (parts, ...values) => parts.reduce((text, part, i) => text + part + (Array.isArray(values[i]) ? values[i].join('') : values[i] ?? ''), ''), raw: value => value, icon: () => '', announce() {}, menu: (_, config) => config.items.find(item => item.label.startsWith('Review'))?.run() },
     T3Model: { plural: (count, name) => `${count} ${name}${count === 1 ? '' : 's'}`, listOf: names => names.join(', '), absTime: String, relTime: String },
@@ -20,6 +20,7 @@ async function fixture(rows = skills, storage = new Map(), onRequest) {
     T3SkillImport: { create: () => ({ open: options => installs.push(options) }) },
     T3SkillInspector: { create: () => ({ repaint() {} }) },
     T3SkillHooks: { create: () => ({ open() {}, close: () => true }) },
+    T3SkillUpdate: { create: () => ({ open: (provider, id) => updates.push({ provider, id }), close: () => true }) },
     document: { getElementById: () => null },
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
   });
@@ -32,7 +33,7 @@ async function fixture(rows = skills, storage = new Map(), onRequest) {
     return { ok: true, data: url.includes('/reach') ? { roots: [] } : { provider, scannedAt: Date.now(), skills: structuredClone(rows) } };
   } });
   await ui.refresh();
-  return { ui, requests, storage, installs };
+  return { ui, requests, storage, installs, updates };
 }
 
 test('bundled filter hides physical system skills only and persists without provider writes', async () => {
@@ -69,14 +70,15 @@ test('blocked browser storage still allows filtering for the session', async () 
 const tracked = { ...skills[0], origin: { source: 'org/repo', name: 'my-skill', fingerprint: 'a'.repeat(64) } };
 test('repository checks deduplicate physical copies and review selects only the owning installation', async () => {
   const sibling = { ...tracked, id: 'second', name: 'second-skill', path: '/skills/second/SKILL.md', resolvedPath: '/skills/second/SKILL.md' };
-  const { ui, requests, installs } = await fixture([tracked, sibling], new Map(), (url, options) => url.endsWith('/check-update') ? { ok: true, data: { results: options.body.skills.map(skill => ({ ok: true, ...skill, update: { ...tracked.origin, status: 'available' } })) } } : null);
+  const { ui, requests, installs, updates } = await fixture([tracked, sibling], new Map(), (url, options) => url.endsWith('/check-update') ? { ok: true, data: { results: options.body.skills.map(skill => ({ ok: true, ...skill, update: { ...tracked.origin, status: 'available' } })) } } : null);
   await ui.checkUpdates();
   const checks = requests.filter(request => request.url.endsWith('/check-update'));
   assert.equal(checks.length, 1, 'two agent inventories refer to one physical installation');
   assert.deepEqual(JSON.parse(JSON.stringify(checks[0].options.body.skills)), [{ provider: 'codex', id: tracked.id }, { provider: 'codex', id: sibling.id }]);
   assert.match(ui.content(), /Update available/);
   ui.menu(tracked.resolvedPath, {});
-  assert.deepEqual(JSON.parse(JSON.stringify(installs[0])), { source: 'org/repo', names: ['my-skill'], agents: ['codex'], step: 2, mode: 'each' });
+  assert.deepEqual(JSON.parse(JSON.stringify(updates[0])), { provider: 'codex', id: tracked.id });
+  assert.equal(installs.length, 0, 'reviewing an update never opens the new-copy planner');
 });
 
 test('a late update response cannot overwrite a rescanned installation', async () => {

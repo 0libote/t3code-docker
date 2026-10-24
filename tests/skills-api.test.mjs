@@ -91,7 +91,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   assert.equal((await fetch(base + "/context/skills/read?provider=claude&id=" + "a".repeat(32))).status, 401);
   assert.equal((await get("/context/skills?provider=__proto__")).status, 400);
   assert.equal((await get("/context/skills")).status, 400);
-  for (const operation of ["source", "plan", "install", "discard", "check-update"]) {
+  for (const operation of ["source", "plan", "install", "discard", "check-update", "update/preview", "update"]) {
     assert.equal((await fetch(base + "/context/skills/" + operation, { method: "POST" })).status, 401);
     assert.equal((await post("/context/skills/" + operation, {}, { "sec-fetch-site": "cross-site" })).status, 403);
     assert.equal((await post("/context/skills/" + operation, null)).status, 400);
@@ -115,6 +115,9 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   assert.equal(result.coverage, "policy"); assert.equal(result.skills.length, 1);
   const row = result.skills[0]; assert.equal(row.name, "one"); assert.ok(!("content" in row));
   assert.equal((await post("/context/skills/check-update", { provider: "claude", id: row.id })).status, 403);
+  assert.equal((await post("/context/skills/update/preview", { provider: "claude", id: row.id, path: other })).status, 403);
+  assert.equal((await post("/context/skills/update/preview", { provider: "claude", id: other })).status, 400);
+  assert.equal((await post("/context/skills/update", { previewId: other, planId: other, replace: true })).status, 409);
   assert.equal((await post("/context/skills/check-update", { skills: [] })).status, 400);
   assert.equal((await post("/context/skills/check-update", { skills: [{ provider: "claude", id: "/etc/passwd" }] })).status, 400);
   const batch = await (await post("/context/skills/check-update", { skills: [{ provider: "claude", id: row.id }] })).json();

@@ -7,6 +7,9 @@ import { codexConfigPath, configSnapshot, serializeState } from "./state.mjs";
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const digest = value => createHash("sha256").update(value).digest("hex");
 const text = (value, limit) => typeof value === "string" && value.length <= limit;
+// Native trust tokens bind the hook definition and, on newer Codex versions,
+// its plugin contents. Keep both components intact when writing consent.
+const hookHash = value => typeof value === "string" && /^sha256:[a-f0-9]{64}(?:\/sha256:[a-f0-9]{64})?$/.test(value);
 
 export function createPluginHookService({ home, env, io, getHarness, nativeList = listCodexHooks, nativeWrite = writeCodexHookConfig }) {
   const settings = codexConfigPath(home, env);
@@ -24,7 +27,7 @@ export function createPluginHookService({ home, env, io, getHarness, nativeList 
     for (const hook of native.hooks) {
       if (hook.source !== "plugin") continue;
       if (!text(hook.pluginId, 256) || !hook.pluginId || !text(hook.key, 8192) || !hook.key || !text(hook.eventName, 128)
-        || !text(hook.sourcePath, 8192) || !path.isAbsolute(hook.sourcePath) || !/^sha256:[a-f0-9]{64}$/.test(hook.currentHash)
+        || !text(hook.sourcePath, 8192) || !path.isAbsolute(hook.sourcePath) || !hookHash(hook.currentHash)
         || !["trusted", "untrusted", "modified", "managed"].includes(hook.trustStatus) || typeof hook.enabled !== "boolean" || typeof hook.isManaged !== "boolean"
         || !["command", "mcpTool", "prompt", "agent"].includes(hook.handlerType) || hook.handlerType === "command" && (!text(hook.command, 65536) || !hook.command.trim())
         || hook.matcher !== null && !text(hook.matcher, 8192) || !Number.isSafeInteger(hook.timeoutSec) || hook.timeoutSec < 0

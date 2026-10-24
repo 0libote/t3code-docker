@@ -101,6 +101,12 @@ revision conflicts and failed/late reads in both themes at phone, desktop
 and embedded sizes. It uses response fixtures, with screenshots under
 `/tmp/t3-mcp-ui-audit`. The standard screenshot matrix includes `mcp`.
 
+For repository skill updates, `node scripts/skills-update-ui-audit.js
+http://127.0.0.1:23785/__setup/ dev` covers update review, instruction comparison,
+replacement consent, pending-save guards, conflicts, expiry and lost-response
+recovery. All writes are intercepted. Screenshots go to
+`/tmp/t3-skill-update-ui` (`T3_SKILL_UPDATE_UI_OUTPUT` overrides it).
+
 For OpenCode credential changes, run
 `node scripts/opencode-auth-smoke.mjs /absolute/path/to/opencode` against both
 1.x and 2.x (including 2.0.18, the supported V2 floor). It uses an isolated

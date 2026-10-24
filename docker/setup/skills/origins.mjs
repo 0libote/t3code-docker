@@ -5,11 +5,12 @@ import { createHash } from "node:crypto";
 import { parseSkillSource } from "./sources.mjs";
 
 export const ORIGIN_FILE = ".t3-skill-source.json";
-export const skillFingerprint = (skill) => {
-  const files = skill.files.map((file) => [file.name, Boolean(file.mode & 0o100), createHash("sha256").update(file.data).digest("hex")]);
+export const fingerprintEntries = entries => {
+  const files = [...entries];
   files.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
   return createHash("sha256").update(JSON.stringify(files)).digest("hex");
 };
+export const skillFingerprint = skill => fingerprintEntries(skill.files.map(file => [file.name, Boolean(file.mode & 0o100), createHash("sha256").update(file.data).digest("hex")]));
 export async function readSkillOrigin(io, row, home) {
   if (!row.resolvedPath || row.scope !== "user" || row.source === "Plugin" || path.basename(row.path) !== "SKILL.md") return null;
   let handle;

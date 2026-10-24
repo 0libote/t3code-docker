@@ -12,7 +12,7 @@ const T3SkillHooks = (() => {
     };
     const open = pluginId => {
       if (!close()) return;
-      const view = { pluginId, data: null, loading: false, saving: false, confirming: false, error: null, message: '', layer: null };
+      const view = { pluginId, data: null, loading: false, saving: false, pending: null, confirming: false, error: null, message: '', layer: null };
       active = view;
       const busy = () => view.loading || view.saving || view.confirming;
       const paint = () => { if (active === view) view.layer.render(); };
@@ -40,10 +40,10 @@ const T3SkillHooks = (() => {
           view.confirming = false;
           if (!yes) { paint(); view.layer.panel.querySelector('[data-hook-id="' + CSS.escape(id) + '"][data-hook-action="' + action + '"]')?.focus(); return; }
         }
-        view.saving = true; view.error = null; view.message = ''; paint();
+        view.saving = true; view.pending = { id, action }; view.error = null; view.message = ''; paint();
         const response = await api('/context/skills/hooks/state', { body: { id, revision: hook.revision, action } });
         if (active !== view) return;
-        view.saving = false;
+        view.saving = false; view.pending = null;
         if (response.ok) {
           view.data = response.data; view.message = action === 'trust' ? 'Hook trusted. Start a new Codex session to use the updated settings.' : action === 'enable' ? 'Hook enabled for new Codex sessions.' : 'Hook disabled for new Codex sessions.';
           Kit.announce(view.message);
@@ -55,7 +55,8 @@ const T3SkillHooks = (() => {
         const hooks = (view.data?.hooks || []).filter(hook => !view.pluginId || hook.pluginId === view.pluginId);
         const plugins = [...new Set(hooks.map(hook => hook.pluginId))];
         return html`${plugins.map(plugin => html`<section class="tc-insp-section"><h3 class="tc-insp-label">${plugin}</h3>${hooks.filter(hook => hook.pluginId === plugin).map(hook => html`
-          <div class="tc-group tc-hook" data-hook="${hook.id}" tabindex="-1"><div class="tc-hook-head"><strong>${label(hook.eventName)}</strong><span class="tc-spacer"></span><span class="tc-badge${['untrusted', 'modified'].includes(hook.trustStatus) ? ' tc-badge--warn' : ''}">${hook.trustStatus === 'modified' ? 'Changed · needs review' : hook.trustStatus === 'untrusted' ? 'Needs review' : hook.trustStatus === 'managed' ? 'Managed' : 'Trusted'}</span><span class="tc-hint">${!hook.enabled ? 'Disabled' : ['trusted', 'managed'].includes(hook.trustStatus) ? 'Enabled' : 'Blocked until trusted'}</span></div>
+          <div class="tc-group tc-hook" data-hook="${hook.id}" tabindex="-1" aria-busy="${String(view.pending?.id === hook.id)}"><div class="tc-hook-head"><strong>${label(hook.eventName)}</strong><span class="tc-spacer"></span><span class="tc-badge${['untrusted', 'modified'].includes(hook.trustStatus) ? ' tc-badge--warn' : ''}">${hook.trustStatus === 'modified' ? 'Changed · needs review' : hook.trustStatus === 'untrusted' ? 'Needs review' : hook.trustStatus === 'managed' ? 'Managed' : 'Trusted'}</span><span class="tc-hint">${!hook.enabled ? 'Disabled' : ['trusted', 'managed'].includes(hook.trustStatus) ? 'Enabled' : 'Blocked until trusted'}</span></div>
+            ${view.pending?.id === hook.id ? html`<div class="tc-hook-pending" role="status"><span class="tc-spinner" aria-hidden="true"></span>${view.pending.action === 'trust' ? 'Saving trust…' : view.pending.action === 'enable' ? 'Enabling hook…' : 'Disabling hook…'}</div>` : ''}
             ${hook.command ? html`<pre class="tc-hook-command" tabindex="0" aria-label="Hook command">${hook.command}</pre>` : html`<p class="tc-hint">${hook.handlerType} hook</p>`}
             <dl class="tc-pathlist"><dt>Source</dt><dd><code>${hook.sourcePath}</code></dd><dt>Matches</dt><dd>${hook.matcher || 'All occurrences'}</dd><dt>Timeout</dt><dd>${hook.timeoutSec} seconds${hook.async ? ' · Runs in the background' : ''}</dd></dl>
             ${hook.readOnlyReason ? html`<p class="tc-hint">${hook.readOnlyReason}</p>` : html`<div class="tc-hook-actions">${hook.trustStatus !== 'trusted' ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-hook-action="trust" data-hook-id="${hook.id}"${disabled(busy())}>Review and trust…</button>` : ''}${hook.enabled ? html`<button class="tc-btn tc-btn--sm" type="button" data-hook-action="disable" data-hook-id="${hook.id}"${disabled(busy())}>Disable hook</button>` : html`<button class="tc-btn tc-btn--sm" type="button" data-hook-action="enable" data-hook-id="${hook.id}"${disabled(busy() || hook.trustStatus !== 'trusted')}>Enable hook…</button>`}</div>`}

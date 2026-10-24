@@ -13,6 +13,9 @@ const filesFor = name => [
 const createSkillsFixtures = ({ partial = false } = {}) => {
   const reach = read('skills-reach');
   const inventories = Object.fromEntries(['claude', 'codex', 'opencode', 'cursor', 'grok', 'muse', 'antigravity'].map(id => [id, read('skills-' + id)]));
+  for (const inventory of Object.values(inventories)) for (const skill of inventory.skills) {
+    if (skill.name === 'frontend-design' && skill.path.includes('/.claude/')) skill.origin = { source: 'vercel-labs/skills', name: 'frontend-design', fingerprint: 'a'.repeat(64) };
+  }
   const previews = new Map();
   const hooks = ['sessionStart', 'userPromptSubmit', 'subagentStart'].map((eventName, index) => ({
     id: 'fixture-hook-' + index, revision: 'fixture-hook-revision-' + index, pluginId: (index === 2 ? 'workspace-tools' : 'review-tools') + '@fixtures', eventName,
@@ -40,6 +43,36 @@ const createSkillsFixtures = ({ partial = false } = {}) => {
     }
     if (at('/hooks')) return answer({ ok: true, hooks, warnings: [] });
     if (at('/check-update')) return answer({ ok: true, results: (input.skills || [input]).map(skill => ({ ok: true, ...skill, update: { status: 'current', checkedAt: Date.now() } })) });
+    if (at('/update/preview')) {
+      const skill = inventories[provider]?.skills.find(row => row.id === input.id);
+      if (!skill?.origin) return answer({ ok: false, error: 'No tracked repository installation was found.' }, 403);
+      const previewId = 'fixture-update-' + (++serial), now = Date.now(), key = skill.resolvedPath || skill.path;
+      const readers = Object.entries(inventories).filter(([, inventory]) => inventory.skills.some(row => (row.resolvedPath || row.path) === key)).map(([id]) => id);
+      const current = skill.update?.status === 'current';
+      const changes = current ? [{ name: 'SKILL.md', status: 'unchanged', before: { bytes: 1560, executable: false }, after: { bytes: 1560, executable: false } }] : [
+        { name: 'SKILL.md', status: 'modified', before: { bytes: 1340, executable: false }, after: { bytes: 1560, executable: false } },
+        { name: 'references/accessibility.md', status: 'added', before: null, after: { bytes: 2140, executable: false } },
+        { name: 'references/old-checklist.md', status: 'removed', before: { bytes: 870, executable: false }, after: null },
+        { name: 'scripts/research.py', status: 'unchanged', before: { bytes: 912, executable: true }, after: { bytes: 912, executable: true } },
+      ];
+      const preview = { ok: true, previewId, planId: 'fixture-update-plan-' + (++serial), name: skill.name, source: skill.origin.source,
+        sourceInfo: { type: 'git', ref: 'main', commit: '8f2c1b5' + 'a'.repeat(33) }, createdAt: now, expiresAt: now + 600000,
+        target: { provider, id: input.id, directory: path.dirname(skill.path), resolvedDirectory: path.dirname(key), linked: skill.path !== key, readers },
+        canUpdate: !current, localChanges: !current, changes, warnings: [],
+        summary: Object.fromEntries(['added', 'modified', 'removed', 'unchanged'].map(status => [status, changes.filter(file => file.status === status).length])),
+        markdown: { before: contentFor(skill.name), after: contentFor(skill.name) + '\nCheck accessibility and verify the complete interaction.\n' } };
+      previews.set(previewId, { ...preview, update: true }); return answer(preview);
+    }
+    if (at('/update')) {
+      const preview = previews.get(input.previewId);
+      if (!preview?.update || preview.planId !== input.planId) return answer({ ok: false, error: 'This review expired. Review the installation again.' }, 409);
+      if (input.replace !== true) return answer({ ok: false, error: 'Confirm replacement of this skill folder.' }, 409);
+      preview.result ||= { ok: true, results: [{ provider: preview.target.provider, name: preview.name, directory: preview.target.resolvedDirectory, status: 'installed' }] };
+      for (const inventory of Object.values(inventories)) for (const skill of inventory.skills) if ((skill.resolvedPath || skill.path) === preview.target.resolvedDirectory + '/SKILL.md') {
+        skill.update = { ...skill.origin, status: 'current', checkedAt: Date.now() };
+      }
+      return answer(preview.result);
+    }
     if (at('/reach')) return answer({ ...reach, scannedAt: Date.now() - 120000 });
     if (at('/read')) {
       const skill = inventories[provider]?.skills.find(row => row.id === url.searchParams.get('id'));

@@ -132,7 +132,7 @@ const T3SkillInspector = (() => {
         if ((action === 'data-inspect-edit')) { view.editing = true; repaint(); view.layer.panel.querySelector('#skill-content')?.focus(); return; }
         if (action === 'data-inspect-review-source') {
           const current = row();
-          if (await view.close('review-source')) getLibrary().install({ source: current.origin.source, names: [current.origin.name], agents: [current.provider], step: 2, mode: 'each' });
+          if (await view.close('review-source')) getLibrary().reviewUpdate(current);
           return;
         }
         if ((action === 'data-inspect-copy-to') || (action === 'data-inspect-reinstall')) {
