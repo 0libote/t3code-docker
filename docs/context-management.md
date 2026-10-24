@@ -129,11 +129,15 @@ and runtime metadata, as described below. Cursor, Grok, Muse and Antigravity sho
 **Found** with a discovery-only explanation. Plugin inventories and configured extra locations
 are outside the basic known-folder inventory.
 
-**Hide bundled skills** hides entries identified as system skills, such as those
-shipped with Codex. It only filters this list; the agent can still use them. The
-choice is remembered in this browser, and the count shows how many are hidden.
-User, administrator and plugin installations remain visible unless the provider
-identifies them as system skills.
+**View → Show bundled skills** controls entries identified as system skills,
+such as those shipped with Codex. They start shown in a collapsed group. Hiding
+only filters this list; agents can still use them. A quiet row lists the hidden
+skills and offers **Show**. User, administrator and plugin installations stay
+visible unless the provider identifies them as system skills.
+
+The same **View** menu chooses **Installed agents** or **All agents**. Both
+choices are remembered in this browser. On phones, the View icon is beside
+search and controls the agent chips.
 
 Inventories load in parallel when the Skills tab opens. **Rescan** refreshes all
 installed agents after external changes. One failed provider leaves the others usable. Concurrent requests share a lookup and results
@@ -141,9 +145,9 @@ are cached for 15 seconds; regular `/status` polling does not scan skills.
 Each inventory also reports its provider adapter: the global skill folder,
 the project skill folder where one is verified (Codex, Cursor, OpenCode and
 Antigravity share `.agents/skills` inside a project), and whether the tool
-itself is detected. Detection never gates management: an undetected tool
-shows a note, and adding, editing and importing still work. Use the `+N` header
-button, or **Show other agents** on phones, to include these folders. The installer
+itself is detected. Detection never gates management: an undetected column
+says **Not detected**, and adding, editing and importing still work. Use the
+`+N` header button or **View → All agents** to include these folders. The installer
 only uses an undetected agent’s folder after you explicitly select that agent.
 Bodies load separately through authenticated, discovered-installation IDs.
 `GET /context/skills/read` adds `files: [{ name, bytes, executable, linked }]`
@@ -319,20 +323,40 @@ on the Skills tab checks tracked repository installs on demand, fetching each
 source once per check action. A later check fetches fresh contents. It compares the
 skill's complete source contents and executable flags, so unrelated repository
 commits do not trigger an update. Ordinary inventory refreshes never fetch sources.
-Checks report **Up to date**, **Update available**, or **Update check failed**.
-These results last until the setup service restarts; source tracking survives restarts.
+The library’s **Updates** view lists every tracked installation, including
+failed and not-yet-checked sources. It sorts available updates first, then failed
+checks, unchecked skills and current skills. Search and **Available to** still
+apply. On phones, the **Updates** chip holds repository check controls; an
+active check also stays visible in the library. Failed rows show the error and a **Retry** action for that installation.
+Successful checks retain the branch, commit and check time until the Setup
+service restarts; source tracking survives restarts. **Check again** always
+fetches fresh repository contents. Current skills have no badge in the library.
 
-Open a skill and choose **Review update** (or **Review source**) to review that
-existing installation. The review shows its exact folder and known global
-readers, added/changed/removed files, and installed and incoming `SKILL.md`
-contents. Local edits are flagged before consent. **Update skill** replaces that
-folder in place, including local edits and removed/renamed supporting files.
-Compatibility readers share the updated folder; no additional agent copies are
-created. **Copy to…** remains a separate operation. Checking alone
-never changes installed files, and local edits do not count as upstream updates.
-A ref pinned to a commit continues to check that commit. There are no scheduled
-checks or automatic replacements. Earlier installs and imports from local folders
-or direct Markdown links need a repository re-import to enable tracking.
+Choose **Review update…** from a row, its menu or its inspector. **Review N
+updates** works through available rows in order, with a skip action and the next
+review after each result. Closing ends the queue. Each review shows its exact
+folder and detected readers, file counts, and a file list. Select a file to read
+its inline diff, incoming contents or installed contents; unchanged context can
+expand in place. Phones use one open file accordion at a time.
+
+Text previews are UTF-8 only, at most 64 KiB per file and 1 MiB per review.
+Binary, linked, oversized and omitted files say why no text is shown. Above
+5,000 lines the full incoming and installed views remain available without a
+line diff. These preview limits do not change what is installed.
+
+When the folder has local edits, **Save current SKILL.md** downloads its current
+instructions and **Replace my local edits** must be checked before updating.
+Without local edits, the primary action is ready after review. It names the
+detected agents affected by that folder. Updating replaces the complete folder
+in place, including local edits and removed/renamed supporting files. Known
+compatibility readers share the change; no extra copies are created. Availability
+settings stay the same, and agents use the files in new sessions.
+
+Checking alone never changes installed files, and local edits do not count as
+upstream updates. A ref pinned to a commit keeps checking that commit. There are
+no scheduled checks or automatic replacements. Earlier installs and imports from
+local folders or direct Markdown links need a repository re-import to enable
+tracking. **Copy to…** remains a separate operation.
 
 Tracked skills in the shared `.agents/skills` folder update there. Links into
 managed global skill folders keep their links and update the reviewed target;
@@ -344,6 +368,8 @@ File comparisons are bounded by the import limits and never follow supporting
 file links. Large local files are conservatively treated as local changes.
 Lost responses retry the same reviewed operation; a fresh review never silently
 replays an uncertain update.
+
+![Tracked skill updates](media/skill-updates/updates-light.png)
 
 ![Reviewing a repository skill update](media/skill-updates/desktop-light.png)
 
@@ -436,17 +462,33 @@ can remain in existing conversations, and project/session settings may differ.
 
 ### Codex plugin hook review
 
-In Skills, **Plugin hooks** opens the installed Codex plugins' automatic commands.
-An installed plugin skill also has **Review plugin hooks** in its inspector.
-Each hook shows its event, complete command, source path, matcher and timeout,
-with separate trust and enabled states. Importing skill folders adds instructions;
-it does not install a plugin or its lifecycle hooks.
+In Skills, **Codex plugin hooks…** opens installed plugins’ automatic commands,
+including plugins without skills. A notice and plugin-folder chip appear when
+commands are waiting for review. A skill’s inspector can open the sheet filtered
+to its plugin; **All plugins** returns to the full list.
 
-**Review and trust** asks for consent to the displayed command. It records trust
-for the current native hook definition; a disabled hook stays disabled until
-you choose **Enable hook**. You can also disable a hook without changing its
-trust. Start a new Codex session after changing these settings. Hooks run with
-your container user's access and apply to the plugin, including all its skills.
+Each hook shows a readable event label, complete command, source path, matcher,
+time limit and the access it runs with. **Trust command** (or **Trust new
+command**) records consent to the exact definition displayed above it. It does
+not turn on an off hook. Trusted hooks have an On/Off switch; managed hooks and
+unsupported types are read-only. Trust buttons never receive default focus, and
+there is no second confirmation repeating the command.
+
+Trust and On/Off changes show pending feedback and use the complete native
+response for the next action’s revision. If the command or settings changed,
+the card reloads and stays expanded with the new command to review. A failed
+read cannot leave stale actions enabled. Start a new Codex session after changing
+settings. Hooks run with your container user’s access and apply to the plugin,
+including all its skills. Importing skill folders adds instructions; it does not
+install a plugin or its lifecycle hooks.
+
+The library reads hooks once when first opened with Codex installed. The sheet
+shares that result; **Refresh**, **Rescan**, completed changes and closing the
+sheet refresh the inventory. Routine status polls never invoke hook discovery.
+A library discovery failure stays quiet; opening the sheet shows the error and
+recovery action.
+
+![Reviewing Codex plugin hooks](media/skill-updates/hooks-light.png)
 
 The console uses Codex's experimental `hooks/list` and native config APIs. It
 never starts a thread, executes a hook or bypasses hook trust. Changes check the

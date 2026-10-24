@@ -1,0 +1,71 @@
+{
+  "ok": true,
+  "provider": "codex",
+  "warnings": [],
+  "hooks": [
+    {
+      "id": "4c1d\u2026a0",
+      "revision": "b7e2\u2026",
+      "pluginId": "review-tools@team-plugins",
+      "eventName": "sessionStart",
+      "handlerType": "command",
+      "command": "node \"/home/t3/.codex/plugins/cache/review-tools/hooks/session-start.js\"",
+      "matcher": "startup|resume|clear|compact",
+      "sourcePath": "/home/t3/.codex/plugins/cache/review-tools/hooks/hooks.json",
+      "timeoutSec": 15,
+      "async": false,
+      "enabled": true,
+      "trustStatus": "untrusted",
+      "isManaged": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "9e3f\u202612",
+      "revision": "0c44\u2026",
+      "pluginId": "review-tools@team-plugins",
+      "eventName": "userPromptSubmit",
+      "handlerType": "command",
+      "command": "node \"/home/t3/.codex/plugins/cache/review-tools/hooks/prompt-check.js\" --strict",
+      "matcher": null,
+      "sourcePath": "/home/t3/.codex/plugins/cache/review-tools/hooks/hooks.json",
+      "timeoutSec": 15,
+      "async": false,
+      "enabled": true,
+      "trustStatus": "modified",
+      "isManaged": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "27aa\u2026c3",
+      "revision": "51d0\u2026",
+      "pluginId": "workspace-tools@team-plugins",
+      "eventName": "subagentStart",
+      "handlerType": "command",
+      "command": "node \"/home/t3/.codex/plugins/cache/workspace-tools/hooks/prepare-context.js\"",
+      "matcher": null,
+      "sourcePath": "/home/t3/.codex/plugins/cache/workspace-tools/hooks/hooks.json",
+      "timeoutSec": 15,
+      "async": false,
+      "enabled": true,
+      "trustStatus": "trusted",
+      "isManaged": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "d0b8\u20267f",
+      "revision": "e19c\u2026",
+      "pluginId": "workspace-tools@team-plugins",
+      "eventName": "preToolUse",
+      "handlerType": "command",
+      "command": "node \"/home/t3/.codex/plugins/cache/workspace-tools/hooks/guard-shell.js\"",
+      "matcher": "shell",
+      "sourcePath": "/home/t3/.codex/plugins/cache/workspace-tools/hooks/hooks.json",
+      "timeoutSec": 10,
+      "async": false,
+      "enabled": true,
+      "trustStatus": "managed",
+      "isManaged": true,
+      "readOnlyReason": "Managed by Codex policy."
+    }
+  ]
+}

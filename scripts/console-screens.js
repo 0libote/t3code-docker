@@ -102,7 +102,46 @@ const skillAgents = async target => {
   await target.locator('[data-import-replace]').waitFor();
   await target.locator('[data-import-replace]').check();
 };
+const skillPage = async target => {
+  await target.evaluate(() => { location.hash = 'instructions/skills'; });
+  await target.locator('#skill-search').fill('');
+};
+const skillView = async (target, value) => {
+  await skillPage(target);
+  await target.locator('.tc-lh-filters [data-cmd="skills.show"][data-id="' + value + '"], .tc-sk-agent-chips [data-cmd="skills.show"][data-id="' + value + '"]').filter({ visible: true }).click();
+};
+const skillChecks = async target => {
+  await skillView(target, 'updates');
+  await target.locator('[data-cmd="skills.check-updates"]').filter({ visible: true }).click();
+  await target.waitForFunction(() => document.querySelectorAll('.tc-ut-row').length === 4 && !document.querySelector('.tc-lh-status')?.textContent.includes('Checking'));
+};
+const skillLibrary = async target => {
+  await skillView(target, 'all');
+  await target.locator('[data-cmd="skills.view-menu"]').filter({ visible: true }).click();
+  const bundled = target.getByRole('menuitemcheckbox', { name: /Show bundled skills/ });
+  if (await bundled.getAttribute('aria-checked') === 'true') await bundled.click();
+  else await target.getByRole('menu').press('Escape');
+};
 const SKILL_OVERLAYS = [
+  ['skill-updates-first-check', async target => { await skillView(target, 'updates'); await target.locator('.tc-ut-empty').waitFor(); return true; }],
+  ['skill-updates-list', async target => { await skillChecks(target); return true; }],
+  ['skill-library-updates', async target => { await skillLibrary(target); return true; }],
+  ['skill-view-menu', async target => { await skillLibrary(target); await target.locator('[data-cmd="skills.view-menu"]').filter({ visible: true }).click(); return true; }],
+  ['skill-update-inspector', async target => {
+    await skillView(target, 'all');
+    await target.getByRole('button', { name: 'frontend-design', exact: true }).filter({ visible: true }).click();
+    await target.locator('[data-inspect-check-source]').waitFor(); return true;
+  }],
+  ['skill-update-review', async target => {
+    await skillView(target, 'all');
+    await target.getByRole('button', { name: 'Review the update for frontend-design', exact: true }).filter({ visible: true }).click();
+    await target.locator('[data-update-save]').waitFor(); return true;
+  }],
+  ['skill-plugin-hooks', async target => {
+    await skillView(target, 'all');
+    await target.locator('.tc-sk-hook-notice [data-cmd="skills.hooks"], .tc-sk-phone-summary [data-cmd="skills.hooks"]').filter({ visible: true }).click();
+    await target.locator('.tc-hk [data-hook-action=trust]').first().waitFor(); return true;
+  }],
   ['skill-policy', async (target, page) => {
     if (page.viewportSize().width < 1024) return false;
     await target.evaluate(() => { location.hash = 'instructions/skills'; });
@@ -111,7 +150,7 @@ const SKILL_OVERLAYS = [
   }],
   ['skill-inspector', async target => {
     await target.evaluate(() => { location.hash = 'instructions/skills'; });
-    await target.locator('[data-cmd="skills.view"]').filter({ visible: true, hasText: 'deep-research' }).click();
+    await target.locator('button[data-cmd="skills.view"]').filter({ visible: true, hasText: 'deep-research' }).click();
     await target.locator('.tc-insp-body .tc-code').waitFor(); return true;
   }],
   ['skill-source', async target => { await skillSource(target); await target.locator('[data-import-files=frontend-design]').click(); return true; }],
@@ -158,7 +197,7 @@ const overflow = () => {
           await target.evaluate(() => window.scrollTo(0, 0));
           if (!(await open(target, page))) continue;
           await page.waitForTimeout(300);
-          await page.screenshot({ path: path.join(dir, `${sizeName}-${theme}-overlay-${name}.png`) });
+          await page.screenshot({ path: path.join(dir, `${sizeName}-${theme}-overlay-${name}.png`), fullPage: !size.embed && name === 'skill-library-updates' });
           await page.keyboard.press("Escape");
           await target.waitForSelector(".tc-layer", { state: "detached" }).catch(() => {});
         }

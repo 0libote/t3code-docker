@@ -13,17 +13,19 @@ const filesFor = name => [
 const createSkillsFixtures = ({ partial = false } = {}) => {
   const reach = read('skills-reach');
   const inventories = Object.fromEntries(['claude', 'codex', 'opencode', 'cursor', 'grok', 'muse', 'antigravity'].map(id => [id, read('skills-' + id)]));
+  const tracked = { 'frontend-design': ['vercel-labs/skills', 'available'], 'deep-research': ['acme/research-skills', 'available'], 'docx': ['anthropics/skills', 'current'], 'google-workspace': ['acme/workspace-skills', 'error'] };
   for (const inventory of Object.values(inventories)) for (const skill of inventory.skills) {
-    if (skill.name === 'frontend-design' && skill.path.includes('/.claude/')) skill.origin = { source: 'vercel-labs/skills', name: 'frontend-design', fingerprint: 'a'.repeat(64) };
+    if (tracked[skill.name] && skill.path.includes('/.claude/')) skill.origin = { source: tracked[skill.name][0], name: skill.name, fingerprint: 'a'.repeat(64) };
   }
+  const hooks = read('skill-plugin-hooks').hooks;
+  const pluginRoot = '/home/t3/.codex/plugins/cache/review-tools/skills';
+  const template = inventories.codex.skills[0];
+  for (const [index, name] of ['code-review', 'test-plan'].entries()) inventories.codex.skills.push({ ...template, id: 'fixture-plugin-skill-' + index,
+    name, description: 'Careful, source-backed review for your next change.', path: pluginRoot + '/' + name + '/SKILL.md', resolvedPath: pluginRoot + '/' + name + '/SKILL.md',
+    source: 'Plugin', scope: 'user', pluginId: hooks[0].pluginId, rootPath: pluginRoot, canToggle: false, canSetState: false, canEdit: false, canRemove: false,
+    readOnlyReason: 'Managed by its installed Codex plugin.', packageManaged: true, origin: null });
+  reach.roots.push({ path: pluginRoot, resolvedPath: pluginRoot, source: 'Plugin', scope: 'user', readers: ['codex'], owner: null, writable: false });
   const previews = new Map();
-  const hooks = ['sessionStart', 'userPromptSubmit', 'subagentStart'].map((eventName, index) => ({
-    id: 'fixture-hook-' + index, revision: 'fixture-hook-revision-' + index, pluginId: (index === 2 ? 'workspace-tools' : 'review-tools') + '@fixtures', eventName,
-    sourcePath: '/home/t3/.codex/plugins/cache/' + (index === 2 ? 'workspace-tools' : 'review-tools') + '/hooks/hooks.json', handlerType: 'command',
-    command: 'node "/home/t3/.codex/plugins/cache/' + (index === 2 ? 'workspace-tools' : 'review-tools') + '/hooks/' + ['session-start', 'prompt-check', 'prepare-context'][index] + '.js"',
-    matcher: index ? null : 'startup|resume|clear|compact', timeoutSec: 15, async: false,
-    trustStatus: index === 1 ? 'modified' : index === 2 ? 'trusted' : 'untrusted', enabled: index !== 2, isManaged: false, readOnlyReason: null,
-  }));
   let serial = 0;
   let shared = '# How I work\n\nBe direct and specific. Explain tradeoffs and check your assumptions.\n\n## Before making changes\n\nRead the relevant code and tests. Keep changes focused on the task.\n\n## Quality\n\nTest the complete user journey. Preserve accessibility and keyboard controls.\n';
   const answer = (body, status = 200) => ({ status, body });
@@ -38,29 +40,38 @@ const createSkillsFixtures = ({ partial = false } = {}) => {
     if (at('/hooks/state')) {
       const hook = hooks.find(hook => hook.id === input.id);
       if (!hook || hook.revision !== input.revision) return answer({ ok: false, error: 'The hook changed. Refresh and review the new definition.' }, 409);
+      if (hook.readOnlyReason || hook.handlerType !== 'command') return answer({ ok: false, error: 'Managed by Codex policy.' }, 403);
       if (input.action === 'trust') hook.trustStatus = 'trusted'; else hook.enabled = input.action === 'enable';
-      hook.revision += '-saved'; return answer({ ok: true, hooks, warnings: [] });
+      for (const row of hooks) row.revision += '-saved'; return answer({ ok: true, hooks, warnings: [] });
     }
     if (at('/hooks')) return answer({ ok: true, hooks, warnings: [] });
-    if (at('/check-update')) return answer({ ok: true, results: (input.skills || [input]).map(skill => ({ ok: true, ...skill, update: { status: 'current', checkedAt: Date.now() } })) });
+    if (at('/check-update')) return answer({ ok: true, results: (input.skills || [input]).map(entry => {
+      const skill = inventories[entry.provider]?.skills.find(row => row.id === entry.id);
+      if (!skill?.origin) return { ...entry, ok: false, error: 'No tracked installation.' };
+      const state = skill.update?.status === 'current' ? 'current' : tracked[skill.name]?.[1] || 'available';
+      const update = { status: state, checkedAt: Date.now(), ref: state === 'error' ? null : 'main', commit: state === 'error' ? null : '8f2c1b5' + 'a'.repeat(33),
+        ...(state === 'error' ? { error: 'Could not read this repository. Check its address and your access.' } : {}) };
+      for (const inventory of Object.values(inventories)) for (const alias of inventory.skills) if ((alias.resolvedPath || alias.path) === (skill.resolvedPath || skill.path)) alias.update = update;
+      return { ...entry, ok: true, update };
+    }) });
     if (at('/update/preview')) {
       const skill = inventories[provider]?.skills.find(row => row.id === input.id);
       if (!skill?.origin) return answer({ ok: false, error: 'No tracked repository installation was found.' }, 403);
       const previewId = 'fixture-update-' + (++serial), now = Date.now(), key = skill.resolvedPath || skill.path;
       const readers = Object.entries(inventories).filter(([, inventory]) => inventory.skills.some(row => (row.resolvedPath || row.path) === key)).map(([id]) => id);
       const current = skill.update?.status === 'current';
-      const changes = current ? [{ name: 'SKILL.md', status: 'unchanged', before: { bytes: 1560, executable: false }, after: { bytes: 1560, executable: false } }] : [
-        { name: 'SKILL.md', status: 'modified', before: { bytes: 1340, executable: false }, after: { bytes: 1560, executable: false } },
-        { name: 'references/accessibility.md', status: 'added', before: null, after: { bytes: 2140, executable: false } },
-        { name: 'references/old-checklist.md', status: 'removed', before: { bytes: 870, executable: false }, after: null },
-        { name: 'scripts/research.py', status: 'unchanged', before: { bytes: 912, executable: true }, after: { bytes: 912, executable: true } },
-      ];
-      const preview = { ok: true, previewId, planId: 'fixture-update-plan-' + (++serial), name: skill.name, source: skill.origin.source,
-        sourceInfo: { type: 'git', ref: 'main', commit: '8f2c1b5' + 'a'.repeat(33) }, createdAt: now, expiresAt: now + 600000,
+      const example = read('skill-update-preview');
+      if (skill.name !== example.name) {
+        for (const file of example.changes) if (file.text) for (const side of ['before', 'after']) if (file.text[side] !== null) file.text[side] = file.text[side].replaceAll(example.name, skill.name);
+        for (const side of ['before', 'after']) example.markdown[side] = example.markdown[side].replaceAll(example.name, skill.name);
+      }
+      const changes = current ? example.changes.map(file => ({ ...file, status: 'unchanged', text: null, textOmitted: 'unchanged' })) : example.changes;
+
+      const preview = { ...example, previewId, planId: 'fixture-update-plan-' + (++serial), name: skill.name, source: skill.origin.source,
+        createdAt: now, expiresAt: now + 600000,
         target: { provider, id: input.id, directory: path.dirname(skill.path), resolvedDirectory: path.dirname(key), linked: skill.path !== key, readers },
-        canUpdate: !current, localChanges: !current, changes, warnings: [],
-        summary: Object.fromEntries(['added', 'modified', 'removed', 'unchanged'].map(status => [status, changes.filter(file => file.status === status).length])),
-        markdown: { before: contentFor(skill.name), after: contentFor(skill.name) + '\nCheck accessibility and verify the complete interaction.\n' } };
+        canUpdate: !current, localChanges: !current && skill.name === 'frontend-design', changes, warnings: [],
+        summary: Object.fromEntries(['added', 'modified', 'removed', 'unchanged'].map(status => [status, changes.filter(file => file.status === status).length])) };
       previews.set(previewId, { ...preview, update: true }); return answer(preview);
     }
     if (at('/update')) {
