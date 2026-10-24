@@ -13,10 +13,17 @@ try {
   const env = { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: path.join(home, ".claude"), CODEX_HOME: path.join(home, ".codex"),
     XDG_CONFIG_HOME: path.join(home, ".config"), XDG_DATA_HOME: path.join(home, ".local/share"), XDG_STATE_HOME: path.join(home, ".local/state"), XDG_CACHE_HOME: path.join(home, ".cache") };
   for (const key of Object.keys(env)) if (/TOKEN|API_KEY|OPENCODE_CONFIG|OPENCODE_PERMISSION/.test(key)) delete env[key];
-  const source = path.join(home, "source/import-check"); await fs.mkdir(path.join(source, "scripts"), { recursive: true });
+  const source = path.join(home, "source"), published = path.join(source, "skills/import-check"), adapter = path.join(source, ".openclaw/skills/import-check");
+  await fs.mkdir(path.join(published, "scripts"), { recursive: true }); await fs.mkdir(adapter, { recursive: true });
   const markdown = (version) => `---\nname: import-check\ndescription: Disposable native import fixture\n---\nVersion ${version}.\n`;
-  const writeSource = async (version) => { await fs.writeFile(path.join(source, "SKILL.md"), markdown(version)); await fs.writeFile(path.join(source, "scripts/check.sh"), "#!/bin/sh\nexit " + version + "\n", { mode: 0o700 }); };
+  const writeSource = async (version) => {
+    await fs.writeFile(path.join(published, "SKILL.md"), markdown(version));
+    await fs.writeFile(path.join(published, "scripts/check.sh"), "#!/bin/sh\nexit " + version + "\n", { mode: 0o700 });
+    await fs.writeFile(path.join(adapter, "SKILL.md"), markdown(version) + "Agent-specific variant.\n");
+  };
   await writeSource(1);
+  // Local copies of repository installs must not inherit their tracking metadata.
+  await fs.writeFile(path.join(source, ".t3-skill-source.json"), '{"version":1,"source":"example/skills"}\n');
   const options = { home, env, getHarness: async (id) => id === provider ? { runnable: true, executable } : null };
   let service = createSkillsService(options);
   const importSkill = async (replace = false) => {
@@ -28,6 +35,7 @@ try {
     return result.results[0].directory;
   };
   const directory = await importSkill();
+  await assert.rejects(fs.stat(path.join(directory, ".t3-skill-source.json")), { code: "ENOENT" });
   const inventory = async () => {
     const result = await service.list(provider, { refresh: true });
     assert.equal(result.coverage, provider === "codex" ? "native" : "policy", result.nativeError);
@@ -46,6 +54,28 @@ try {
   assert.equal(await fs.readFile(path.join(directory, "scripts/check.sh"), "utf8"), "#!/bin/sh\nexit 2\n");
   await assert.rejects(fs.stat(path.join(directory, "obsolete.md")), { code: "ENOENT" });
   assert.equal(await fs.readFile(config, "utf8"), savedConfig, "Import updates preserve native policies byte for byte");
+  // Only repository discovery is synthetic; inventories/settings use the real
+  // provider in this disposable home. No model turn or source script is run.
+  const trackedSource = "example/native-skill-fixture";
+  const tracked = createSkillsService({ ...options, resolveSource: async () => {
+    const content = await fs.readFile(path.join(published, "SKILL.md"), "utf8");
+    return { source: trackedSource, sourceType: "git", warnings: [], skills: [{ name: "import-check", content, files: [
+      { name: "SKILL.md", data: Buffer.from(content), mode: 0o600 },
+      { name: "scripts/check.sh", data: await fs.readFile(path.join(published, "scripts/check.sh")), mode: 0o700 },
+    ] }] };
+  } });
+  const trackedPreview = await tracked.previewSource(trackedSource), trackedPlan = await tracked.planImport(trackedPreview.previewId, ["import-check"], [provider]);
+  assert.equal((await tracked.installImport(trackedPreview.previewId, trackedPlan.planId, true)).results[0].status, "installed");
+  await tracked.discardImport(trackedPreview.previewId);
+  row = (await tracked.list(provider, { refresh: true })).skills.find(skill => skill.path === path.join(directory, "SKILL.md"));
+  await writeSource(3);
+  const update = await tracked.previewUpdate(provider, row.id);
+  assert.equal(update.target.resolvedDirectory, await fs.realpath(directory));
+  assert.equal(update.markdown.before, markdown(2)); assert.equal(update.markdown.after, markdown(3));
+  await assert.rejects(tracked.installUpdate(update.previewId, update.planId, false), { code: "conflict" });
+  assert.equal((await tracked.installUpdate(update.previewId, update.planId, true)).results[0].status, "installed");
+  assert.equal(await fs.readFile(config, "utf8"), savedConfig, "Reviewed updates preserve native policies byte for byte");
+  assert.equal(await fs.readFile(path.join(directory, "SKILL.md"), "utf8"), markdown(3));
   service = createSkillsService(options); row = await inventory();
   assert.equal(row.state, provider === "codex" ? "disabled" : provider === "claude" ? "off" : "deny");
   const detail = await service.read(provider, row.id); assert.equal(detail.canRemove, true);
@@ -53,5 +83,5 @@ try {
   await assert.rejects(fs.stat(directory), { code: "ENOENT" });
   assert.equal((await service.list(provider, { refresh: true })).skills.some((skill) => skill.path === row.path), false);
   assert.equal(await fs.readFile(config, "utf8"), savedConfig);
-  console.log(provider + ": native import, policy preservation, complete update, restart discovery and removal passed.");
+  console.log(provider + ": native import, reviewed in-place update, policy preservation, restart discovery and removal passed.");
 } finally { await fs.rm(home, { recursive: true, force: true }); }

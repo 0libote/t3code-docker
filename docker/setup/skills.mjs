@@ -8,8 +8,12 @@ import { listCodexSkills, writeCodexSkillConfig } from "./skills/codex.mjs";
 import { codexConfigPath, configSnapshot, stateRevision, serializeState } from "./skills/state.mjs";
 import { createSkillFileManager, skillRevision } from "./skills/files.mjs";
 import { createSkillPolicies } from "./skills/policies.mjs";
+import { readSkillOrigin, skillFingerprint } from "./skills/origins.mjs";
+import { adapterDetection } from "./skills/adapters.mjs";
+import { resolveSkillSource } from "./skills/sources.mjs";
 import { createSkillImporter } from "./skills/imports.mjs";
 import { skillReach } from "./skills/reach.mjs";
+import { createPluginHookService } from "./skills/hooks.mjs";
 
 const PROVIDERS = Object.freeze({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok Build", muse: "Muse Code", antigravity: "Antigravity" });
 const DEFAULT_LIMITS = { entries: 2048, skills: 256, depth: 8, bytes: 4 * 1024 * 1024, fileBytes: 64 * 1024, milliseconds: 3000 };
@@ -145,9 +149,9 @@ export async function scanSkillFiles(provider, options) {
   return { skills: [...rows.values()], roots, warnings: [...warnings] };
 }
 
-export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, inspectClaude, inspectOpenCode, getHarness = async () => null, ttlMs = 15000, limits, resolveSource } = {}) {
+export function createSkillsService({ home, env = process.env, io = fs, nativeCodex = listCodexSkills, nativeCodexWrite = writeCodexSkillConfig, nativeCodexHooks, nativeCodexHookWrite, inspectClaude, inspectOpenCode, getHarness = async () => null, ttlMs = 15000, limits, resolveSource } = {}) {
   home = path.resolve(home || env.HOME || "/home/t3");
-  const cache = new Map();
+  const cache = new Map(), updateStates = new Map(), updateChecks = new Map();
   const policies = createSkillPolicies({ home, env, io, getHarness, inspectClaude, inspectOpenCode, invalidate: () => cache.clear() });
   const load = async (provider) => {
     const scanned = await scanSkillFiles(provider, { home, env, io, limits });
@@ -173,7 +177,7 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
           const resolvedPath = await io.realpath(entry.path).catch(() => null);
           byPath.set(entry.path, { ...previous, id: idFor(provider, entry.path), path: entry.path, resolvedPath,
             name: entry.name.slice(0, 256), description: entry.description.slice(0, 2048), scope: entry.scope,
-            source: entry.pluginId ? "Plugin" : entry.scope === "system" ? "System" : entry.scope === "admin" ? "Admin" : previous?.source || "Codex",
+            source: entry.pluginId ? "Plugin" : entry.scope === "system" ? "System" : entry.scope === "admin" ? "Admin" : previous?.source || "Codex", pluginId: typeof entry.pluginId === "string" ? entry.pluginId.slice(0, 256) : null,
             state: entry.enabled ? "enabled" : "disabled", native: true,
             error: previous?.error || (!resolvedPath ? "This skill's local file is unavailable." : null),
           });
@@ -196,6 +200,15 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
       } catch (error) { nativeError = summaryError(error); }
     }
     const policy = await fileManager.policyFor(provider);
+    const adapter = await adapterDetection(provider, { home, env, io });
+    for (const row of scanned.skills) {
+      const origin = await readSkillOrigin(io, row, home);
+      if (origin && policy.capabilities(row).canEdit) {
+        row.origin = origin;
+        const checked = updateStates.get(row.resolvedPath);
+        if (checked?.fingerprint === origin.fingerprint && checked.source === origin.source) row.update = checked;
+      }
+    }
     return { ok: true, provider, canCreate: policy.canCreate, creationTargets: policy.creationTargets, providers: skillProviders(), skills: scanned.skills.map((row) => {
       if (row.stateAuthority === "user-policy") return { ...row, ...policy.capabilities(row) };
       const reason = provider !== "codex" ? nativeError || "Native policy controls are currently supported for Claude Code and OpenCode; native availability controls for Codex."
@@ -206,7 +219,7 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
       return { ...row, ...policy.capabilities(row), canToggle: !reason, stateReadOnlyReason: reason,
         stateRevision: !reason ? stateRevision(config, row) : null };
     }).sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
-      roots: scanned.roots, coverage, nativeError, warnings: scanned.warnings, scannedAt: Date.now(),
+      roots: scanned.roots, coverage, nativeError, warnings: scanned.warnings, scannedAt: Date.now(), adapter,
       coverageText: coverage === "policy" ? "Known global skill folders with native user policy settings checked by the managed provider. Project/session and managed policies can further restrict availability."
         : coverage === "native" ? "Managed Codex inventory in the setup environment, with known local folders included. Project skills are excluded."
         : "Known global skill folders only. Provider availability, plugins and additional configured locations are not verified.",
@@ -269,7 +282,57 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
     return { ...detail, ...await fileManager.removal(provider, detail) };
   };
   const fileManager = createSkillFileManager({ home, env, io, rootsFor: (provider) => skillRoots(provider, { home, env }), metadata: skillMetadata, read, invalidate: () => cache.clear() });
-  const importer = createSkillImporter({ home, env, io, metadata: skillMetadata, policyFor: fileManager.policyFor, invalidate: () => cache.clear(), resolveSource });
+  const readersFor = async resolvedPath => {
+    const inventories = await Promise.all(skillProviders().map(async ({ id }) => ({ id, data: await scanSkillFiles(id, { home, env, io, limits }) })));
+    return inventories.flatMap(({ id, data }) => data.skills.filter(row => row.resolvedPath === resolvedPath).map(row => ({ provider: id, path: row.path })))
+      .sort((a, b) => a.provider.localeCompare(b.provider) || a.path.localeCompare(b.path));
+  };
+  const importer = createSkillImporter({ home, env, io, metadata: skillMetadata, policyFor: fileManager.policyFor, invalidate: () => cache.clear(), resolveSource,
+    readInstalled: async (provider, id) => { cache.delete(provider); return read(provider, id); }, readersFor,
+    managedRoots: async () => [...new Set((await Promise.all(skillProviders().map(async ({ id }) => (await fileManager.policyFor(id)).creationTargets.map(target => target.path)))).flat())] });
+  const checkUpdate = async (provider, id, batchSources) => {
+    const sources = batchSources || new Map();
+    const row = await read(provider, id);
+    if (!row.origin || !row.canEdit) throw problem("unsupported", "This skill has no tracked repository source. Re-import it from its repository to enable update checks.");
+    const key = row.resolvedPath;
+    if (updateChecks.has(key)) return updateChecks.get(key);
+    if (updateChecks.size >= 3) throw problem("conflict", "Other repository checks are still running. Try again when they finish.");
+    const pending = (async () => {
+      let update;
+      try {
+        if (!sources.has(row.origin.source)) sources.set(row.origin.source, Promise.resolve().then(async () => {
+          const snapshot = await (resolveSource || resolveSkillSource)(row.origin.source, { home, env, metadata: skillMetadata });
+          // Keep fingerprints for this batch, rather than every downloaded file.
+          return new Map((snapshot.skills || []).map(skill => [skill.name, skillFingerprint(skill)]));
+        }));
+        const fingerprints = await sources.get(row.origin.source), fingerprint = fingerprints.get(row.origin.name);
+        if (!fingerprint) throw new Error("The installed skill was not found in this source. It may have been renamed or removed.");
+        update = { ...row.origin, status: fingerprint === row.origin.fingerprint ? "current" : "available", checkedAt: Date.now() };
+      } catch (error) { update = { ...row.origin, status: "error", error: summaryError(error), checkedAt: Date.now() }; }
+      // A replaced or removed installation must not inherit a stale check result.
+      const current = await readSkillOrigin(io, row, home);
+      if (!current || current.source !== row.origin.source || current.fingerprint !== row.origin.fingerprint) throw problem("conflict", "The installation changed while checking. Refresh and check again.");
+      updateStates.delete(key); updateStates.set(key, update);
+      if (updateStates.size > 1024) updateStates.delete(updateStates.keys().next().value);
+      if (!batchSources) cache.clear();
+      return { ok: true, id, update };
+    })();
+    updateChecks.set(key, pending);
+    try { return await pending; } finally { updateChecks.delete(key); }
+  };
+  const checkUpdates = async (entries) => {
+    if (!Array.isArray(entries) || !entries.length || entries.length > Object.keys(PROVIDERS).length * DEFAULT_LIMITS.skills
+      || entries.some(entry => !entry || !Object.hasOwn(PROVIDERS, entry.provider) || typeof entry.id !== "string" || !/^[a-f0-9]{32}$/.test(entry.id))
+      || new Set(entries.map(entry => entry.provider + ":" + entry.id)).size !== entries.length) throw problem("invalid", "Choose discovered skill installations to check for updates.");
+    const sources = new Map(), results = [];
+    try {
+      for (const { provider, id } of entries) {
+        try { results.push({ ...await checkUpdate(provider, id, sources), provider }); }
+        catch (error) { results.push({ ok: false, provider, id, code: error.code || "unavailable", error: summaryError(error) }); }
+      }
+    } finally { cache.clear(); }
+    return { ok: true, results };
+  };
   const reach = ({ refresh = false } = {}) => {
     const key = "reach", hit = cache.get(key);
     if (hit && (hit.pending || (!refresh && Date.now() - hit.at < ttlMs))) return hit.promise;
@@ -278,5 +341,6 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
       .then(result => { entry.pending = false; entry.at = Date.now(); return { ...result, home }; }, error => { cache.delete(key); throw error; });
     cache.set(key, entry); return entry.promise;
   };
-  return { list, read, reach, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer };
+  const hooks = createPluginHookService({ home, env, io, getHarness, nativeList: nativeCodexHooks, nativeWrite: nativeCodexHookWrite });
+  return { list, read, reach, checkUpdate, checkUpdates, setState, create: fileManager.create, save: fileManager.save, remove: fileManager.remove, ...importer, ...hooks };
 }

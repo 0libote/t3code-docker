@@ -649,6 +649,8 @@ check "the Context editor retains drafts and handles loading and failed saves" c
 skills_editor_works() {
   [ "$HAS_BROWSER" -eq 1 ] || return 0
   docker cp scripts/skills-ui-audit.js "$NAME:/tmp/skills-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker cp scripts/skills-hooks-ui-audit.js "$NAME:/tmp/skills-hooks-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker cp scripts/skills-update-ui-audit.js "$NAME:/tmp/skills-update-ui-audit.js" >/dev/null 2>&1 || return 1
   docker exec "$NAME" mkdir -p /tmp/lib /tmp/fixtures || return 1
   docker cp scripts/lib/mcp-fixtures.cjs "$NAME:/tmp/lib/mcp-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
@@ -657,7 +659,13 @@ skills_editor_works() {
   docker cp scripts/fixtures/console "$NAME:/tmp/fixtures/" >/dev/null 2>&1 || return 1
   docker exec -e CHROME_PATH=/usr/bin/chromium \
     -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
-    "$NAME" node /tmp/skills-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
+    "$NAME" node /tmp/skills-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium \
+    -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/skills-hooks-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium \
+    -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/skills-update-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
 }
 check "the Skills editor handles native policies, shared locations and file changes" skills_editor_works
 
@@ -844,6 +852,7 @@ native_skill_controls_work() {
   docker cp scripts/skills-native-smoke.mjs "$NAME:/tmp/skills-native-smoke.mjs" >/dev/null 2>&1 || return 1
   docker cp scripts/skills-policy-smoke.mjs "$NAME:/tmp/skills-policy-smoke.mjs" >/dev/null 2>&1 || return 1
   docker cp scripts/skills-import-smoke.mjs "$NAME:/tmp/skills-import-smoke.mjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/skills-hooks-smoke.mjs "$NAME:/tmp/skills-hooks-smoke.mjs" >/dev/null 2>&1 || return 1
   docker cp scripts/opencode-auth-smoke.mjs "$NAME:/tmp/opencode-auth-smoke.mjs" >/dev/null 2>&1 || return 1
   for id in claude codex opencode; do
     executable="$(status_json | jq -r --arg id "$id" '.harnesses[] | select(.id == $id) | .executable')"
@@ -856,6 +865,9 @@ native_skill_controls_work() {
       docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node "/tmp/$script" "$id" "$executable" || return 1
     fi
     docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node /tmp/skills-import-smoke.mjs "$id" "$executable" || return 1
+    if [ "$id" = codex ]; then
+      docker exec -u t3 -e T3_SKILLS_MODULE=/opt/t3-setup/skills.mjs "$NAME" node /tmp/skills-hooks-smoke.mjs "$executable" || return 1
+    fi
     if [ "$id" = opencode ]; then
       docker exec -u t3 -e T3_HARNESS_MODULE=/opt/t3-harness/index.mjs "$NAME" node /tmp/opencode-auth-smoke.mjs "$executable" || return 1
     fi

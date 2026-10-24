@@ -129,9 +129,22 @@ and runtime metadata, as described below. Cursor, Grok, Muse and Antigravity sho
 **Found** with a discovery-only explanation. Plugin inventories and configured extra locations
 are outside the basic known-folder inventory.
 
+**Hide bundled skills** hides entries identified as system skills, such as those
+shipped with Codex. It only filters this list; the agent can still use them. The
+choice is remembered in this browser, and the count shows how many are hidden.
+User, administrator and plugin installations remain visible unless the provider
+identifies them as system skills.
+
 Inventories load in parallel when the Skills tab opens. **Rescan** refreshes all
 installed agents after external changes. One failed provider leaves the others usable. Concurrent requests share a lookup and results
 are cached for 15 seconds; regular `/status` polling does not scan skills.
+Each inventory also reports its provider adapter: the global skill folder,
+the project skill folder where one is verified (Codex, Cursor, OpenCode and
+Antigravity share `.agents/skills` inside a project), and whether the tool
+itself is detected. Detection never gates management: an undetected tool
+shows a note, and adding, editing and importing still work. Use the `+N` header
+button, or **Show other agents** on phones, to include these folders. The installer
+only uses an undetected agent’s folder after you explicitly select that agent.
 Bodies load separately through authenticated, discovered-installation IDs.
 `GET /context/skills/read` adds `files: [{ name, bytes, executable, linked }]`
 and `fileCount` (or `filesError` if inspection is bounded/unavailable); the numeric
@@ -292,15 +305,55 @@ Native path references: [Cursor skills](https://cursor.com/docs/skills),
 [Muse skills](https://meta-models.github.io/muse-code-sdk/next/guides/extend/skills/),
 and [Antigravity skills](https://antigravity.google/docs/skills).
 
-Re-importing the source is the update flow: review a fresh snapshot and explicitly
-replace each existing local folder, including removed/renamed supporting files.
-The console does not remember origins, schedule updates or maintain a source
-manifest. Use **View → Remove** to delete an imported local skill. Files tracked
+When a repository publishes the same skill name in `skills/` and an agent-specific
+folder such as `.openclaw/skills/`, preview prefers the published copy and warns
+which variant was skipped. Name selectors use the same precedence. Paste a
+specific folder link to choose another variant. Duplicate names within the same
+discovery priority still require a specific folder.
+
+Repository installs remember their source and a fingerprint of the installed
+files in `.t3-skill-source.json` inside the skill folder. Local **Copy to…**
+copies omit this metadata, preserve local edits and executable files, and need a
+repository re-import to enable their own update tracking. **Check for updates**
+on the Skills tab checks tracked repository installs on demand, fetching each
+source once per check action. A later check fetches fresh contents. It compares the
+skill's complete source contents and executable flags, so unrelated repository
+commits do not trigger an update. Ordinary inventory refreshes never fetch sources.
+Checks report **Up to date**, **Update available**, or **Update check failed**.
+These results last until the setup service restarts; source tracking survives restarts.
+
+Open a skill and choose **Review update** (or **Review source**) to review that
+existing installation. The review shows its exact folder and known global
+readers, added/changed/removed files, and installed and incoming `SKILL.md`
+contents. Local edits are flagged before consent. **Update skill** replaces that
+folder in place, including local edits and removed/renamed supporting files.
+Compatibility readers share the updated folder; no additional agent copies are
+created. **Copy to…** remains a separate operation. Checking alone
+never changes installed files, and local edits do not count as upstream updates.
+A ref pinned to a commit continues to check that commit. There are no scheduled
+checks or automatic replacements. Earlier installs and imports from local folders
+or direct Markdown links need a repository re-import to enable tracking.
+
+Tracked skills in the shared `.agents/skills` folder update there. Links into
+managed global skill folders keep their links and update the reviewed target;
+links into unrelated or protected locations cannot authorize replacing a folder.
+The server resolves destinations from discovered installation IDs and rechecks
+the folder, supporting files, tracking metadata and known readers before
+publication. Edits or retargeted links require a new review and fresh consent.
+File comparisons are bounded by the import limits and never follow supporting
+file links. Large local files are conservatively treated as local changes.
+Lost responses retry the same reviewed operation; a fresh review never silently
+replays an uncertain update.
+
+![Reviewing a repository skill update](media/skill-updates/desktop-light.png)
+
+Use **View → Remove** to delete an imported local skill. Files tracked
 in the upstream skills CLI lock remain read-only here, including during import;
 manage those packages with their package manager. Unreadable locks, known plugin/system
 roots (including Grok/Antigravity plugin folders and Codex admin skills), linked
 individual skill folders/files, unrelated existing folders and nested
-installations cannot be replaced through this flow.
+installations cannot be replaced by a new import. The tracked update flow can
+preserve links whose reviewed target is inside a managed global skill folder.
 
 This follows the state-format boundary discussed in PRs #25 and #31. The
 [upstream skills CLI](https://github.com/vercel-labs/skills) remains an alternative
@@ -380,6 +433,30 @@ writes trigger a refresh; they are not automatically rolled back. Native writes
 do not support compare-and-swap, so an external writer can still race the last
 check. Start a new conversation after changing availability: loaded instructions
 can remain in existing conversations, and project/session settings may differ.
+
+### Codex plugin hook review
+
+In Skills, **Plugin hooks** opens the installed Codex plugins' automatic commands.
+An installed plugin skill also has **Review plugin hooks** in its inspector.
+Each hook shows its event, complete command, source path, matcher and timeout,
+with separate trust and enabled states. Importing skill folders adds instructions;
+it does not install a plugin or its lifecycle hooks.
+
+**Review and trust** asks for consent to the displayed command. It records trust
+for the current native hook definition; a disabled hook stays disabled until
+you choose **Enable hook**. You can also disable a hook without changing its
+trust. Start a new Codex session after changing these settings. Hooks run with
+your container user's access and apply to the plugin, including all its skills.
+
+The console uses Codex's experimental `hooks/list` and native config APIs. It
+never starts a thread, executes a hook or bypasses hook trust. Changes check the
+reviewed definition and settings revision, use Codex's config version check,
+then verify the result. Changed definitions require another review. Managed
+hooks and hook types whose complete action is unavailable through native
+metadata stay read-only. Discovery errors and unsupported Codex versions show
+an error with a refresh action; no trust is inferred from skill availability.
+Only global installed-plugin hooks in the setup environment are managed here;
+project, user-defined and session-specific hooks remain in Codex's `/hooks` UI.
 
 ### Claude visibility and OpenCode permissions
 
@@ -500,12 +577,19 @@ node scripts/skills-policy-smoke.mjs opencode /absolute/path/to/opencode
 node scripts/skills-import-smoke.mjs claude /absolute/path/to/claude
 node scripts/skills-import-smoke.mjs codex /absolute/path/to/codex
 node scripts/skills-import-smoke.mjs opencode /absolute/path/to/opencode
+node scripts/skills-hooks-smoke.mjs /absolute/path/to/codex
 ```
 
 Claude 2.1.302 and OpenCode 1.19.3/2.0.31 passed native policy checks for every
 supported state, conflicts, fresh-process persistence and untouched skill content.
 OpenCode checks also verify comment preservation. Image smoke tests run these
-scripts against the packaged modules and managed binaries. The import smoke
+scripts against the packaged modules and managed binaries. The hook smoke installs
+a local fixture plugin in a disposable home and checks trust, enablement, changed
+definitions, restart persistence and symlinked settings without running a hook.
+`node scripts/skills-hooks-ui-audit.js http://127.0.0.1:23785/__setup/ dev`
+checks consent, stale/failed reads and writes, keyboard focus, long untrusted
+commands and the inspector link in light/dark phone, desktop and embedded layouts.
+The import smoke
 checks install supporting files, change a native policy, update the complete
 folder without changing that policy, verify discovery in a fresh process and
 remove the installation. Claude 2.1.302, Codex 0.163.0 and OpenCode 1.19.3/2.0.32 passed
