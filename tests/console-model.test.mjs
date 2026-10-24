@@ -67,6 +67,23 @@ test("storage view handles loading, unknown sizes, disk pressure, and job progre
   assert.equal(M.storageView({ storage: { operation: { state: 'interrupted' } } }, NOW).busy, false);
 });
 
+test("storage view lists every detected cache and names the one being cleared", () => {
+  const view = M.storageView({ storage: { at: NOW, disk: { usedPercent: 10 },
+    categories: [
+      { id: 'go', label: 'Go build cache', bytes: 100, cleanable: true, kind: 'cache' },
+      { id: 'uv', label: 'uv cache', bytes: 200, cleanable: true, kind: 'cache' },
+      { id: 'deno', label: 'Deno cache', bytes: 0, cleanable: false, kind: 'cache', unavailable: 'Install Deno to clean this cache.' },
+      { id: 'history', label: 'Threads & agent data', bytes: 300, kind: 'data' },
+    ],
+    operation: { state: 'running', phase: 'uv' } } }, NOW);
+  assert.deepEqual(plain(view.ids), ['go', 'uv']);
+  assert.equal(view.cleanableBytes, 300);
+  assert.deepEqual(view.cacheRows.map((row) => row.id), ['go', 'uv', 'deno']);
+  assert.equal(view.cacheRows[2].canClean, false);
+  assert.deepEqual(view.dataRows.map((row) => row.id), ['history']);
+  assert.match(view.progress, /uv cache/);
+});
+
 test("disk pressure appears in navigation attention and storage is searchable", () => {
   const status = { storage: { disk: { usedPercent: 89 } } };
   assert.equal(M.navBadges(status).storage.count, 1);
@@ -842,6 +859,34 @@ test("a channel name where a release would be is no release to wait for", () => 
   const rust = M.toolchainRows(statusWith({ releaseAgeMs: DAY, toolchains: [toolchain("rust", { version: "1.99.1", latestVersion: "1.99.1", newestVersion: "stable" })] }), ui(), NOW)[0];
   assert.equal(rust.held, null);
   assert.equal(rust.status.text, "With clippy and rustfmt · up to date");
+});
+
+test("a failed tool update has one error and keeps an unrelated notice", () => {
+  const s = statusWith({ toolchains: [toolchain("rust", {
+    version: "1.99.1", latestVersion: "1.99.1", failed: true,
+    operation: "update", failure: "invalid version: stable",
+  })] });
+  const state = ui();
+  state.notices.set("toolchain:rust", { tone: "danger", text: "invalid version: stable" });
+  let row = M.toolchainRows(s, state, NOW)[0];
+  assert.equal(row.status.text, "Update failed: invalid version: stable");
+  assert.equal(row.notice, undefined, "the status already contains the failed click's reason");
+  assert.equal(row.version, "1.99.1");
+  assert.equal(row.action.cmd, "toolchain.update");
+  state.notices.set("toolchain:rust", { tone: "danger", text: "The update service could not be reached" });
+  row = M.toolchainRows(s, state, NOW)[0];
+  assert.equal(row.notice.text, "The update service could not be reached", "different recovery information stays available");
+});
+
+test("old Rust channel metadata never becomes a numbered update target", () => {
+  const s = statusWith({ toolchains: [toolchain("rust", {
+    version: "1.99.1", latestVersion: "stable", newestVersion: "beta",
+  })] });
+  const row = M.toolchainRows(s, ui(), NOW)[0];
+  assert.equal(row.latest, null);
+  assert.equal(row.updateAvailable, false);
+  assert.equal(row.held, null);
+  assert.equal(M.updatesView(s, ui(), NOW).available.some(r => r.id === "rust"), false);
 });
 
 test("settings an older image left behind flag Server", () => {

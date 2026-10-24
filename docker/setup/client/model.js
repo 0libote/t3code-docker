@@ -533,7 +533,10 @@ const T3Model = (() => {
     const cmd = (verb) => target + '.' + verb;
     const act = activityOf(status, target, t.id, ui);
     const version = t.version || null;
-    const latest = t.latestVersion || null;
+    // A stale server/cache may still name a Rust channel. It is not a release
+    // number and must not become an update arrow or a newer-version offer.
+    const latest = target === 'toolchain' && t.id === 'rust' && !parseVersion(t.latestVersion).numeric
+      ? null : t.latestVersion || null;
     const updateAvailable = Boolean(t.installed && isNewer(latest, version));
     const held = t.installed ? heldRelease(t, version, status, now) : null;
     const runningKind = act.serverQueued ? null : (act.ownOp && act.ownOp.kind) || (act.pending && act.pending.kind)
@@ -612,7 +615,6 @@ const T3Model = (() => {
       row.notice = distinctNotice(notice, row.status);
       return row;
     }
-    row.notice = distinctNotice(notice, row.status);
     if (t.failed && t.failure && t.operation && t.operation !== 'install') {
       row.state = 'failed';
       row.attention = true;
@@ -627,6 +629,7 @@ const T3Model = (() => {
       row.status.text = meta.detail ? [meta.detail, plain].filter(Boolean).join(' · ')
         : plain === 'up to date' ? 'Up to date' : ['Installed', plain].filter(Boolean).join(' · ');
     }
+    row.notice = distinctNotice(notice, row.status);
     row.held = held;
     if (updateAvailable) row.menu.push({ cmd: cmd('update'), label: 'Update to ' + latest, icon: 'circle-arrow-up' });
     else if (!latest) row.menu.push({ cmd: cmd('update'), label: 'Update to the latest', icon: 'circle-arrow-up' });
@@ -1436,6 +1439,7 @@ const T3Model = (() => {
       access: warn(!s.publicUrl && s.server && connectView(s).state !== 'on' && connectView(s).state !== 'linking' ? 1 : 0),
       agents: warn(agents.filter((a) => a.attention).length) || running(busy(agents)),
       instructions: null,
+      mcp: warn((s.context?.mcp?.providers || []).filter(p => p.supported && s.harnesses?.some(a => a.id === p.provider && a.installed)).reduce((n, p) => n + (p.diverged?.length || 0) + (p.error ? 1 : 0), 0)),
       toolchains: warn(tools.filter((t) => t.state === 'failed').length) || running(busy(tools)),
       // A source control CLI someone installed and has not signed in is as
       // unusable to T3 Code as a failed one. The image's gh never counts.
@@ -1580,6 +1584,10 @@ const T3Model = (() => {
       add(item.id === 'runtime' ? 'Updates' : 'Server', fixes[item.id], item.icon,
         item.action.cmd === 'goto' ? { cmd: 'goto', route: item.action.route } : { cmd: item.action.cmd, id: item.action.id }, { attention: true });
     }
+    add('MCP servers', 'Add MCP server…', 'plug', { cmd: 'mcp.add' });
+    add('MCP servers', 'Rescan MCP servers', 'refresh-cw', { cmd: 'mcp.refresh' });
+    for (const server of s.context?.mcp?.shared?.servers || []) add('MCP servers', server.name, 'plug', { cmd: 'mcp.view', id: server.name });
+    for (const provider of s.context?.mcp?.providers || []) for (const name of provider.diverged || []) add('MCP servers', 'Review ' + name + ' in ' + ({ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' }[provider.provider] || provider.provider), 'triangle-alert', { cmd: 'mcp.view', id: name, provider: provider.provider }, { attention: true });
     add('Storage', 'Free up disk space', 'hard-drive', { cmd: 'storage.goto' }, { keywords: 'disk space caches cleanup folders usage manage storage', attention: Boolean(diskWarning(s)) });
     add('Storage', 'Storage maintenance…', 'settings-2', { cmd: 'storage.preferences' }, { keywords: 'cache limits automatic cleanup retention preferences' });
 
@@ -1774,19 +1782,31 @@ const T3Model = (() => {
   // ----------------------------------------------------------- diagnostics --
   /** Storage presentation stays pure so loading, partial scans, disk pressure,
    * and interrupted operations can be verified without a browser. */
+  const currentCacheLabel = (phase, cacheRows) => {
+    const row = (cacheRows || []).find((item) => item.id === phase);
+    return row ? (row.label || phase) : null;
+  };
+  // Rows written before per-tool caches existed carry no kind; Go and npm
+  // were the only caches then, so those ids stay cache rows.
+  const isCacheRow = (item) => item.kind === 'cache' || (!item.kind && ['go', 'npm'].includes(item.id));
   const storageView = (status, now) => {
     const storage = status && status.storage || {};
     const operation = storage.operation || null;
     const categories = Array.isArray(storage.categories) ? storage.categories : [];
     const size = (item) => Number.isFinite(item.bytes) && item.bytes >= 0 ? item.bytes : null;
-    const cacheRows = categories.filter((item) => ['go', 'npm'].includes(item.id)).map((item) => ({
+    const cacheRows = categories.filter(isCacheRow).map((item) => ({
       ...item, bytes: size(item), size: formatBytes(size(item)),
       canClean: Boolean(item.cleanable && size(item) > 0),
+      state: item.protection || item.unavailable ? 'protected' : size(item) === null ? 'unknown' : size(item) === 0 ? 'empty' : 'ready',
+      stateLabel: item.protection || (item.unavailable ? 'Unavailable' : size(item) === 0 ? 'Empty' : size(item) === null ? 'Not measured' : 'Ready to review'),
     }));
-    const dataRows = categories.filter((item) => !['go', 'npm'].includes(item.id)).map((item) => ({ ...item, bytes: size(item), size: formatBytes(size(item)) }))
+    const dataRows = categories.filter((item) => !isCacheRow(item)).map((item) => ({ ...item, bytes: size(item), size: formatBytes(size(item)) }))
       .sort((a, b) => (b.bytes || 0) - (a.bytes || 0));
     const ids = cacheRows.filter((item) => item.canClean).map((item) => item.id);
     const cleanableBytes = cacheRows.filter((item) => item.canClean).reduce((sum, item) => sum + item.bytes, 0);
+    const cacheBytes = cacheRows.reduce((sum, item) => sum + (item.bytes || 0), 0);
+    const cachePolicies = Array.isArray(storage.cachePolicies) && storage.cachePolicies.length ? storage.cachePolicies
+      : cacheRows.map((row) => ({ id: row.id, label: row.label, icon: row.icon, budgetKey: row.id + 'BudgetBytes', defaultBytes: row.id === 'go' ? 10e9 : row.id === 'mise' ? 5e9 : row.id === 'deno' ? 1e9 : 2e9 }));
     const rawDisk = storage.disk;
     const disk = rawDisk && Number.isFinite(rawDisk.usedPercent) ? {
       ...rawDisk, usedPercent: Math.max(0, Math.min(100, rawDisk.usedPercent)),
@@ -1795,13 +1815,12 @@ const T3Model = (() => {
       title: rawDisk.usedPercent >= 90 ? 'Disk space is nearly full' : rawDisk.usedPercent >= 80 ? 'Disk space is running low' : 'Filesystem space',
     } : null;
     return {
-      ...storage, operation, disk, cacheRows, dataRows, ids, cleanableBytes,
+      ...storage, operation, disk, cacheRows, dataRows, ids, cleanableBytes, cacheBytes, cachePolicies,
       busy: Boolean(operation && operation.state === 'running'),
       loading: !storage.at, refreshing: Boolean(storage.refreshing),
       checked: storage.at ? 'Checked ' + relTime(storage.at, now) : 'Not measured yet',
-      progress: !operation || operation.state !== 'running' ? null : operation.phase === 'go' ? 'Clearing Go build cache…'
-        : operation.phase === 'npm' ? 'Clearing npm downloads…' : operation.phase === 'versions' ? 'Trimming older tool versions…' : 'Checking caches…',
-      policy: storage.policy || { automatic: false, retainManagedVersions: true, goBudgetBytes: 10_000_000_000, npmBudgetBytes: 2_000_000_000 },
+      progress: !operation || operation.state !== 'running' ? null : operation.phase === 'versions' ? 'Trimming older tool versions…' : currentCacheLabel(operation.phase, cacheRows) ? 'Clearing ' + currentCacheLabel(operation.phase, cacheRows) + '…' : 'Checking caches…',
+      policy: storage.policy || { automatic: false, retainManagedVersions: true, goBudgetBytes: 10_000_000_000, npmBudgetBytes: 2_000_000_000, uvBudgetBytes: 2_000_000_000, bunBudgetBytes: 2_000_000_000, miseBudgetBytes: 5_000_000_000, denoBudgetBytes: 1_000_000_000, gomodBudgetBytes: 2_000_000_000 },
     };
   };
 
@@ -1891,6 +1910,15 @@ const T3Model = (() => {
     });
   };
 
+  // Shared MCP servers: redacted summaries in /status, secrets only in the
+  // editor. Provider support is uneven; unsupported providers stay visible
+  // with their reason instead of failing the whole section.
+  const mcpView = (status) => {
+    const mcp = status?.context?.mcp || {};
+    const shared = mcp.shared || {};
+    return { present: Boolean(shared.present), count: shared.count || (shared.servers || []).length, revision: shared.revision || null,
+      bytes: shared.bytes || 0, error: shared.error || null, ok: mcp.ok !== false };
+  };
   // Automatic updates: the policy and last run from /status, as the Updates
   // page's switches say them. Pure, so the words are testable without a browser.
   const autoUpdateView = (status, now) => {
@@ -1942,6 +1970,7 @@ const T3Model = (() => {
     readiness, readySummary, needsYou, containerItems, activity, setupBanner, setupFailures,
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
+    mcpView,
     navBadges, serverWarnings, diskWarning, attentionCount, summaries, updatesView, runtimeView, autoUpdateView,
     paletteItems, searchPalette,
     redactedDiagnostics, storageView,

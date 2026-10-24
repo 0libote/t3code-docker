@@ -90,6 +90,14 @@ const statusFor = (scenario, change) => {
   const base = fixture("status.json");
   const now = Date.now();
   const status = SCENARIOS[scenario](shiftTimes(base, now - base.storage.at), now);
+  const mcp = fixture('mcp.json');
+  if (scenario === 'setup') {
+    Object.assign(mcp.shared, { present: false, count: 0, servers: [] });
+    mcp.ownGroups = [];
+    for (const row of mcp.providers) Object.assign(row, { linked: [], unlinked: [], diverged: [], disabled: [], own: [], ownCount: 0 });
+  }
+  if (scenario === 'attention') Object.assign(mcp.providers.find(p => p.provider === 'codex'), { error: 'Codex config.toml cannot be safely edited. Check its TOML syntax before changing MCP servers.', linked: [], unlinked: ['playwright', 'docs', 'database'] });
+  status.context = { ...status.context, mcp };
   return change ? change(status, now) || status : status;
 };
 const portsFor = (scenario, change) => {
@@ -103,10 +111,13 @@ const portsFor = (scenario, change) => {
  */
 const routeConsole = async (page, { status, ports, skillOptions }) => {
   const skills = require('./skills-fixtures.cjs').createSkillsFixtures(skillOptions);
-  await page.route("**/*", (route) => {
+  const mcp = require('./mcp-fixtures.cjs').createMcpFixtures(status().context?.mcp);
+  await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const at = (suffix) => url.pathname.endsWith(suffix);
+    const mcpResponse = await mcp.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
+    if (mcpResponse) return route.fulfill({ status: mcpResponse.status, json: mcpResponse.body });
     const skillResponse = skills.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
     if (skillResponse) return route.fulfill({ status: skillResponse.status, json: skillResponse.body });
     if (request.method() === "POST" && !at("/login")) return route.fulfill({ json: { ok: true } });

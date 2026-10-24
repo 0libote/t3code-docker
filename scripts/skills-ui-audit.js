@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { statusFor, portsFor, fixture, framed } = require('./lib/console-fixtures.cjs');
 const { createSkillsFixtures } = require('./lib/skills-fixtures.cjs');
+const { checkChipFocus } = require('./lib/chip-focus.cjs');
 const base = process.argv[2] || 'http://127.0.0.1:23780/__setup/';
 const key = process.argv[3] || 'dev';
 const output = process.env.T3_SKILLS_UI_OUTPUT || '/tmp/t3-skills-ui-audit';
@@ -184,6 +185,7 @@ const checkSelect = async (page, select, theme) => {
         await target.locator('[data-cmd="skills.filter"]').click();
         await target.getByRole('menuitemradio', { name: 'Any agent', exact: true }).click();
       } else {
+        await checkChipFocus(page, target.locator('.tc-sk-agent-chips'), shot);
         await target.locator('[data-cmd="skills.agent"][data-provider=codex]').click();
         assert.equal(await target.locator('.tc-mx-row').count(), 1);
         await target.locator('[data-cmd="skills.agent"][data-provider=""]').click();

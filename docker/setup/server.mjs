@@ -33,6 +33,7 @@ import { createDeviceLabels } from "./device-labels.mjs";
 import * as Context from "./context.mjs";
 import { createOpenCodeAuth } from "./opencode-auth.mjs";
 import { createSkillsService } from "./skills.mjs";
+import { createMcpService } from "./mcp.mjs";
 import { clientAddress } from "./client-address.mjs";
 import { newKey, readKeyFile, writeKeyFile } from "./setup-key.mjs";
 import { connectState, jsonFrom, parseLinkOutput } from "./connect.mjs";
@@ -519,6 +520,9 @@ const contextFs = async () => (await import("node:fs/promises"));
 const skillsService = createSkillsService({ home: CONTEXT_HOME, env: process.env,
   getHarness: async (provider) => (await harnessCache.snapshotCheap()).harnesses?.find((row) => row.id === provider),
 });
+const mcpService = createMcpService({ home: CONTEXT_HOME, env: process.env, baseDir: STATE_DIR,
+  io: await contextFs(),
+});
 
 // The browser image's agent browser, as built: the versions are build args the
 // Dockerfile bakes into the environment. Absent on the core image.
@@ -912,7 +916,14 @@ const status = async () => {
     // Every other tool in the global mise config, added here or with `mise use -g`.
     packages: withLatest("package", packageRows),
     // Global instruction metadata; the editor fetches contents on demand.
-    context: await attempt("context", async () => Context.contextStatus(await contextFs(), { baseDir: STATE_DIR, home: CONTEXT_HOME, env: process.env }), {
+    // Shared MCP metadata rides alongside; server entries stay server-side.
+    context: await attempt("context", async () => {
+      const [instructions, mcp] = await Promise.all([
+        Context.contextStatus(await contextFs(), { baseDir: STATE_DIR, home: CONTEXT_HOME, env: process.env }),
+        mcpService.status().catch((error) => ({ ok: false, error: String(error?.message ?? error) })),
+      ]);
+      return { ...instructions, mcp };
+    }, {
       agentsMd: { present: false, bytes: 0, error: "unavailable" },
     }),
     // The background install of everything T3_PREINSTALL names, on a first
@@ -2142,7 +2153,7 @@ const cancelLifecycle = (target, rawId) => {
 };
 
 const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/devices/rename", "/ports",
-  "/storage/versions/prune", "/storage/versions", "/storage/refresh", "/storage/clean", "/storage/policy", "/storage",
+  "/storage/versions/prune", "/storage/versions", "/storage/refresh", "/storage/clean/preview", "/storage/clean", "/storage/policy", "/storage",
   "/public-url/clear", "/public-url", "/setup-key/reveal", "/setup-key/replace", "/connect/unlink", "/t3/restart",
   "/t3/updates/check", "/t3/update", "/ports/expose", "/ports/unexpose",
   "/auto-update", "/auto-update/policy",
@@ -2153,7 +2164,8 @@ const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/
   "/providers", "/updates/check", "/context/skills/check-update", "/context/skills/hooks", "/context/skills/hooks/state",
   "/packages/install", "/packages/update", "/packages/uninstall", "/packages/cancel",
   "/packages/registry", "/packages/versions", "/packages/info",
-  "/context/agents-md", "/context/skills/reach", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard", "/context/skills"];
+  "/context/agents-md", "/context/skills/reach", "/context/skills/read", "/context/skills/create", "/context/skills/save", "/context/skills/remove", "/context/skills/state", "/context/skills/source", "/context/skills/plan", "/context/skills/install", "/context/skills/discard", "/context/skills",
+  "/context/mcp", "/context/mcp/read", "/context/mcp/create", "/context/mcp/save", "/context/mcp/remove", "/context/mcp/link", "/context/mcp/diff", "/context/mcp/adopt", "/context/mcp/parse"];
 
 // One background pass for the opt-in auto-updater. Checks are cheap and
 // always safe; installs run only when enabled, an update is known, and
@@ -2259,7 +2271,7 @@ const autoTick = async () => {
 };
 
 const storageHttpStatus = (result) => result.ok ? 200
-  : ["busy", "stale-preview"].includes(result.code) ? 409
+  : ["busy", "stale-preview", "stale-policy"].includes(result.code) ? 409
     : ["invalid-cache", "invalid-policy", "invalid-options"].includes(result.code) ? 400 : 503;
 
 /** Acknowledges durable operation state before a scan/native cleanup finishes. */
@@ -2268,10 +2280,10 @@ const startStorageWork = async (storage, kind, input) => {
   const started = new Promise((resolve) => { acknowledge = resolve; });
   const options = { onStarted: (operation) => acknowledge({ http: 202, body: { ok: true, operation } }) };
   const done = Promise.resolve().then(() => kind === "versions"
-    ? storage.trimVersions({ ...options, token: input.token, includePrevious: input.includePrevious }) : storage.clean(input.ids, options))
+    ? storage.trimVersions({ ...options, token: input.token, includePrevious: input.includePrevious }) : storage.clean(input.ids, { ...options, token: input.token }))
     .then((result) => {
       if (result.ok) recordEvent(kind === "versions" ? "storage.trimmed" : "storage.cleaned",
-        kind === "versions" ? "Trimmed older tool versions" : "Cleared build and download caches");
+        kind === "versions" ? "Trimmed older tool versions" : "Cleared caches");
       return { http: storageHttpStatus(result), body: result };
     }).catch(() => ({ http: 503, body: { ok: false, error: "Storage cleanup could not finish. Refresh and try again." } }));
   return Promise.race([started, done]);
@@ -2497,17 +2509,26 @@ const server = createServer(async (req, res) => {
         void storage.refresh();
         return sendJson(res, 202, { ok: true, storage: storage.snapshot() });
       }
-      if (req.method === "POST" && ["/storage/clean", "/storage/policy", "/storage/versions/prune"].includes(route)) {
+      if (req.method === "POST" && ["/storage/clean", "/storage/clean/preview", "/storage/policy", "/storage/versions/prune"].includes(route)) {
         let input;
         try { input = JSON.parse((await readBody(req)) || "{}"); }
         catch { return sendJson(res, 400, { ok: false, error: "Use a valid storage request." }); }
         if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Use a valid storage request." });
         if (route === "/storage/policy") {
-          const result = await storage.setPolicy(input);
+          if (Object.hasOwn(input, "policy") && (Object.keys(input).some((key) => !["policy", "revision"].includes(key))
+            || !/^[a-f0-9]{64}$/.test(String(input.revision || "")))) return sendJson(res, 400, { ok: false, error: "Use a current storage preferences review." });
+          const result = Object.hasOwn(input, "policy") ? await storage.setPolicy(input.policy, { expectedRevision: input.revision }) : await storage.setPolicy(input);
           return sendJson(res, storageHttpStatus(result), result);
         }
-        const allowed = route === "/storage/clean" ? ["ids"] : ["token", "includePrevious"];
+        const allowed = route === "/storage/clean" ? ["ids", "token"] : route === "/storage/clean/preview" ? ["ids"] : ["token", "includePrevious"];
         if (Object.keys(input).some((key) => !allowed.includes(key))) return sendJson(res, 400, { ok: false, error: "Unknown storage request field." });
+        if (route === "/storage/clean/preview") {
+          const result = await storage.previewClean(input.ids);
+          return sendJson(res, storageHttpStatus(result), result);
+        }
+        if (route === "/storage/clean" && !/^[a-f0-9]{64}$/.test(String(input.token || ""))) {
+          return sendJson(res, 400, { ok: false, error: "Review the selected caches before cleaning them." });
+        }
         if (route === "/storage/versions/prune" && input.includePrevious !== undefined && typeof input.includePrevious !== "boolean") {
           return sendJson(res, 400, { ok: false, error: "Choose a valid version cleanup mode." });
         }
@@ -2679,6 +2700,50 @@ const server = createServer(async (req, res) => {
       } catch (error) {
         const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, EEXIST: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || (error instanceof SyntaxError ? 400 : 500);
         return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "The skill operation failed.").slice(0, 500) });
+      }
+    }
+
+    // --- shared MCP servers ---------------------------------------------
+    // Inventory per provider is on demand, never part of /status polling;
+    // /status carries only redacted shared metadata and link states.
+    if (req.method === "GET" && ["/context/mcp", "/context/mcp/read", "/context/mcp/diff"].includes(route)) {
+      try {
+        const params = raw.searchParams;
+        if (route === "/context/mcp/diff") return sendJson(res, 200, await mcpService.diff(params.get("provider"), params.get("name")));
+        if (route === "/context/mcp/read") {
+          if (!params.get("name")) return sendJson(res, 400, { ok: false, code: "invalid", error: "Expected an MCP server name." });
+          return sendJson(res, 200, await mcpService.read(params.get("name"), params.get("provider")));
+        }
+        if (params.get("provider")) return sendJson(res, 200, await mcpService.list(params.get("provider")));
+        return sendJson(res, 200, await mcpService.status({ refresh: params.get("refresh") === "1" }));
+      } catch (error) {
+        const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || 500;
+        return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: String(error?.message || "MCP discovery is unavailable.").slice(0, 300) });
+      }
+    }
+
+    if (req.method === "POST" && ["/context/mcp/create", "/context/mcp/save", "/context/mcp/remove", "/context/mcp/link", "/context/mcp/adopt", "/context/mcp/parse"].includes(route)) {
+      try {
+        const input = JSON.parse((await readBody(req, 6 * 64 * 1024 + 4096)) || "{}");
+        if (!input || typeof input !== "object" || Array.isArray(input)) return sendJson(res, 400, { ok: false, error: "Expected an MCP operation object." });
+        if (route === "/context/mcp/parse") {
+          if (typeof input.text !== "string") return sendJson(res, 400, { ok: false, error: "Paste a server snippet as text." });
+          if (Buffer.byteLength(input.text, "utf8") > 64 * 1024) return sendJson(res, 413, { ok: false, error: "That’s too long to be a server snippet." });
+          return sendJson(res, 200, mcpService.parse(input.text));
+        }
+        if (["/context/mcp/link", "/context/mcp/adopt"].includes(route) && typeof input.providerRevision !== "string") return sendJson(res, 400, { ok: false, code: "invalid", error: "Refresh MCP servers before changing provider settings." });
+        const result = route === "/context/mcp/link" ? await mcpService.setLink(input.provider, input.name, input.linked, input.sharedRevision, input.providerRevision, input.enabled)
+          : route === "/context/mcp/adopt" ? await mcpService.adopt(input.provider, input.name, input.providerRevision, input.sharedRevision, input.replace)
+          : route === "/context/mcp/create" ? await mcpService.create(input.server)
+          : route === "/context/mcp/save" ? await mcpService.save(input.name, input.revision, input.server)
+            : await mcpService.remove(input.name, input.revision);
+        recordEvent("context.saved", route === "/context/mcp/link"
+          ? `${input.provider} ${input.linked ? "uses" : "stopped using"} shared MCP server ${input.name}`
+          : route === "/context/mcp/remove" ? "Removed a shared MCP server" : "Saved a shared MCP server");
+        return sendJson(res, 200, result);
+      } catch (error) {
+        const status = { invalid: 400, missing: 404, ENOENT: 404, conflict: 409, EEXIST: 409, too_large: 413, unsupported: 403, EACCES: 403, EPERM: 403 }[error?.code] || (error instanceof SyntaxError ? 400 : 500);
+        return sendJson(res, status, { ok: false, code: error?.code || "unavailable", error: error instanceof SyntaxError ? "Use a valid MCP operation object." : String(error?.message || "The MCP operation failed.").slice(0, 500) });
       }
     }
 

@@ -52,6 +52,7 @@ printf '%s' 'saved Muse session' > "$T3_HOME/.local/share/muse/session-test"
 mkdir -p "$T3_HOME/.local/share/opencode"
 printf '%s' 'OpenCode credential database' > "$T3_HOME/.local/share/opencode/opencode.db"
 printf '%s' 'OpenCode pending journal' > "$T3_HOME/.local/share/opencode/opencode.db-wal"
+printf '%s' '{"mcpServers":{"probe":{"command":"server"}}}' > "$T3_HOME/.claude.json"
 mkdir -p "$T3_HOME/.agents/skills/local/references"
 printf '%s' 'Shared skill instructions' > "$T3_HOME/.agents/skills/local/SKILL.md"
 printf '%s' 'Supporting reference' > "$T3_HOME/.agents/skills/local/references/guide.md"
@@ -102,6 +103,7 @@ is "Muse credentials survive a recreate" '{"providers":{"meta":{"api_key":"muse-
 is "Muse sessions survive a recreate" 'saved Muse session' "$(cat "$T3_HOME/.local/share/muse/session-test")"
 is "OpenCode credential database survives a recreate" 'OpenCode credential database' "$(cat "$T3_HOME/.local/share/opencode/opencode.db")"
 is "OpenCode database sidecars survive a recreate" 'OpenCode pending journal' "$(cat "$T3_HOME/.local/share/opencode/opencode.db-wal")"
+is "Claude global MCP config survives a recreate" '{"mcpServers":{"probe":{"command":"server"}}}' "$(cat "$T3_HOME/.claude.json")"
 is "Antigravity CLI skills survive a recreate" 'Antigravity CLI skill' "$(cat "$T3_HOME/.gemini/antigravity-cli/skills/cli-check/SKILL.md")"
 is "Antigravity skills survive a recreate" 'Antigravity skill' "$(cat "$T3_HOME/.gemini/config/skills/review/SKILL.md")"
 is "shared skills survive a recreate" 'Shared skill instructions' "$(cat "$T3_HOME/.agents/skills/local/SKILL.md")"
@@ -124,6 +126,14 @@ MOUNTED="$T3_HOME/.agents"
 persist_agent_credentials
 [ ! -L "$T3_HOME/.agents/skills" ] && ok "a mounted .agents parent is respected" || no "a mounted .agents parent is respected"
 is "mounted shared files remain intact" 'Host skill' "$(cat "$T3_HOME/.agents/skills/mounted/SKILL.md")"
+
+# An absent Claude config must not become a broken persistence link.
+rm -rf "$T3_HOME" "$T3CODE_HOME"
+mkdir -p "$T3_HOME" "$T3CODE_HOME"
+MOUNTED=""
+persist_agent_credentials
+is "a fresh Claude config starts as valid JSON" '{}' "$(cat "$T3_HOME/.claude.json")"
+is "a fresh Claude config is private" '600' "$(stat -c '%a' "$STORE/.claude.json")"
 
 # Turned off: nothing moves.
 rm -rf "$T3_HOME" "$T3CODE_HOME"

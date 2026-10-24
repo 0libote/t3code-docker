@@ -2,7 +2,8 @@
 
 **Setup → Instructions & skills** edits the shared AGENTS.md and each agent's
 own instruction file, on its **Instructions** tab; skills are on its **Skills**
-tab (`#instructions/skills`). A two-column overview shows a safe text preview of
+tab (`#instructions/skills`). Shared servers live on the separate
+[MCP servers](mcp-servers.md) page (`#mcp`). A two-column overview shows a safe text preview of
 AGENTS.md beside the per-agent source choices. The instruction editor is centered
 on desktop and opens as a bottom sheet on phones. Uploading a Markdown file
 replaces the draft; only **Save** applies it. Downloads include unsaved edits.
@@ -489,6 +490,10 @@ settings. A failed verification reports that the policy may already be saved;
 it does not roll back over a possible external change. External applications can
 still race the final check. Start a new conversation to load policy changes.
 
+### MCP servers
+
+See [MCP servers](mcp-servers.md) for the separate server library, native agent copies and sign-in.
+
 ## Validation
 
 `node --test tests/*.test.mjs` checks file writes, existing-file discovery and
@@ -532,6 +537,15 @@ confirmation, native state failures, busy controls and late provider responses. 
 also cover catalog selection, raw Markdown previews, provider selection,
 replacement consent/conflicts, failed backup moves/restoration, supporting-file
 edits with restored mtimes, shared-root retargeting and partial results.
+Unit/HTTP checks for shared MCP servers (`tests/mcp.test.mjs`,
+`tests/mcp-api.test.mjs`, `tests/mcp-regressions.test.mjs`) cover store validation and revisions, TOML section
+preservation, provider translation round-trips, link/diverged detection,
+comment-preserving JSONC writes, unsupported providers and the authenticated
+boundary including secret redaction in polling responses. `scripts/mcp-ui-audit.js`
+checks agent selection, immediate refresh, editor revisions, lossless JSON
+values, separate transport drafts, save/discard guards, apply/unlink, failed/late
+reads and mobile/desktop/embedded layouts in both themes. Its API
+responses are fixtures; no real provider configuration is modified.
 
 The adapters were also checked with Codex 0.163.0 in a disposable home. Native
 enable/disable, stale-request rejection, settings persistence across fresh

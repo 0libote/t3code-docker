@@ -268,9 +268,9 @@ register_projects
 # and az keep their sign-ins in these.
 AGENT_DIRS=".claude .codex .cursor .grok .config/opencode .local/share/opencode .config/muse .local/share/muse .agents/skills .local/state/skills .gemini/config/skills .gemini/antigravity-cli/skills"
 AGENT_DIRS="$AGENT_DIRS .config/gh .config/glab-cli .config/tea .local/share/forgejo-cli .azure"
-# And git's own settings: who you commit as, and the credential helpers gh and
-# tea set up so an HTTPS push uses their sign-in. git writes through the link.
-AGENT_FILES=".gitconfig .agents/.skill-lock.json"
+# And git's own settings, plus Claude's global account/MCP config outside its
+# config directory. Git and Claude's native writer preserve these file links.
+AGENT_FILES=".gitconfig .agents/.skill-lock.json .claude.json"
 
 persist_agent_credentials() {
   [ "$T3_PERSIST_AGENT_CREDENTIALS" = "1" ] || return 0
@@ -299,7 +299,10 @@ persist_agent_credentials() {
         # The skills CLI owns its JSON lock format. An absent lock stays absent;
         # its future write follows the link onto the volume without an empty or
         # invented JSON document. This does not move the rest of .agents.
-        if [ "$rel" != ".agents/.skill-lock.json" ]; then
+        if [ "$rel" = ".claude.json" ]; then
+          [ -e "$dst" ] || printf '{}\n' > "$dst"
+          chmod 600 "$dst"
+        elif [ "$rel" != ".agents/.skill-lock.json" ]; then
           [ -e "$dst" ] || : > "$dst"
         fi
         ;;

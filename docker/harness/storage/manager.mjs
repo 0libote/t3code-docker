@@ -4,11 +4,13 @@
 import path from "node:path";
 import os from "node:os";
 import { promises as fs } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { createFs, createRunner, processAlive, processStartTime } from "../io.mjs";
 import * as lock from "../lock.mjs";
-import { DEFAULT_POLICY, policyPath, readPolicy, storageStateDir, validatePolicy, writeStorageJson } from "./policy.mjs";
+import { DEFAULT_POLICY, policyPath, policyRevision, readPolicy, storageStateDir, validatePolicy, writeStorageJson } from "./policy.mjs";
 import { buildsOrInstallsRunning, checkCachePath, countProjects, detectCaches, filesystemUsage, inside, measureStorage, mountSource, processSnapshot } from "./system.mjs";
+import { CACHES, CACHE_IDS, cacheLabel, cacheTarget, cacheSafety, cacheCommand, cacheFingerprint, validCacheIds } from "./caches.mjs";
+export { CACHE_IDS, cacheLabel } from "./caches.mjs";
 
 const IDLE_MS = 10 * 60 * 1000;
 const TERMINAL = new Set(["succeeded", "failed", "interrupted"]);
@@ -36,19 +38,22 @@ export function createStorageManager(options = {}) {
   const ctx = { fs: options.lockFs ?? createFs(), lockPath: lock.lockPath(stateDir), pid: options.pid ?? process.pid,
     now, lockStaleMs: 60 * 60 * 1000, isAlive: options.isAlive ?? processAlive, startTimeOf: options.startTimeOf ?? processStartTime };
   let caches = null, scan = null, stopped = false;
+  const previews = new Map();
+  const safetyContext = { userHome, env, stateRoot, workspace, io, checkPath };
+  const cachePolicies = CACHES.map(({ id, label, icon, budgetKey, defaultGB }) => ({ id, label, icon, budgetKey, defaultBytes: defaultGB * 1_000_000_000 }));
   let lastActivityAt = now();
   let facts = { at: null, refreshing: false, disk: null, categories: [], cleanableBytes: 0,
     volumeKind: null, workspaceKind: null, volumeBytes: null, workspaceProjects: null,
     volumeName: null, stateVolumeName: null, workspaceVolumeName: null,
-    policy: { ...DEFAULT_POLICY }, policyError: null, error: null, partial: false, operation: null };
+    cachePolicies, policy: { ...DEFAULT_POLICY }, policyError: null, error: null, partial: false, operation: null };
 
   const ready = (async () => {
     const preferences = await readPolicy(policyFile, io);
-    facts.policy = preferences.policy; facts.policyError = preferences.error;
+      facts.policy = preferences.policy; facts.policyError = preferences.error;
     try {
       const saved = JSON.parse(await io.readFile(snapshotFile, "utf8"));
       if (saved.schema === 1 && saved.home === userHome && saved.workspace === workspace && Array.isArray(saved.facts?.categories)) {
-        facts = { ...facts, ...saved.facts, policy: preferences.policy, policyError: preferences.error, refreshing: false, operation: null };
+        facts = { ...facts, ...saved.facts, cachePolicies, policy: preferences.policy, policyError: preferences.error, refreshing: false, operation: null };
       }
     } catch { /* no cached inventory */ }
     try {
@@ -61,7 +66,7 @@ export function createStorageManager(options = {}) {
     } catch { /* no prior operation */ }
   })();
 
-  const snapshot = () => structuredClone(facts);
+  const snapshot = () => structuredClone({ ...facts, policyRevision: policyRevision(facts.policy, facts.policyError) });
   const persistOperation = async (operation) => {
     let previous;
     try { previous = JSON.parse(await io.readFile(operationFile, "utf8")); } catch { /* first operation */ }
@@ -91,11 +96,11 @@ export function createStorageManager(options = {}) {
         if (!roots.some((root) => inside(root, stateRoot))) roots.push(stateRoot);
         const { sizes, partial } = await measure(roots);
         const bytes = (target) => sizes[target] ?? 0;
-        const go = caches.go.path;
-        const npm = path.join(caches.npm.path, "_cacache");
+        const targets = {};
+        for (const def of CACHES) targets[def.id] = cacheTarget(def.id, caches);
         // A configured cache may be deeper than the bounded home traversal.
         // Measure those locations explicitly rather than report a false zero.
-        const missing = [go, npm, path.join(dataDir, "installs"), ...["userdata", "agents", "backups", "container-runtime"].map((part) => path.join(stateRoot, part))]
+        const missing = [...Object.values(targets).filter(Boolean), path.join(dataDir, "installs"), ...["userdata", "agents", "backups", "container-runtime"].map((part) => path.join(stateRoot, part))]
           .filter((target) => sizes[target] === undefined);
         if (missing.length) {
           const extra = await measure(missing);
@@ -103,18 +108,22 @@ export function createStorageManager(options = {}) {
           Object.assign(sizes, extra.sizes);
         }
         const guards = {};
-        for (const [id, target] of [["go", go], ["npm", npm]]) {
-          guards[id] = await checkPath(target, { userHome, cacheHome: env.XDG_CACHE_HOME, stateRoot, workspace, io });
+        // A harness fixture or older detector may only know some caches. Rows
+        // are shown only for caches with a detected location; cleanup of an
+        // unknown cache reports it as unavailable instead of guessing.
+        const present = CACHES.filter((def) => targets[def.id]);
+        for (const def of present) {
+          guards[def.id] = await cacheSafety(def.id, caches, safetyContext);
         }
         const row = (id, label, target, description, kind = "data", extra = {}) => ({ id, label, path: target,
           bytes: bytes(target), description, kind, ...extra });
-        const cacheRow = (id, label, target, description) => row(id, label, target, description, "cache", {
-          cleanable: Boolean(guards[id].safe && caches[id].executable),
-          unavailable: guards[id].reason || caches[id].unavailable || (!caches[id].executable ? "The cache tool is not available." : null),
+        const cacheRow = (def) => row(def.id, def.label, targets[def.id], def.description, "cache", {
+          cleanable: Boolean(guards[def.id].safe && caches[def.id]?.executable),
+          unavailable: guards[def.id].detail || caches[def.id]?.unavailable || (!caches[def.id]?.executable ? "The cache tool is not available." : null),
+          protection: guards[def.id].safe ? null : guards[def.id].reason, icon: def.icon, effect: def.effect,
         });
         const categories = [
-          cacheRow("go", "Go build cache", go, "Compiled packages. Builds recreate these when needed."),
-          cacheRow("npm", "npm downloads", npm, "Downloaded packages. Installs fetch them again when needed."),
+          ...present.map(cacheRow),
           row("tools", "Agents & toolchains", path.join(dataDir, "installs"), "Installed agents, language runtimes, and added tools."),
           row("history", "Threads & agent data", path.join(stateRoot, "userdata"), "Conversation history, attachments, and server data."),
           row("agents", "Agent profiles", path.join(stateRoot, "agents"), "Agent conversations, sign-ins, and provider settings."),
@@ -123,9 +132,9 @@ export function createStorageManager(options = {}) {
         ];
         const cacheRoots = [path.join(userHome, ".cache"), path.join(userHome, ".npm")];
         const otherCaches = cacheRoots.reduce((sum, target) => sum + bytes(target), 0)
-          - categories.filter((item) => ["go", "npm"].includes(item.id) && cacheRoots.some((root) => inside(root, item.path))).reduce((sum, item) => sum + item.bytes, 0);
+          - categories.filter((item) => CACHE_IDS.includes(item.id) && cacheRoots.some((root) => inside(root, item.path))).reduce((sum, item) => sum + item.bytes, 0);
         categories.push({ id: "other-caches", label: "Other caches", bytes: Math.max(0, otherCaches),
-          path: cacheRoots.join(" · "), kind: "data", description: "Browser, package manager, model, and npx caches." });
+          path: cacheRoots.join(" · "), kind: "data", description: "Browser, npx, and other tool caches. Managed caches above are cleared individually." });
         const assignedHome = categories.filter((item) => item.id !== "other-caches" && inside(userHome, item.path)).reduce((sum, item) => sum + item.bytes, 0) + Math.max(0, otherCaches);
         categories.push({ id: "other-home", label: "Other home data", bytes: Math.max(0, bytes(userHome) - assignedHome),
           path: userHome, kind: "data", description: "Other files in the persistent home." });
@@ -154,53 +163,102 @@ export function createStorageManager(options = {}) {
     return scan;
   };
 
-  async function setPolicy(input) {
+  async function setPolicy(input, { expectedRevision } = {}) {
     await ready;
     let policy;
     try { policy = validatePolicy(input); } catch (error) { return errorResult("invalid-policy", error.message); }
-    try { await writeStorageJson(policyFile, policy, io); }
-    catch { return errorResult("write-failed", "Storage preferences could not be saved. Try again."); }
-    facts.policy = policy; facts.policyError = null; lastActivityAt = now();
-    return { ok: true, policy };
+    const held = await lock.acquireLock({ ...ctx, lockPath: `${policyFile}.lock` }, { id: "storage-policy", operation: "save" });
+    if (!held.acquired) return errorResult("busy", "Storage preferences are being saved elsewhere. Try again in a moment.");
+    try {
+      await readPreferences();
+      if (expectedRevision !== undefined && expectedRevision !== policyRevision(facts.policy, facts.policyError)) {
+        return errorResult("stale-policy", "Storage preferences changed elsewhere. Reload the latest preferences before saving.");
+      }
+      await writeStorageJson(policyFile, policy, io);
+      facts.policy = policy; facts.policyError = null; lastActivityAt = now();
+      return { ok: true, policy, policyRevision: policyRevision(policy) };
+    } catch { return errorResult("write-failed", "Storage preferences could not be saved. Try again."); }
+    finally { await held.release(); }
   }
 
-  async function clean(ids, { onStarted, onProgress, automatic = false, dryRun = false } = {}) {
+  async function previewClean(ids) {
     await ready;
-    if (!Array.isArray(ids) || !ids.length || ids.length > 2 || new Set(ids).size !== ids.length || ids.some((id) => !["go", "npm"].includes(id))) {
-      return errorResult("invalid-cache", "Choose Go, npm, or both caches.");
+    if (!validCacheIds(ids)) return errorResult("invalid-cache", "Choose one or more known tool caches.");
+    try {
+      const detected = await detect({ env, userHome, run });
+      const activity = await processes();
+      const rows = [], approved = new Map();
+      for (const id of ids) {
+        const busy = buildsOrInstallsRunning(activity, [id]);
+        const definition = CACHES.find((cache) => cache.id === id), guard = await cacheSafety(id, detected, safetyContext);
+        const target = cacheTarget(id, detected);
+        let bytes = facts.categories.find((row) => row.id === id)?.bytes || 0;
+        let status = guard.safe ? "ready" : "protected", reason = guard.reason || null, detail = guard.detail || null;
+        if (guard.safe) {
+          const measured = await measure([target]);
+          bytes = measured.sizes[target] ?? 0;
+          if (measured.partial) { status = "unavailable"; reason = "Measurement incomplete"; detail = "Refresh and review this cache again before cleaning it."; }
+          else if (!bytes) { status = "empty"; reason = "Already empty"; detail = "There is no cached data to clear."; }
+          else if (busy) { status = "busy"; reason = activity.complete ? "Tools are in use" : "Activity unavailable"; detail = activity.complete
+            ? "Finish running builds or tool commands, then check again. No files have been changed." : "Running tools could not be checked. Try again in a moment."; }
+        }
+        const eligible = status === "ready";
+        if (eligible) approved.set(id, cacheFingerprint(id, detected, guard));
+        rows.push({ id, label: definition.label, icon: definition.icon, effect: definition.effect, cleanupHint: definition.cleanupHint, path: target,
+          bytes, eligible, status, reason, detail, method: id === "uv" ? "prune" : "clear" });
+      }
+      const token = randomBytes(32).toString("hex"), expiresAt = now() + 5 * 60 * 1000;
+      while (previews.size >= 16) previews.delete(previews.keys().next().value);
+      previews.set(token, { approved, expiresAt });
+      return { ok: true, dryRun: true, token, expiresAt, expiresInMs: 5 * 60 * 1000, caches: rows,
+        estimatedBytes: rows.filter((row) => row.eligible).reduce((sum, row) => sum + row.bytes, 0),
+        byteMeaning: "cache-data", note: "Sizes describe cached data. Shared files and entries still in use can remain on disk." };
+    } catch { return errorResult("unavailable", "Cache locations could not be reviewed. Try again; no files have been changed."); }
+  }
+
+  async function clean(ids, { onStarted, onProgress, automatic = false, dryRun = false, token } = {}) {
+    await ready;
+    if (!validCacheIds(ids)) {
+      return errorResult("invalid-cache", `Choose one or more caches: ${CACHES.map((cache) => cache.id).join(", ")}.`);
     }
-    if (!caches) {
-      try { caches = await detect({ env, userHome, run }); } catch { /* reported below */ }
+    if (dryRun) return previewClean(ids);
+    const preview = token === undefined ? null : previews.get(token);
+    if (token !== undefined && (!preview || preview.expiresAt <= now() || ids.some((id) => !preview.approved.has(id)))) {
+      return errorResult("stale-preview", "This review has expired or its selection changed. Review the caches again before cleaning them.");
     }
-    if (!caches) return errorResult("unavailable", "Storage could not be checked. Refresh and try again.");
-    const held = dryRun ? null : await lock.acquireLock(ctx, { id: "storage", operation: "clean" });
+    const held = await lock.acquireLock(ctx, { id: "storage", operation: "clean" });
     if (held && !held.acquired) return errorResult("busy", "An installation or cleanup is running. Try again when it finishes.");
-    let operation;
+    let operation, scratch = null;
     const report = async (patch) => {
       operation = { ...operation, ...patch }; facts.operation = operation;
       await persistOperation(operation);
       try { onProgress?.(structuredClone(operation)); } catch { /* listeners do not own the operation */ }
     };
     try {
+      // Selection is resolved again under the shared install lock. A cached
+      // inventory is useful presentation, never authorization to remove files.
+      caches = await detect({ env, userHome, run });
       const activity = await processes();
       if (!activity.complete) return errorResult("unavailable", "Tool activity could not be checked. Cleanup is paused.");
-      if (buildsOrInstallsRunning(activity)) {
+      if (buildsOrInstallsRunning(activity, ids)) {
         lastActivityAt = now();
         return errorResult("busy", "A build or package installation is running. Try again when it finishes.");
       }
       const selected = [];
       for (const id of ids) {
         const cache = caches[id];
-        const target = id === "npm" ? path.join(cache.path, "_cacache") : cache.path;
-        const guard = await checkPath(target, { userHome, cacheHome: env.XDG_CACHE_HOME, stateRoot, workspace, io });
-        if (!guard.safe || !cache.executable) return errorResult("unavailable", guard.reason || "The cache tool is not available.");
-        selected.push({ id, bytes: 0, target, ...cache });
+        const target = cacheTarget(id, caches), guard = await cacheSafety(id, caches, safetyContext);
+        if (!guard.safe) return errorResult(token === undefined ? "unavailable" : "stale-preview", guard.detail || "This cache cannot be cleaned safely. Review it again.");
+        const fingerprint = cacheFingerprint(id, caches, guard);
+        if (preview && preview.approved.get(id) !== fingerprint) return errorResult("stale-preview", "A cache location changed after this review. Check the new locations before cleaning them.");
+        selected.push({ id, bytes: 0, target, fingerprint, ...cache });
       }
-      if (!dryRun) {
+      if (token !== undefined) previews.delete(token);
+      {
         operation = { id: randomUUID(), ids, state: "running", phase: "checking", automatic, pid: ctx.pid,
           startTime: ctx.startTimeOf(ctx.pid), startedAt: now(), finishedAt: null,
           estimatedBytes: facts.categories.filter((item) => ids.includes(item.id)).reduce((sum, item) => sum + item.bytes, 0),
-          reclaimedBytes: 0, error: null };
+          reclaimedBytes: null, removedCacheBytes: 0, byteMeaning: "cache-data", completedIds: [], remainingIds: [...ids], error: null };
         await report({});
         try { onStarted?.(structuredClone(operation)); } catch { /* listener */ }
       }
@@ -210,20 +268,25 @@ export function createStorageManager(options = {}) {
         cache.bytes = measured.sizes[cache.target] ?? 0;
       }
       const estimatedBytes = selected.reduce((sum, item) => sum + item.bytes, 0);
-      if (dryRun) return { ok: true, dryRun: true, caches: selected.map(({ id, bytes }) => ({ id, bytes })), estimatedBytes };
       await report({ estimatedBytes });
-      let reclaimedBytes = 0;
+      let removedCacheBytes = 0;
+      const scratchProject = async () => {
+        if (scratch) return scratch;
+        await io.mkdir(temporary, { recursive: true });
+        scratch = await io.mkdtemp(path.join(temporary, "t3-storage-"));
+        await io.writeFile(path.join(scratch, "package.json"), '{"private":true,"name":"t3-storage-cache"}\n', { flag: "wx", mode: 0o600 });
+        return scratch;
+      };
       for (const cache of selected) {
-        const guard = await checkPath(cache.target, { userHome, cacheHome: env.XDG_CACHE_HOME, stateRoot, workspace, io });
-        if (!guard.safe) throw new Error(guard.reason);
+        const guard = await cacheSafety(cache.id, caches, safetyContext);
+        if (!guard.safe || cacheFingerprint(cache.id, caches, guard) !== cache.fingerprint) throw new Error(guard.detail || "A cache location changed. Review it again before cleaning it.");
         // Recheck after measurement: a build may have started while scanning.
-        if (buildsOrInstallsRunning(await processes())) throw new Error("A build or installation started. Cleanup was stopped; try again when it finishes.");
-        await report({ phase: cache.id, reclaimedBytes });
-        const argv = cache.id === "go" ? [cache.executable, ...(cache.argsPrefix || []), "clean", "-cache"]
-          : [cache.executable, ...(cache.argsPrefix || []), "cache", "clean", "--force", "--cache", cache.path];
-        const result = await run(argv, { cwd: userHome, timeoutMs: 5 * 60 * 1000,
-          env: { ...env, GOCACHE: caches.go.path, GOTOOLCHAIN: "local", MISE_AUTO_INSTALL: "false", MISE_NOT_FOUND_SYSTEM_FALLBACK: "false" } });
-        if (result.error || result.code !== 0) throw new Error(`${cache.id === "go" ? "Go" : "npm"} cache cleanup failed. Retry, or use the terminal for details.`);
+        if (buildsOrInstallsRunning(await processes(), [cache.id])) throw new Error("A build or tool command started. Cleanup was stopped; review the remaining caches when it finishes.");
+        await report({ phase: cache.id, removedCacheBytes });
+        const command = cacheCommand(cache.id, caches, ["bun", "mise"].includes(cache.id) ? await scratchProject() : null);
+        const result = await run(command.argv, { cwd: command.cwd || userHome, timeoutMs: 5 * 60 * 1000,
+          env: { ...env, GOTOOLCHAIN: "local", MISE_AUTO_INSTALL: "false", MISE_NOT_FOUND_SYSTEM_FALLBACK: "false", ...command.env } });
+        if (result.error || result.code !== 0) throw new Error(`${cacheLabel(cache.id)} cleanup failed. Retry, or use the terminal for details.`);
         const after = await measure([cache.target]);
         if (after.partial) throw new Error("Cleanup finished, but its result could not be fully measured. Refresh storage.");
         const remainingBytes = after.sizes[cache.target] ?? 0;
@@ -231,17 +294,23 @@ export function createStorageManager(options = {}) {
         const row = facts.categories.find((item) => item.id === cache.id);
         if (row) row.bytes = remainingBytes;
         facts.cleanableBytes = facts.categories.filter((item) => item.cleanable).reduce((sum, item) => sum + item.bytes, 0);
-        reclaimedBytes += Math.max(0, cache.bytes - remainingBytes);
-        await report({ reclaimedBytes });
+        // A removed hardlink does not free its file's blocks. Report cache data
+        // removed; only the live filesystem meter describes available space.
+        removedCacheBytes += Math.max(0, cache.bytes - remainingBytes);
+        await report({ removedCacheBytes, completedIds: [...operation.completedIds, cache.id], remainingIds: operation.remainingIds.filter((id) => id !== cache.id) });
       }
-      await report({ state: "succeeded", phase: "done", finishedAt: now(), reclaimedBytes });
-      return { ok: true, reclaimedBytes, operation: structuredClone(operation) };
+      await report({ state: "succeeded", phase: "done", finishedAt: now(), removedCacheBytes });
+      return { ok: true, reclaimedBytes: null, removedCacheBytes, byteMeaning: "cache-data", operation: structuredClone(operation) };
     } catch (error) {
       if (operation) await report({ state: "failed", finishedAt: now(), error: error.message }).catch(() => {});
       return errorResult("failed", error.message || "Cleanup failed. Refresh and try again.");
     } finally {
+      lastActivityAt = now();
+      if (scratch) await io.rm(scratch, { recursive: true, force: true }).catch(() => {});
       await held?.release();
-      if (!dryRun && options.refreshAfterCleanup !== false) void refresh();
+      // Affected caches were already measured. Update the filesystem meter
+      // cheaply; full home traversal belongs to Refresh or the scan timer.
+      if (options.refreshAfterCleanup !== false) await refreshDisk();
     }
   }
 
@@ -250,9 +319,15 @@ export function createStorageManager(options = {}) {
     if (stopped || facts.operation?.state === "running") return;
     await readPreferences();
     if (!facts.policy.automatic || facts.policyError || facts.partial || !facts.at) return;
-    const ids = facts.categories.filter((item) => item.cleanable && item.bytes > facts.policy[`${item.id}BudgetBytes`]).map((item) => item.id);
+    const overBudget = (item) => {
+      const budgetKey = CACHES.find((cache) => cache.id === item.id)?.budgetKey;
+      const last = [facts.operation, ...(facts.operation?.recent || [])].find((op) => op?.cacheResults?.[item.id] === item.bytes);
+      if (last?.finishedAt && now() - last.finishedAt < 24 * 60 * 60 * 1000) return false;
+      return facts.policy.automaticCaches.includes(item.id) && budgetKey && Number.isFinite(facts.policy[budgetKey]) && item.bytes > facts.policy[budgetKey];
+    };
+    const ids = facts.categories.filter((item) => item.cleanable && overBudget(item)).map((item) => item.id);
     if (!ids.length) return;
-    if (buildsOrInstallsRunning(await processes())) { lastActivityAt = now(); return; }
+    if (buildsOrInstallsRunning(await processes(), ids)) { lastActivityAt = now(); return; }
     if (now() - lastActivityAt < IDLE_MS) return;
     return clean(ids, { automatic: true });
   }
@@ -293,7 +368,7 @@ export function createStorageManager(options = {}) {
     } catch (error) {
       if (operation) await report({ state: "failed", finishedAt: now(), error: "Older versions could not be trimmed. Try again." }).catch(() => {});
       return errorResult("failed", "Older versions could not be trimmed. Try again.");
-    } finally { if (options.refreshAfterCleanup !== false) void refresh(); }
+    } finally { if (options.refreshAfterCleanup !== false) await refreshDisk(); }
   }
 
   async function status() {
@@ -310,10 +385,12 @@ export function createStorageManager(options = {}) {
       }
       // A CLI operation can finish between console scans. Its measured cache
       // results update those rows without starting another traversal on a poll.
-      if (facts.operation?.finishedAt > (facts.at || 0)) {
-        for (const [id, bytes] of Object.entries(facts.operation.cacheResults || {})) {
+      const completions = [...(facts.operation?.recent || []), facts.operation].filter((op) => op?.finishedAt > (facts.at || 0))
+        .sort((a, b) => a.finishedAt - b.finishedAt);
+      if (completions.length) {
+        for (const completion of completions) for (const [id, bytes] of Object.entries(completion.cacheResults || {})) {
           const row = facts.categories.find((item) => item.id === id);
-          if (row && ["go", "npm"].includes(id) && Number.isFinite(bytes) && bytes >= 0) row.bytes = bytes;
+          if (row && CACHE_IDS.includes(id) && Number.isFinite(bytes) && bytes >= 0) row.bytes = bytes;
         }
         facts.cleanableBytes = facts.categories.filter((item) => item.cleanable).reduce((sum, item) => sum + item.bytes, 0);
       }
@@ -326,7 +403,7 @@ export function createStorageManager(options = {}) {
     setInterval(() => { void refreshDisk(); void maintain().catch(() => {}); }, 60_000),
   ];
   timers.forEach((timer) => timer.unref?.());
-  return { ready, refresh, snapshot, status, clean, setPolicy, maintain, previewVersions, trimVersions,
+  return { ready, refresh, snapshot, status, clean, previewClean, setPolicy, maintain, previewVersions, trimVersions,
     paths: { home: userHome, workspace, stateRoot, policyFile },
     stop: () => { stopped = true; timers.forEach(clearInterval); } };
 }
