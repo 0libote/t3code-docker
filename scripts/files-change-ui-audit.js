@@ -16,7 +16,8 @@ const variants=[['desktop',1440,1000],['compact',1280,800],['small-desktop',1100
    if(result.body.etag&&result.body.etag===req.headers()['if-none-match'])return route.fulfill({status:304,headers:{etag:result.body.etag}});
    return route.fulfill({status:result.status||200,json:result.body});});
   const target=variant.startsWith('embedded')?await framed(page,base+'?embed=t3&theme='+theme):page;if(target===page)await page.goto(base);await unlock(target,key);
-  const shot=async name=>{await page.screenshot({path:path.join(out,variant+'-'+theme+'-'+name+'.png')});};
+  const settle=()=>target.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const shot=async name=>{await settle();await page.screenshot({path:path.join(out,variant+'-'+theme+'-'+name+'.png')});};
   const fits=async()=>{const bad=await target.evaluate(()=>[...document.querySelectorAll('.tc-layer:not([hidden]) .tc-fdlg,.tc-layer:not([hidden]) .tc-files-editor,#files-browser .tc-ftb')].filter(el=>{const r=el.getBoundingClientRect();return r.left<-.5||r.right>innerWidth+.5||r.bottom>innerHeight+.5&&el.closest('.tc-layer');}).map(el=>el.className));assert.deepEqual(bad,[],variant+' '+theme+' layers fit');assert.equal(await target.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);assert.deepEqual(await target.locator('#files-browser .tc-fl--projects .tc-fcell').evaluateAll(cells=>cells.filter(cell=>cell.clientWidth&&cell.scrollWidth>cell.clientWidth+1).map(cell=>cell.textContent)),[],'project names and badges stay inside their column');checks++;};
   await target.evaluate(()=>{window.__fileMenuCloses=[];const menu=Kit.menu;Kit.menu=(...args)=>{const layer=menu(...args);if(layer){const close=layer.close;layer.close=reason=>{window.__fileMenuCloses.push({reason,y:scrollY,triggerConnected:!!layer.returnTo?.isConnected});return close(reason);};}return layer;};});
   const visit=async hash=>{await target.evaluate(value=>{location.hash=value;},hash);await target.locator('#files-search').waitFor();await target.locator('#files-browser .tc-skel-row').first().waitFor({state:'detached'});};
@@ -30,12 +31,25 @@ const variants=[['desktop',1440,1000],['compact',1280,800],['small-desktop',1100
   });
   assert.deepEqual(ownership,{immediate:true,restored:true});
   try{await visit('files/projects/acme-web/apps/web');await target.locator('[data-path$="next.config.mjs"][data-files-row]').waitFor();await fits();
+  // Only a real file drag exposes the upload target, and leaving clears it.
+  const drag=await target.evaluateHandle(()=>{const value=new DataTransfer();value.items.add(new File(['fixture'],'drag-only.txt'));return value;});
+  const grid=target.locator('#files-browser [role="grid"]').first();
+  await grid.dispatchEvent('dragenter',{dataTransfer:drag});await grid.dispatchEvent('dragover',{dataTransfer:drag});
+  await target.locator('.tc-files-drop').waitFor();await grid.dispatchEvent('dragleave',{dataTransfer:drag});
+  assert.equal(await target.locator('.tc-files-drop').count(),0,'leaving a file drag clears its target');await drag.dispose();
   // Native textarea draft survives a refresh; conflict comparison never drops it.
   if(width<1024){await target.locator('[data-path$="next.config.mjs"][data-files-row]').click();await target.getByRole('button',{name:'Edit',exact:true}).click();}else await target.locator('[data-path$="next.config.mjs"][data-files-row]').dblclick();await target.locator('[data-files-editor-text]').waitFor();
   const edit=target.locator('[data-files-editor-text]');await edit.fill('// My edit\nexport default { strict: true };');
   await fixture.respond('POST',new URL('http://fixture/files/write'),{path:'/workspace/acme-web/apps/web/next.config.mjs',text:'// Outside edit\nexport default {};',mode:'overwrite'});
   await target.locator('[data-editor-save]').click();await target.getByText('next.config.mjs changed on disk while you were editing',{exact:true}).waitFor();assert.equal(await edit.inputValue(),'// My edit\nexport default { strict: true };');await fits();await shot('editor-conflict');
-  await target.locator('[data-editor-compare]').click();await target.locator('.tc-files-compare').waitFor();assert.match(await target.locator('.tc-files-compare').innerText(),/Outside edit/);await shot('editor-compare');await target.locator('[data-editor-compare-close]').click();assert.equal(await edit.inputValue(),'// My edit\nexport default { strict: true };');
+  await target.locator('[data-editor-compare]').click();await target.locator('.tc-files-compare .tc-dv-line code').first().waitFor();
+  assert.match(await target.locator('.tc-files-compare').innerText(),/Outside edit/);await settle();
+  const comparison=await target.locator('.tc-files-compare .tc-dv-line').first().evaluate(el=>{
+   const line=el.getBoundingClientRect(),pane=el.closest('.tc-dv-pane').getBoundingClientRect();
+   return {visible:line.height>0&&line.top>=pane.top&&line.bottom<=pane.bottom,line:line.toJSON(),pane:pane.toJSON()};
+  });
+  assert(comparison.visible,'comparison lines stay visible in the scroll pane: '+JSON.stringify(comparison));
+  await shot('editor-compare');await target.locator('[data-editor-compare-close]').click();assert.equal(await edit.inputValue(),'// My edit\nexport default { strict: true };');
   await target.locator('[data-editor-copy]').click();await target.getByText('next.config (copy).mjs',{exact:true}).first().waitFor();await target.locator('[data-editor-close]').click();if(width<1024)await target.getByRole('button',{name:'Close details',exact:true}).click();
   // New folder and collision errors keep their field and typed draft.
   if(width<640){await target.getByRole('button',{name:'View options',exact:true}).click();await target.getByRole('menuitem',{name:'New folder',exact:true}).click();}else await target.locator('[data-cmd="files.new-folder"]').click();
@@ -45,12 +59,12 @@ const variants=[['desktop',1440,1000],['compact',1280,800],['small-desktop',1100
   const row=target.locator('[data-files-row][data-path$="New assets"]');await row.click({button:'right'});await target.getByRole('menuitem',{name:'Move to…',exact:true}).click();await target.locator('.tc-files-move').waitFor();await fits();await shot('move');
   await target.locator('[data-move-row="/workspace"]').click();await target.locator('[data-move-submit]:not([disabled])').waitFor();await target.locator('[data-move-submit]').click();await target.locator('.tc-files-move').waitFor({state:'detached'});
   await visit('files');const moved=target.locator('[data-files-row][data-path="/workspace/New assets"]');await moved.waitFor();await moved.click({button:'right'});await target.getByRole('menuitem',{name:'Move to Trash',exact:true}).click();await moved.waitFor({state:'detached'});
-  await visit('files/trash');await target.locator('[data-files-row]').first().waitFor();await fits();await shot('trash');await target.locator('[data-cmd="files.restore"]').first().click();await target.getByText('Trash is empty',{exact:true}).waitFor();
+  await visit('files/trash');await target.locator('[data-files-row]').first().waitFor();assert.equal(await target.locator('.tc-files-drop').count(),0,'Trash never shows a drop target without an active drag');await fits();await shot('trash');await target.locator('[data-cmd="files.restore"]').first().click();await target.getByText('Trash is empty',{exact:true}).waitFor();assert.equal(await target.locator('.tc-files-drop').count(),0,'empty Trash has no drop target');
   // Guarded roots never expose active write controls until explicitly unlocked.
   await visit('files/home/.t3');await target.getByRole('button',{name:'Edit anyway…',exact:true}).click();await target.getByRole('alertdialog').waitFor();await target.getByRole('button',{name:'Edit anyway',exact:true}).click();await target.getByRole('button',{name:'Lock again',exact:true}).waitFor();await shot('managed-unlocked');await target.getByRole('button',{name:'Lock again',exact:true}).click();
   // Upload conflict, pause and resume, and atomic final publication.
   await visit('files/projects/acme-web/apps/web');const picker=page.waitForEvent('filechooser');await target.locator('[data-cmd="files.upload"]').first().click();await (await picker).setFiles({name:'README.md',mimeType:'text/plain',buffer:Buffer.from('Uploaded content')});
-  if(width<640){await target.locator('.tc-files-transfer-pill').waitFor();await target.locator('.tc-files-transfer-pill').click();}await target.locator('[data-transfer-action="resolve"]').waitFor();await target.locator('[data-transfer-action="resolve"]').click();await target.locator('.tc-files-conflicts').waitFor();await fits();await shot('upload-conflict');await target.locator('[data-conflict-continue]').click();await target.getByText('Show in web',{exact:true}).waitFor();await target.locator('[data-files-row][data-path$="README (2).md"]').waitFor();await shot('transfer-done');
+  if(width<640){await target.locator('.tc-files-transfer-pill').waitFor();await target.locator('.tc-files-transfer-pill').click();}await target.locator('[data-transfer-action="resolve"]').waitFor();await target.locator('[data-transfer-action="resolve"]').click();await target.locator('.tc-files-conflicts').waitFor();await fits();assert.deepEqual(await target.locator('.tc-files-conflicts .tc-conf small').evaluateAll(rows=>rows.filter(el=>el.clientHeight>2*parseFloat(getComputedStyle(el).lineHeight)+1).map(el=>el.textContent)),[],'short conflict summaries use the available width rather than a narrow label column');await shot('upload-conflict');await target.locator('[data-conflict-continue]').click();await target.getByText('Show in web',{exact:true}).waitFor();await target.locator('[data-files-row][data-path$="README (2).md"]').waitFor();await shot('transfer-done');
   if(width<640)await target.locator('[data-transfer-action="fold"]').click();
   let releaseChunk;hold={route:'/upload/chunk',promise:new Promise(resolve=>{releaseChunk=resolve;})};
   const secondPicker=page.waitForEvent('filechooser');await target.locator('[data-cmd="files.upload"]').first().click();await(await secondPicker).setFiles({name:'resumed.txt',mimeType:'text/plain',buffer:Buffer.alloc(128*1024,0x62)});

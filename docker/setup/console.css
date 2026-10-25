@@ -2868,6 +2868,7 @@ button.tc-fd-item:hover { background: var(--hover); }
 .tc-files-conflicts .tc-conf strong { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .tc-files-conflicts .tc-conf strong > .tc-icon { width: 16px; height: 16px; color: var(--fg-muted); }
 .tc-files-conflicts .tc-conf > div { min-width: 0; }
+.tc-files-conflicts .tc-conf small { display: block; overflow-wrap: anywhere; }
 .tc-files-conflicts .tc-conf code { overflow-wrap: anywhere; }
 .tc-files-conflicts .tc-hint { display: flex; align-items: center; gap: 8px; margin: 0; }
 .tc-files-conflicts .tc-hint > .tc-icon { width: 16px; height: 16px; flex: none; }
