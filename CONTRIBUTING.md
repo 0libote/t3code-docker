@@ -152,3 +152,8 @@ read or change the production filesystem.
 It reads the console document from that URL and serves its download fixture over
 loopback HTTP, verifying the ZIP bytes saved by Chromium. API writes stay mocked;
 native attachments bypass Playwright response interception.
+
+`node scripts/files-change-ui-audit.js URL KEY` also covers selected Trash
+actions and readable labels, managed/read-only controls, unlock/relock, blocked
+keyboard shortcuts, and the shared Kit menu’s disabled styles, click guards and
+keyboard focus. Its file changes stay in synthetic in-memory fixtures.

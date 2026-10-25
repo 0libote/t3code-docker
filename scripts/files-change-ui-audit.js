@@ -8,9 +8,10 @@ const base=process.argv[2]||'http://127.0.0.1:23832/__setup/',key=process.argv[3
 const variants=[['desktop',1440,1000],['compact',1280,800],['small-desktop',1100,1000],['tablet',834,1112],['phone',390,844],['narrow',320,740],['embedded',1198,878],['embedded-phone',390,844]],subset=process.env.T3_FILES_UI_VARIANTS?.split(',');
 (async()=>{const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||'/usr/bin/chromium',args:['--no-sandbox']});let checks=0;
  try{for(const theme of (process.env.T3_FILES_UI_THEMES?.split(',')||['light','dark']))for(const [variant,width,height]of variants){if(subset&&!subset.includes(variant))continue;
-  const context=await browser.newContext({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce'}),page=await context.newPage(),fixture=createFilesFixtures(),errors=[];let hold=null,lostFinish=false,extraJobs=[];
+  const context=await browser.newContext({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce'}),page=await context.newPage(),fixture=createFilesFixtures(),errors=[],mutations=[];let hold=null,lostFinish=false,extraJobs=[];
   page.setDefaultTimeout(10000);page.on('pageerror',error=>errors.push(error.stack));await routeConsole(page,{status:()=>statusFor('skills'),ports:()=>portsFor('ready')});
   await page.route('**/*',async route=>{const req=route.request(),url=new URL(req.url());if(!url.pathname.includes('/files/'))return route.fallback();const input=req.method()==='POST'?(url.pathname.endsWith('/chunk')?req.postDataBuffer():req.postDataJSON()):{};
+   if(req.method()==='POST')mutations.push(url.pathname);
    if(hold&&url.pathname.endsWith(hold.route))await hold.promise;
    const result=await fixture.respond(req.method(),url,input);if(url.pathname.endsWith('/files/jobs'))result.body.jobs.push(...extraJobs);if(lostFinish&&url.pathname.endsWith('/upload/finish')){lostFinish=false;return route.abort('failed');}if(result.raw)return route.fulfill({body:result.raw,headers:result.headers});
    if(result.body.etag&&result.body.etag===req.headers()['if-none-match'])return route.fulfill({status:304,headers:{etag:result.body.etag}});
@@ -30,6 +31,30 @@ const variants=[['desktop',1440,1000],['compact',1280,800],['small-desktop',1100
    return {immediate,restored:getComputedStyle(host).visibility===before};
   });
   assert.deepEqual(ownership,{immediate:true,restored:true});
+  // The shared menu must communicate and enforce disabled states, including
+  // synthetic child clicks and a disabled first item on desktop and touch.
+  await target.evaluate(()=>{
+   window.__disabledMenuRuns=0;
+   Kit.menu(document.querySelector('button'),{label:'Disabled menu probe',items:[
+    {label:'Unavailable action',icon:'pencil',disabled:true,run:()=>window.__disabledMenuRuns++},
+    {label:'Available action',icon:'eye',run:()=>{}},
+    {label:'Unavailable removal',icon:'trash-2',disabled:true,danger:true,run:()=>window.__disabledMenuRuns++},
+    {label:'Another action',icon:'copy',run:()=>{}},
+   ]});
+  });
+  assert.equal(await target.evaluate(()=>document.activeElement.textContent.trim()),'Available action','menu initially focuses its first enabled action');
+  for(const label of ['Unavailable action','Unavailable removal']){
+   const item=target.getByRole('menuitem',{name:label,exact:true});assert.equal(await item.isDisabled(),true);assert.equal(await item.getAttribute('aria-disabled'),'true');
+   const style=await item.evaluate(el=>({opacity:Number(getComputedStyle(el).opacity),color:getComputedStyle(el).color}));
+   assert(style.opacity<1&&style.opacity>=.5,'disabled menu actions remain readable but visibly muted');
+   assert.notEqual(style.color,await target.getByRole('menuitem',{name:'Available action',exact:true}).evaluate(el=>getComputedStyle(el).color));
+   await item.locator('.tc-menu-item-text').dispatchEvent('click');
+   assert.equal(await target.evaluate(()=>window.__disabledMenuRuns),0,'disabled child clicks never run an action');
+   assert.equal(await target.getByRole('menuitem',{name:'Available action',exact:true}).count(),1,'a disabled click does not dismiss the menu');
+  }
+  await page.keyboard.press('ArrowDown');assert.equal(await target.evaluate(()=>document.activeElement.textContent.trim()),'Another action','keyboard skips disabled items');
+  await page.keyboard.press('Escape');
+
   try{await visit('files/projects/acme-web/apps/web');await target.locator('[data-path$="next.config.mjs"][data-files-row]').waitFor();await fits();
   // Only a real file drag exposes the upload target, and leaving clears it.
   const drag=await target.evaluateHandle(()=>{const value=new DataTransfer();value.items.add(new File(['fixture'],'drag-only.txt'));return value;});
@@ -59,9 +84,73 @@ const variants=[['desktop',1440,1000],['compact',1280,800],['small-desktop',1100
   const row=target.locator('[data-files-row][data-path$="New assets"]');await row.click({button:'right'});await target.getByRole('menuitem',{name:'Move to…',exact:true}).click();await target.locator('.tc-files-move').waitFor();await fits();await shot('move');
   await target.locator('[data-move-row="/workspace"]').click();await target.locator('[data-move-submit]:not([disabled])').waitFor();await target.locator('[data-move-submit]').click();await target.locator('.tc-files-move').waitFor({state:'detached'});
   await visit('files');const moved=target.locator('[data-files-row][data-path="/workspace/New assets"]');await moved.waitFor();await moved.click({button:'right'});await target.getByRole('menuitem',{name:'Move to Trash',exact:true}).click();await moved.waitFor({state:'detached'});
-  await visit('files/trash');await target.locator('[data-files-row]').first().waitFor();assert.equal(await target.locator('.tc-files-drop').count(),0,'Trash never shows a drop target without an active drag');await fits();await shot('trash');await target.locator('[data-cmd="files.restore"]').first().click();await target.getByText('Trash is empty',{exact:true}).waitFor();assert.equal(await target.locator('.tc-files-drop').count(),0,'empty Trash has no drop target');
-  // Guarded roots never expose active write controls until explicitly unlocked.
-  await visit('files/home/.t3');await target.getByRole('button',{name:'Edit anyway…',exact:true}).click();await target.getByRole('alertdialog').waitFor();await target.getByRole('button',{name:'Edit anyway',exact:true}).click();await target.getByRole('button',{name:'Lock again',exact:true}).waitFor();await shot('managed-unlocked');await target.getByRole('button',{name:'Lock again',exact:true}).click();
+  await visit('files/trash');await target.locator('[data-files-row]').first().waitFor();assert.equal(await target.locator('.tc-files-drop').count(),0,'Trash never shows a drop target without an active drag');await fits();await shot('trash');
+  if(width<640){await target.getByRole('button',{name:'View options',exact:true}).click();await target.getByRole('menuitem',{name:'Select items',exact:true}).click();}
+  await target.locator('[data-files-check]').first().check();
+  const trashSelection=target.getByRole('region',{name:'Trash selection',exact:true});await trashSelection.waitFor();await settle();
+  const selectionGeometry=await trashSelection.evaluate(el=>{
+   const r=el.getBoundingClientRect();
+   return {height:r.height,overflow:[...el.querySelectorAll('button,strong')].filter(item=>{
+    const box=item.getBoundingClientRect(),range=document.createRange();range.selectNodeContents(item);const text=range.getBoundingClientRect();
+    return box.left<r.left-.5||box.right>r.right+.5||text.left<box.left-1||text.right>box.right+1;
+   }).map(item=>item.textContent)};
+  });
+  assert.deepEqual(selectionGeometry.overflow,[],'Trash selection labels and actions fit their own controls');
+  assert(selectionGeometry.height<=(width<640?128:64),'Trash selection stays compact: '+JSON.stringify(selectionGeometry));
+  if(width>=640)assert.equal(await target.locator('[data-files-select-all]:checked').count(),2,'selection and column header agree');
+  if(width<640){
+   assert.deepEqual(await trashSelection.locator('button').evaluateAll(items=>items.filter(el=>{const r=el.getBoundingClientRect();return r.height<44||r.width<44;}).map(el=>el.ariaLabel||el.textContent)),[],'phone selection actions keep touch targets at least44px');
+   assert.equal(await target.evaluate(()=>{const bar=document.querySelector('.tc-files-phone-selection').getBoundingClientRect(),notices=document.querySelector('.tc-toaster').getBoundingClientRect();return notices.bottom<=bar.top-8;}),true,'Undo notifications stay above the selection bar');
+  }
+
+  if(width<640){assert.equal(await target.locator('[data-cmd="files.restore"][data-path]').first().evaluate(el=>{const r=el.getBoundingClientRect();return r.width>=44&&r.height>=44;}),true,'per-item Restore keeps a touch target');assert.equal(await trashSelection.getByRole('button',{name:'Move',exact:true}).count(),0);assert.equal(await trashSelection.getByRole('button',{name:'Download',exact:true}).count(),0);}
+  await shot('trash-selected');
+  await trashSelection.getByRole('button',{name:'Remove selected…',exact:true}).click();await target.getByRole('alertdialog').waitFor();
+  await target.getByRole('button',{name:'Cancel',exact:true}).click();await trashSelection.waitFor();
+  await trashSelection.getByRole('button',{name:'Restore',exact:true}).click();await target.getByText('Trash is empty',{exact:true}).waitFor();assert.equal(await target.locator('.tc-files-drop').count(),0,'empty Trash has no drop target');
+  if(width<640)await target.getByRole('button',{name:'Done',exact:true}).click();
+  // Managed menus explain their lock and restore the same actions after consent.
+  await fixture.respond('POST',new URL('http://fixture/files/write'),{path:'/home/t3/.t3/example.md',text:'# Managed example\nFixture text.',mode:'create',unlock:'/home/t3/.t3'});
+  await visit('files/home/.t3');const managedRow=target.locator('[data-files-row][data-path="/home/t3/.t3/example.md"]');await managedRow.waitFor();await managedRow.click({button:'right'});
+  for(const label of ['Edit','Compress','Rename','Move to…','Duplicate','Move to Trash','Delete permanently…']){
+   const item=target.getByRole('menuitem',{name:label,exact:true});assert.equal(await item.isDisabled(),true,label+' is locked');assert.equal(await item.getAttribute('aria-disabled'),'true');
+  }
+  for(const label of ['Preview','Details','Download','Copy path','Edit anyway…'])assert.equal(await target.getByRole('menuitem',{name:label,exact:true}).isEnabled(),true,label+' remains available');
+  await page.keyboard.press('Escape');await managedRow.focus();const writesBefore=mutations.length;
+  await target.evaluate(()=>{window.__lockNotices=[];window.__originalToast=Kit.toast;Kit.toast=(...args)=>{const notice=window.__originalToast(...args);window.__lockNotices.push(notice);return notice;};});
+  for(const shortcut of ['F2','Control+Shift+M','Control+d','Shift+Delete','Control+u'])await page.keyboard.press(shortcut);
+  assert.equal(mutations.length,writesBefore,'locked shortcuts never submit a mutation');
+  assert.equal(await target.locator('.tc-files-editor,#files-rename-name,.tc-files-move,.tc-files-delete').count(),0,'locked shortcuts do not open unusable editing flows');
+  assert.equal(await target.evaluate(()=>window.__lockNotices.length),5,'each locked shortcut explains how to unlock');
+  await target.evaluate(()=>{for(const notice of window.__lockNotices)notice.close();Kit.toast=window.__originalToast;delete window.__originalToast;delete window.__lockNotices;});
+  await managedRow.click({button:'right'});
+
+  assert.match(await target.locator('.tc-menu-foot').innerText(),/Choose Edit anyway first/);
+  if(width<640){
+   const menuGeometry=await target.locator('.tc-sheet--menu').evaluate(el=>{
+    const panel=el.getBoundingClientRect(),cancel=el.querySelector('[data-menu-cancel]').getBoundingClientRect(),head=el.querySelector('.tc-menu-head').getBoundingClientRect(),foot=el.querySelector('.tc-menu-foot').getBoundingClientRect(),list=el.querySelector('.tc-sheet-actions');
+    return {panelFits:panel.left>=0&&panel.right<=innerWidth&&panel.bottom<=innerHeight+1,cancelVisible:cancel.top>=panel.top&&cancel.bottom<=panel.bottom,contextVisible:foot.top>=panel.top&&foot.bottom<=cancel.top,headerVisible:head.top>=panel.top&&head.bottom<=foot.top,scrollable:list.scrollHeight>=list.clientHeight};
+   });
+   assert.deepEqual(menuGeometry,{panelFits:true,cancelVisible:true,contextVisible:true,headerVisible:true,scrollable:true},'long phone menus keep their heading, reason and Cancel visible');
+  }
+  await shot('managed-locked-menu');
+  if(width<640){
+   await target.getByRole('menuitem',{name:'Select',exact:true}).click();const bar=target.getByRole('region',{name:'Selection actions',exact:true});
+   assert.equal(await bar.getByRole('button',{name:'Move',exact:true}).isDisabled(),true);assert.equal(await bar.getByRole('button',{name:'Trash',exact:true}).isDisabled(),true);assert.equal(await bar.getByRole('button',{name:'Download',exact:true}).isEnabled(),true);
+   await shot('managed-locked-selection');await bar.getByRole('button',{name:'More selection actions',exact:true}).click();
+   assert.equal(await target.getByRole('menuitem',{name:'Compress',exact:true}).isDisabled(),true);assert.equal(await target.getByRole('menuitem',{name:'Delete permanently…',exact:true}).isDisabled(),true);
+  }
+  await target.getByRole('menuitem',{name:'Edit anyway…',exact:true}).click();await target.getByRole('alertdialog').waitFor();await target.getByRole('button',{name:'Edit anyway',exact:true}).click();await target.getByRole('button',{name:'Lock again',exact:true}).waitFor();
+  if(width<640)await target.getByRole('button',{name:'Done',exact:true}).click();
+  await managedRow.click({button:'right'});assert.equal(await target.getByRole('menuitem',{name:'Edit',exact:true}).isEnabled(),true);assert.equal(await target.getByRole('menuitem',{name:'Move to Trash',exact:true}).isEnabled(),true);await target.getByRole('menuitem',{name:'Edit',exact:true}).click();await target.locator('[data-files-editor-text]').waitFor();assert.match(await target.locator('[data-files-editor-text]').inputValue(),/Managed example/);await target.locator('[data-editor-close]').click();
+  await shot('managed-unlocked');await target.getByRole('button',{name:'Lock again',exact:true}).click();
+
+  // Read-only locations use the same disabled appearance without offering unlock.
+  await fixture.respond('POST',new URL('http://fixture/files/mkdir'),{parent:'/',name:'usr'});
+  await fixture.respond('POST',new URL('http://fixture/files/write'),{path:'/usr/example.txt',text:'Read-only fixture.',mode:'create'});
+  await visit('files/path/%2Fusr');const readonlyRow=target.locator('[data-files-row][data-path="/usr/example.txt"]');await readonlyRow.waitFor();await readonlyRow.click({button:'right'});
+  for(const label of ['Edit','Compress','Rename','Move to…','Duplicate','Move to Trash','Delete permanently…'])assert.equal(await target.getByRole('menuitem',{name:label,exact:true}).isDisabled(),true,label+' is unavailable in a read-only folder');
+  assert.equal(await target.getByRole('menuitem',{name:'Edit anyway…',exact:true}).count(),0);assert.equal(await target.locator('.tc-menu-foot').innerText(),'Read-only for t3');await page.keyboard.press('Escape');
   // Upload conflict, pause and resume, and atomic final publication.
   await visit('files/projects/acme-web/apps/web');const picker=page.waitForEvent('filechooser');await target.locator('[data-cmd="files.upload"]').first().click();await (await picker).setFiles({name:'README.md',mimeType:'text/plain',buffer:Buffer.from('Uploaded content')});
   if(width<640){await target.locator('.tc-files-transfer-pill').waitFor();await target.locator('.tc-files-transfer-pill').click();}await target.locator('[data-transfer-action="resolve"]').waitFor();await target.locator('[data-transfer-action="resolve"]').click();await target.locator('.tc-files-conflicts').waitFor();await fits();assert.deepEqual(await target.locator('.tc-files-conflicts .tc-conf small').evaluateAll(rows=>rows.filter(el=>el.clientHeight>2*parseFloat(getComputedStyle(el).lineHeight)+1).map(el=>el.textContent)),[],'short conflict summaries use the available width rather than a narrow label column');await shot('upload-conflict');await target.locator('[data-conflict-continue]').click();await target.getByText('Show in web',{exact:true}).waitFor();await target.locator('[data-files-row][data-path$="README (2).md"]').waitFor();await shot('transfer-done');

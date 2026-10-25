@@ -63,7 +63,9 @@ Trash is per filesystem, merged into one view. Workspace items use
 Restore keeps any conflicting name by adding `(restored)`. Items expire after
 seven days; disk pressure at 90% removes the oldest until usage is below 85%,
 while preserving the first ten minutes for Undo. Empty Trash requires a fresh
-confirmation. Other mounts have no implicit Trash.
+confirmation. Other mounts have no implicit Trash. Select items for **Restore**
+or **Remove selected…**; on a phone, use **Select items** in View. Trash selection
+offers recovery and removal instead of file-editing or transfer actions.
 
 Upload files, a folder, clipboard files or a desktop drop. At most three files
 upload together in ordered 8 MiB chunks. Received data stays under a private
@@ -81,8 +83,11 @@ except on the line being edited. A stale save offers Discard mine, Save as a
 copy, Overwrite theirs and Compare. Saves use a synced temporary file, preserve
 the mode and publish by rename. The console never executes the edited file.
 
-Managed folders begin locked. **Edit anyway** unlocks only the named managed
-root until you leave it; **Lock again** ends that permission immediately.
+Managed folders begin locked. Editing actions are muted while previews and
+downloads stay available; the menu explains the restriction. **Edit anyway**
+unlocks only the named managed root until you leave it; **Lock again** ends that
+permission immediately. Phone selections and keyboard shortcuts respect the
+same lock.
 Sign-ins and keys have separate consequences. Process checks fail closed when
 activity cannot be established. For a supervised T3 process, **Stop T3 Code
 first** pauses it for the change and verifies that it restarts. Other processes
