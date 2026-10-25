@@ -52,6 +52,6 @@ test('same-device bind mounts, symlinks, unknown mounts and nested repositories 
 
 test('mount parsing preserves escaped paths, read-only flags and a required namespace root',()=>{
  const facts=parseMounts('22 1 0:20 / / rw,relatime - overlay overlay rw\n23 22 0:20 /a /space\\040name ro,relatime - ext4 /dev/test rw\n');
- assert.equal(facts.available,true);assert.deepEqual(facts.mounts[0],{path:'/space name',readOnly:true});
+ assert.equal(facts.available,true);assert.deepEqual(facts.mounts[0],{id:'23',device:'0:20',path:'/space name',readOnly:true});
  assert.equal(parseMounts('broken').available,false);assert.equal(parseMounts('').available,false);
 });

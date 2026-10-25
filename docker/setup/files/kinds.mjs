@@ -18,11 +18,13 @@ export function kindOf(name, stat) {
   if (['zip','tar','gz','tgz','7z','rar','bz2','xz','pack'].includes(ext)) return 'archive';
   if (code.has(ext) || /^(Dockerfile|Makefile|\.env(?:\.|$))/.test(name)) return 'code';
   if (text.has(ext) || /^(LICENSE|NOTICE|README|CHANGELOG)(\.|$)/i.test(name)) return 'text';
-  if (stat?.mode & 0o111 || /^\.(?:bashrc|zshrc|profile)$/.test(name)) return 'exec';
+  if (Number(stat?.mode || 0) & 0o111 || /^\.(?:bashrc|zshrc|profile)$/.test(name)) return 'exec';
   return 'file';
 }
 export function typeOf(name, kind) {
   const ext = path.extname(name).slice(1).toLowerCase();
+  if(/^\.env(?:\.|$)/i.test(name))return 'Environment file';
+  if(kind==='secret')return 'Credentials file';
   return names[ext] || ({ folder:'Folder',link:'Symbolic link',image:ext.toUpperCase()+' image',archive:'Archive',text:'Text',code:'Code',pdf:'PDF',special:'Special file' })[kind] || (ext ? ext.toUpperCase()+' file' : 'File');
 }
 export const previewOf = (kind, bytes) => kind === 'image' ? bytes <= 25*1024*1024 ? 'image' : null : kind === 'pdf' ? bytes <= 50*1024*1024 ? 'pdf' : null : ['folder','link','special','archive','video','audio','db'].includes(kind) ? null : 'text';

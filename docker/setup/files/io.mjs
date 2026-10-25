@@ -1,3 +1,4 @@
+import { FilesError } from './paths.mjs';
 import { execFile } from 'node:child_process';
 
 // No shell, ever. Both the process deadline and captured output are bounded.
@@ -14,7 +15,7 @@ export function createCommandRunner(env = process.env) {
   });
 }
 
-export function createLimiter(concurrency) {
+export function createLimiter(concurrency, maxWaiting = Infinity) {
   let active = 0; const waiting = [];
   const pump = () => {
     while (active < concurrency && waiting.length) {
@@ -22,7 +23,7 @@ export function createLimiter(concurrency) {
       Promise.resolve().then(work).then(resolve, reject).finally(() => { active--; pump(); });
     }
   };
-  return work => new Promise((resolve, reject) => { waiting.push({ work, resolve, reject }); pump(); });
+  return work => new Promise((resolve, reject) => { if(waiting.length>=maxWaiting){reject(new FilesError('busy','Too many file operations are waiting. Let an operation finish before trying again.'));return;}waiting.push({ work, resolve, reject }); pump(); });
 }
 
 export async function mapLimit(values, limit, work) {

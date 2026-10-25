@@ -21,13 +21,14 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/.well-known/t3/environment') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ environmentId: 'fixture-preview', serverVersion: 'fixture', label: 'Fixture preview' })); return; }
   if (url.pathname === '/__setup/' || url.pathname === '/') {
     res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store', 'content-security-policy': contentSecurityPolicy('fixture') });
-    res.end(renderConsole({ assets: loadAssets(), nonce: 'fixture', mount: '/__setup', embed: url.searchParams.get('embed') === 't3' }));
+    // Match both real Setup entry points, including direct-port image smoke tests.
+    res.end(renderConsole({ assets: loadAssets(), nonce: 'fixture', mount: url.pathname === '/' ? '' : '/__setup', embed: url.searchParams.get('embed') === 't3' }));
     return;
   }
   const chunks = []; let bytes = 0;
-  for await (const chunk of req) { chunks.push(chunk); bytes += chunk.length; if (bytes > 150000) { res.writeHead(413); res.end(); return; } }
+  for await (const chunk of req) { chunks.push(chunk); bytes += chunk.length; if (bytes > (url.pathname.endsWith('/files/upload/chunk')?8*1024*1024+65536:url.pathname.endsWith('/files/write')?5*1024*1024+65536:150000)) { res.writeHead(413); res.end(); return; } }
   let input;
-  try { input = chunks.length ? JSON.parse(Buffer.concat(chunks)) : {}; }
+  try { input = url.pathname.endsWith('/files/upload/chunk')?Buffer.concat(chunks):chunks.length ? JSON.parse(Buffer.concat(chunks)) : {}; }
   catch { res.writeHead(400); res.end(); return; }
   const result = await files.respond(req.method, url, input) || await mcp.respond(req.method, url, input) || storage.respond(req.method, url, input) || api.respond(req.method, url, input) || (url.pathname.endsWith('/status') ? { body: { ...statusFor('skills'), storage: storage.status(), context: { ...statusFor('skills').context, mcp: mcp.status() } } }
     : url.pathname.endsWith('/ports') ? { body: portsFor('ready') }

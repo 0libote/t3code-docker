@@ -25,7 +25,8 @@ import {
 } from "./cache.mjs";
 import { loadAssets, renderConsole, renderUnlock, contentSecurityPolicy } from "./page.mjs";
 import { parseListeners, processLabel, looksLikeDatabase } from "./ports.mjs";
-import { createFilesService, FILES_ROUTES, filesFailure } from "./files.mjs";
+import { createFilesService, FILES_ROUTES, FILES_POST_ROUTES, filesFailure } from "./files.mjs";
+import { createHoldControl } from './files/hold.mjs';
 import { createLatestCache } from "./latest.mjs";
 import { createT3Api } from "./t3-api.mjs";
 import { createAntigravity } from "./antigravity.mjs";
@@ -524,10 +525,10 @@ const skillsService = createSkillsService({ home: CONTEXT_HOME, env: process.env
 const mcpService = createMcpService({ home: CONTEXT_HOME, env: process.env, baseDir: STATE_DIR,
   io: await contextFs(),
 });
-let filesPromise;
+let filesPromise, filesInstance, filesPayloads = 0;
 const loadFiles = () => filesPromise ??= loadStorage().then(storage => createFilesService({
-  home: CONTEXT_HOME, workspace: WORKSPACE, stateDir: STATE_DIR, env: process.env, storage, processSnapshot: harnessModule.processSnapshot, t3: t3Api, recordEvent,
-})).catch(error => { filesPromise = null; throw error; });
+  home: CONTEXT_HOME, workspace: WORKSPACE, stateDir: STATE_DIR, env: process.env, storage, processSnapshot: harnessModule.processSnapshot, t3: t3Api, recordEvent, withStopped: action => filesHold.withStopped(action),
+})).then(service => filesInstance = service).catch(error => { filesPromise = null; throw error; });
 
 // The browser image's agent browser, as built: the versions are build args the
 // Dockerfile bakes into the environment. Absent on the core image.
@@ -1070,6 +1071,11 @@ const restartT3 = (why = null) => {
   recordEvent("t3.restarted", "Restarted T3 Code", why);
   return { http: 202, body: { ok: true, pid } };
 };
+
+const filesHold=createHoldControl({runDir:RUN_DIR,runtimeBusy:()=>runtimeModule.operationBusy(runtimeOperation()),readPid:t3Pid,
+  restart:()=>restartT3('to change a managed file'),recordEvent,
+  probe:async()=>{try{return (await fetch('http://127.0.0.1:'+T3_PORT+'/.well-known/t3/environment',{signal:AbortSignal.timeout(2000)})).ok;}catch{return false;}},
+});
 
 // --- T3 Connect -------------------------------------------------------------
 //
@@ -2474,6 +2480,7 @@ const server = createServer(async (req, res) => {
     // Auto-update waits for this to go quiet before installing anything.
     noteActivity();
 
+    if(req.method === "POST" && route !== "/logout" && await filesHold.active())return sendJson(res,409,{ok:false,code:"busy",error:"T3 Code is stopped briefly while Files changes a managed file. Wait for it to restart."});
     if (req.method === "POST" && runtimeModule.databaseBusy(runtimeOperation()) && !["/logout", "/t3/updates/check"].includes(route)) {
       return sendJson(res, 409, { ok: false, code: "busy", error: "T3 Code is applying an update. Try again when it is back." });
     }
@@ -2483,15 +2490,25 @@ const server = createServer(async (req, res) => {
     if (route === "/status") return sendJson(res, 200, { ...(await status()), viewer: { via: viewer.via } });
 
     if (route.startsWith("/files/")) {
-      if (req.method !== (route === "/files/measure" ? "POST" : "GET")) return sendJson(res, 405, { ok: false, code: "invalid", error: "Use the supported method for this Files action." });
+      if (req.method !== (FILES_POST_ROUTES.includes(route) ? "POST" : "GET")) return sendJson(res, 405, { ok: false, code: "invalid", error: "Use the supported method for this Files action." });
+      let payloadLease = false;
       try {
-        let input = {};
-        if (req.method === "POST") {
-          try { input = JSON.parse((await readBody(req)) || "{}"); }
-          catch (error) { return sendJson(res, error.message === "body too large" ? 413 : 400, { ok: false, code: error.message === "body too large" ? "too-large" : "invalid", error: error.message === "body too large" ? "This Files request exceeds 64 KiB." : "Use a valid JSON request." }); }
+        if(["/files/write","/files/upload/chunk"].includes(route)){if(filesPayloads>=6){req.resume();return sendJson(res,409,{ok:false,code:"busy",error:"Files is receiving other uploads. Try again in a moment."});}filesPayloads++;payloadLease=true;}
+        let input = {},bodyBuffer;
+        if(route === '/files/upload/chunk') {
+          if(String(req.headers['content-type']||'').split(';')[0]!=='application/octet-stream')return sendJson(res,400,{ok:false,code:'invalid',error:'Send upload chunks as application/octet-stream.'});
+          const limit=8*1024*1024+64*1024;
+          if(Number(req.headers['content-length'])>limit){req.resume();return sendJson(res,413,{ok:false,code:'too-large',error:'An upload chunk exceeds 8 MiB.'});}
+          const chunks=[];let bytes=0;
+          for await(const chunk of req){bytes+=chunk.length;if(bytes>limit)throw new Error('body too large');chunks.push(chunk);}
+          bodyBuffer=Buffer.concat(chunks,bytes);input={unlock:req.headers['x-t3-files-unlock'],confirmed:req.headers['x-t3-files-confirmed']==='true'};
+        } else if (req.method === "POST") {
+          const limit=route==='/files/write'?5*1024*1024+64*1024:64*1024;
+          try { input = JSON.parse((await readBody(req,limit)) || "{}"); }
+          catch (error) { return sendJson(res, error.message === "body too large" ? 413 : 400, { ok: false, code: error.message === "body too large" ? "too-large" : "invalid", error: error.message === "body too large" ? "This Files request exceeds its size limit." : "Use a valid JSON request." }); }
           if (!input || Array.isArray(input) || typeof input !== "object") return sendJson(res, 400, { ok: false, code: "invalid", error: "Use a JSON object." });
         }
-        const data = await (await loadFiles()).handle(route, { query: raw.searchParams, input, headers: req.headers });
+        const data = await (await loadFiles()).handle(route, { query: raw.searchParams, input, headers: req.headers, bodyBuffer });
         if (data.raw) {
           res.writeHead(data.status, data.headers);
           res.once("close", () => data.stream.destroy());
@@ -2503,7 +2520,7 @@ const server = createServer(async (req, res) => {
         if (etag && req.headers["if-none-match"] === etag) { res.writeHead(304, { ETag: etag, "Cache-Control": "private, no-cache" }); return res.end(); }
         if (etag) res.setHeader("ETag", etag);
         return sendJson(res, 200, data);
-      } catch (error) { const failure = filesFailure(error); return sendJson(res, failure.status, failure.body); }
+      } catch (error) { if(error.message==='body too large')return sendJson(res,413,{ok:false,code:'too-large',error:'This upload chunk exceeds its size limit.'});const failure = filesFailure(error); return sendJson(res, failure.status, failure.body); } finally { if(payloadLease)filesPayloads--; }
     }
 
     if (req.method === "GET" && route === "/auto-update") {
@@ -3040,6 +3057,7 @@ const server = createServer(async (req, res) => {
 // tracking them - a sign-in nobody can finish, a URL nobody can stop - so
 // they go when the service does, however it goes.
 const stopChildren = () => {
+  filesInstance?.stop();
   for (const session of sessions.values()) {
     if (!TERMINAL_STATES.has(session.state)) {
       try { session.child.kill(); } catch { /* already gone */ }

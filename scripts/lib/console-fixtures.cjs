@@ -117,11 +117,11 @@ const routeConsole = async (page, { status, ports, skillOptions }) => {
     const request = route.request();
     const url = new URL(request.url());
     const at = (suffix) => url.pathname.endsWith(suffix);
-    const fileResponse = await files.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
+    const fileResponse = await files.respond(request.method(), url, request.method() === 'POST' ? (url.pathname.endsWith('/files/upload/chunk')?request.postDataBuffer():request.postDataJSON()) : undefined);
     if (fileResponse) return route.fulfill({ status: fileResponse.status || 200, ...(fileResponse.raw ? { body: fileResponse.raw, headers: fileResponse.headers } : { json: fileResponse.body }) });
-    const mcpResponse = await mcp.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
+    const mcpResponse = await mcp.respond(request.method(), url, request.method() === 'POST' ? (url.pathname.endsWith('/files/upload/chunk')?request.postDataBuffer():request.postDataJSON()) : undefined);
     if (mcpResponse) return route.fulfill({ status: mcpResponse.status, json: mcpResponse.body });
-    const skillResponse = skills.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
+    const skillResponse = skills.respond(request.method(), url, request.method() === 'POST' ? (url.pathname.endsWith('/files/upload/chunk')?request.postDataBuffer():request.postDataJSON()) : undefined);
     if (skillResponse) return route.fulfill({ status: skillResponse.status, json: skillResponse.body });
     if (request.method() === "POST" && !at("/login")) return route.fulfill({ json: { ok: true } });
     if (at("/status")) return route.fulfill({ json: status() });

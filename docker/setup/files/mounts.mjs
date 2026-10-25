@@ -6,7 +6,7 @@ export function parseMounts(text){
   for(const line of text.split('\n').filter(Boolean)){
     const fields=line.split(' '),separator=fields.indexOf('-');
     if(separator<6||fields.length<separator+4)return {available:false,mounts:[]};
-    try{mounts.push({path:normalizePath(decode(fields[4])),readOnly:fields[5].split(',').includes('ro')});}catch{return {available:false,mounts:[]};}
+    try{mounts.push({id:fields[0],device:fields[2],path:normalizePath(decode(fields[4])),readOnly:fields[5].split(',').includes('ro')});}catch{return {available:false,mounts:[]};}
   }
   return {available:mounts.some(row=>row.path==='/'),mounts:mounts.sort((a,b)=>b.path.length-a.path.length)};
 }

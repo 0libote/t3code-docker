@@ -4,7 +4,7 @@ import path from 'node:path';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 export const allocatedBytes = stat => Number.isSafeInteger(Number(stat.blocks) * 512) ? Number(stat.blocks) * 512 : Number(stat.size);
 export const sameEntry = (a, b) => a.dev === b.dev && a.ino === b.ino;
-export const internalName = name => name === '.t3-trash' || /^\.t3-(?:upload|extract|write|zip)-(?:[a-z]+_)*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\.(?:part|tmp))?$/.test(name);
+export const internalName = name => name === '.t3-trash' || /^\.t3-(?:upload|extract|write|zip|copy)-(?:[a-z]+_)*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\.(?:part|tmp))?$/.test(name);
 
 /** A bounded, same-device, no-follow walk. An open parent descriptor pins each
  * lookup even if another process replaces a directory with a symlink. Linux's

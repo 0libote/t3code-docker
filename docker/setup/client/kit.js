@@ -262,6 +262,10 @@ const Kit = (() => {
     syncInert();
     const first = (opts.focus && panel.querySelector(opts.focus)) || panel.querySelector('[data-initial-focus]') || focusables(panel)[0] || panel;
     first.focus({ preventScroll: true });
+    if(layer.kind==='menu'){
+      layer.scrollOffsets=new Map([[window,[window.scrollX,window.scrollY]]]);
+      for(let parent=trigger?.parentElement;parent;parent=parent.parentElement)layer.scrollOffsets.set(parent,[parent.scrollLeft,parent.scrollTop]);
+    }
     return layer;
   };
 
@@ -296,7 +300,16 @@ const Kit = (() => {
     const layer = top();
     if (layer && layer.kind === 'menu' && !layer.panel.contains(e.target) && !(layer.returnTo && layer.returnTo.contains(e.target))) layer.close('outside');
   }, true);
-  const closeMenusOnMove = event => { const layer = top(); if (layer && layer.kind === 'menu' && !(event.type === 'scroll' && layer.panel.contains(event.target))) layer.close('moved'); };
+  const closeMenusOnMove = event => {
+    const layer=top();if(!layer||layer.kind!=='menu')return;
+    if(event.type==='scroll'){
+      if(layer.panel.contains(event.target))return;
+      const target=event.target===document?window:event.target,prior=layer.scrollOffsets?.get(target),current=target===window?[window.scrollX,window.scrollY]:[target.scrollLeft,target.scrollTop];
+      // A scroll queued before a pointer opened the menu is not a new move.
+      if(prior&&prior[0]===current[0]&&prior[1]===current[1])return;
+    }
+    layer.close('moved');
+  };
   window.addEventListener('resize', closeMenusOnMove);
   window.addEventListener('scroll', closeMenusOnMove, true);
 
@@ -443,11 +456,13 @@ const Kit = (() => {
     if (!host) return null;
     const tone = opts.tone || 'ok';
     const sticky = tone === 'danger' || opts.sticky;
+    const actions=(opts.actions||(opts.action?[opts.action]:[])).slice(0,2);
+    const duration=Number.isFinite(opts.duration)?Math.max(1000,Math.min(60_000,opts.duration)):TOAST_MS;
     const node = document.createElement('div');
     node.className = 'tc-toast';
     node.setAttribute('data-tone', tone);
     node.setAttribute('role', tone === 'danger' ? 'alert' : 'status');
-    node.innerHTML = String(html`${icon(tone === 'danger' ? 'circle-alert' : tone === 'info' ? 'info' : 'circle-check')}<span class="tc-toast-text"><span>${text}</span>${opts.detail ? html`<small>${opts.detail}</small>` : ''}</span>${opts.action ? html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-toast-action>${opts.action.label}</button>` : ''}${sticky ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--xs" type="button" data-toast-close aria-label="Dismiss">${icon('x')}</button>` : ''}`);
+    node.innerHTML = String(html`${icon(tone === 'danger' ? 'circle-alert' : tone === 'info' ? 'info' : 'circle-check')}<span class="tc-toast-text"><span>${text}</span>${opts.detail ? html`<small>${opts.detail}</small>` : ''}</span>${actions.map((action,index)=>html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-toast-action="${index}">${action.label}</button>`)}${sticky ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--xs" type="button" data-toast-close aria-label="Dismiss">${icon('x')}</button>` : ''}`);
     let timer = null;
     const leave = () => {
       if (!node.isConnected || node.hasAttribute('data-leaving')) return;
@@ -455,14 +470,14 @@ const Kit = (() => {
       node.setAttribute('data-leaving', '');
       setTimeout(() => node.remove(), REDUCED.matches ? 0 : 200);
     };
-    const arm = () => { if (!sticky) { clearTimeout(timer); timer = setTimeout(leave, TOAST_MS); } };
+    const arm = () => { if (!sticky) { clearTimeout(timer); timer = setTimeout(leave, duration); } };
     node.addEventListener('mouseenter', () => clearTimeout(timer));
     node.addEventListener('mouseleave', arm);
     node.addEventListener('focusin', () => clearTimeout(timer));
     node.addEventListener('focusout', arm);
     node.addEventListener('click', (e) => {
       if (e.target.closest('[data-toast-close]')) leave();
-      else if (e.target.closest('[data-toast-action]')) { leave(); opts.action.run(); }
+      else if (e.target.closest('[data-toast-action]')) { const action=actions[Number(e.target.closest('[data-toast-action]').dataset.toastAction)];leave();Promise.resolve().then(()=>action.run()).catch(error=>toast('Couldn’t finish this action',{tone:'danger',detail:error.message})); }
     });
     host.appendChild(node);
     const live = [...host.children].filter((n) => !n.hasAttribute('data-leaving'));
@@ -538,7 +553,12 @@ const Kit = (() => {
       if (hit && (!modalOpen() || (top() && top().kind === 'palette'))) { e.preventDefault(); hit.run(e); }
       return;
     }
-    if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    if(e.isComposing)return;
+    if(e.metaKey||e.ctrlKey||e.altKey){
+      const chord=[...(e.metaKey||e.ctrlKey?['mod']:[]),...(e.altKey?['alt']:[]),...(e.shiftKey?['shift']:[]),e.key.toLowerCase()].join('+');
+      const hit=bindings.find(binding=>binding.keys.length===1&&binding.keys[0]===chord&&(!binding.when||binding.when()));
+      if(hit&&!modalOpen()){e.preventDefault();hit.run(e);}return;
+    }
     if (isTyping(e.target) || modalOpen()) { pending = null; return; }
     const key = e.key.toLowerCase();
     const seq = pending ? [pending, key] : [key];

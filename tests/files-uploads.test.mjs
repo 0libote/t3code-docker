@@ -1,0 +1,50 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { filesFixture } from './lib/files-fixture.mjs';
+import { createUploads,CHUNK_BYTES } from '../docker/setup/files/uploads.mjs';
+
+const item=(name='folder/file.txt',size=5)=>({path:name,size,lastModified:1700000000000});
+test('uploads resume from persisted offsets and publish only complete files',async t=>{
+  const f=await filesFixture(t),first=await f.uploads.start({dest:f.workspace,items:[item()]}),id=first.uploads[0].id;
+  await f.uploads.chunk({id,offset:0},Buffer.from('hel'));assert.equal(await fs.stat(path.join(f.workspace,'folder/file.txt')).then(()=>true,()=>false),false);
+  const recovered=createUploads({policy:f.policy,guard:f.guard,trash:f.trash});
+  const again=await recovered.start({dest:f.workspace,items:[item()]});assert.equal(again.uploads[0].id,id);assert.equal(again.uploads[0].received,3);
+  await assert.rejects(recovered.chunk({id,offset:0},Buffer.from('hello')),error=>error.code==='changed'&&error.fields.received===3);
+  await assert.rejects(recovered.finish({id}),{code:'changed'});await recovered.chunk({id,offset:3},Buffer.from('lo'));
+  const finish=await recovered.finish({id}),repeated=await recovered.finish({id});assert.deepEqual(repeated,finish);assert.equal(await fs.readFile(finish.path,'utf8'),'hello');assert.equal((await fs.readdir(path.dirname(finish.path))).some(name=>name.startsWith('.t3-upload-')),false);
+  const state=await fs.stat(path.join(f.policy.stateDir,'files/uploads/'+id+'.json'));assert.equal(state.mode&0o777,0o600);
+});
+
+test('upload replacements retain previous data and stale conflicts never overwrite newer contents',async t=>{
+  const f=await filesFixture(t),target=path.join(f.workspace,'file.txt');await fs.writeFile(target,'old');
+  const start=await f.uploads.start({dest:f.workspace,items:[item('file.txt',3)]}),id=start.uploads[0].id,revision=start.uploads[0].conflict.existing.revision;
+  await f.uploads.chunk({id,offset:0},Buffer.from('new'));await assert.rejects(f.uploads.finish({id}),{code:'conflicts'});
+  await fs.writeFile(target,'outside');await assert.rejects(f.uploads.finish({id,onConflict:'replace',existingRevision:revision}),{code:'stale'});assert.equal(await fs.readFile(target,'utf8'),'outside');
+  const result=await f.uploads.finish({id,onConflict:'keep-both'});assert.match(result.path,/file \(2\)\.txt$/);assert.equal(await fs.readFile(target,'utf8'),'outside');
+  const next=await f.uploads.start({dest:f.workspace,items:[item('file.txt',3)]}),second=next.uploads[0];await f.uploads.chunk({id:second.id,offset:0},Buffer.from('new'));const replaced=await f.uploads.finish({id:second.id,onConflict:'replace',existingRevision:second.conflict.existing.revision});assert.ok(replaced.replaced);assert.equal(await fs.readFile(target,'utf8'),'new');assert.equal((await f.trash.list()).items.length,1);
+});
+
+test('cancel and stale-session cleanup remove only their own staging inode',async t=>{
+  let clock=Date.now();const f=await filesFixture(t,{now:()=>clock}),target=path.join(f.workspace,'keep');await fs.writeFile(target,'original');
+  const result=await f.uploads.start({dest:f.workspace,items:[item('keep',3)]}),id=result.uploads[0].id;await f.uploads.chunk({id,offset:0},Buffer.from('new'));await f.uploads.cancel({ids:[id]});assert.equal(await fs.readFile(target,'utf8'),'original');
+  const next=await f.uploads.start({dest:f.workspace,items:[item('late',3)]});clock+=25*3600_000;await f.uploads.prune();assert.equal(f.uploads.list().length,0);assert.equal((await fs.readdir(f.workspace)).some(name=>name.includes(next.uploads[0].id)),false);
+});
+
+test('space, path, chunk and parent identity checks fail before publishing',async t=>{
+  const f=await filesFixture(t),low=createUploads({policy:f.policy,guard:f.guard,trash:f.trash,statfs:async()=>({bavail:1024**3,bsize:1})});
+  await assert.rejects(low.start({dest:f.workspace,items:[item()]}),error=>error.code==='no-space'&&error.fields.requiredBytes===5);
+  for(const name of ['../outside','/root/file','a//b','a/../b'])await assert.rejects(f.uploads.start({dest:f.workspace,items:[item(name)]}),{code:'invalid'});
+  const result=await f.uploads.start({dest:f.workspace,items:[item('file.txt',CHUNK_BYTES+1)]}),id=result.uploads[0].id;await assert.rejects(f.uploads.chunk({id,offset:0},Buffer.alloc(CHUNK_BYTES+1)),{code:'too-large'});
+  await assert.rejects(f.uploads.chunk({id,offset:null},Buffer.alloc(1)),{code:'invalid'});
+  const linked=path.join(f.workspace,'link');await fs.symlink(f.home,linked);await assert.rejects(f.uploads.start({dest:f.workspace,items:[item('link/file')]}),{code:'locked'});
+});
+
+test('empty directories, restored transfer facts and fresh replacement revisions are preserved',async t=>{
+  const f=await filesFixture(t);const empty=await f.uploads.start({dest:f.workspace,items:[{path:'empty/nested',directory:true}]});assert.equal(empty.uploads[0].directory,true);assert((await fs.stat(path.join(f.workspace,'empty/nested'))).isDirectory());
+  const result=await f.uploads.start({dest:f.workspace,items:[item('later',3)]}),id=result.uploads[0].id;await f.uploads.chunk({id,offset:0},Buffer.from('new'));let jobs=await f.uploads.jobs();assert.equal(jobs[0].received,3);assert.equal(jobs[0].state,'waiting');
+  await fs.writeFile(path.join(f.workspace,'later'),'outside');await assert.rejects(f.uploads.finish({id,onConflict:'replace'}),{code:'stale'});assert.equal(await fs.readFile(path.join(f.workspace,'later'),'utf8'),'outside');
+  await f.uploads.finish({id,onConflict:'keep-both'});jobs=await f.uploads.jobs();assert.equal(jobs[0].state,'done');assert.match(jobs[0].result.path,/later \(2\)$/);
+  const recovered=createUploads({policy:f.policy,guard:f.guard,trash:f.trash});assert.equal((await recovered.jobs())[0].result.path,jobs[0].result.path);
+});
