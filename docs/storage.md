@@ -5,6 +5,10 @@ The disk meter shows the filesystem shared with the host and other containers;
 the inventories describe data visible inside this container. A warning appears
 at 80% usage and becomes critical at 90%.
 
+Use [Files](files.md) for projects and personal files: browse, upload, download a
+ZIP, or review rebuildable project folders. Expand **Container data → Folder
+sizes** to open Projects, T3 Code data or backups directly in Files.
+
 ## Review a cleanup
 
 1. Choose **Review cleanup**, or **Review** beside one cache.

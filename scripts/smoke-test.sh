@@ -388,8 +388,11 @@ printf '\nSetup service\n'
 SETUP_JAR="$(mktemp)"
 # Gate the section on the service actually answering, so the first assertion
 # is not the one that discovers it is still starting.
-retry 30 "docker exec $NAME curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:3774/" \
-  || no "setup service never answered"
+if ! retry 30 "docker exec $NAME curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:3774/"; then
+  no "setup service never answered"
+  docker logs "$NAME" 2>&1 | tail -30
+  exit 1
+fi
 check "refuses an unauthenticated request" \
   "[ \"\$(docker exec $NAME curl -sS -o /dev/null -w '%{http_code}' \
      http://127.0.0.1:3774/status)\" = 401 ]"
@@ -397,6 +400,72 @@ docker exec "$NAME" sh -c \
   "curl -sS -c /tmp/jar -d 'key=$SETUP_KEY' -o /dev/null http://127.0.0.1:3774/login" >/dev/null 2>&1
 check "grants a session for the right key" \
   "docker exec $NAME sh -c 'curl -fsS -b /tmp/jar http://127.0.0.1:3774/status | grep -q publicUrl'"
+files_browse_works() {
+  docker exec -i -u t3 -e FILES_SMOKE_KEY="$SETUP_KEY" "$NAME" node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const root=await fs.mkdtemp(path.join(os.tmpdir(),'t3-files-smoke-'));
+const base='http://127.0.0.1:3774';
+const request=(route,options={})=>fetch(base+route,{...options,headers:{'x-t3-setup-key':process.env.FILES_SMOKE_KEY,...options.headers}});
+try {
+  const file=path.join(root,'page.html');await fs.writeFile(file,'<script>must not run</script>');
+  await fs.symlink(path.join(os.homedir(),'.t3'),path.join(root,'managed-link'));
+  const places=await (await request('/files/places')).json();assert.equal(places.capabilities.browse,true);assert(places.disk.totalBytes>0);
+  const route='/files/list?'+new URLSearchParams({path:root,sort:'name'});
+  await (await request(route)).json();const response=await request(route),listing=await response.json();
+  assert(listing.entries.find(row=>row.name==='managed-link').tags.includes('managed'));
+  assert.equal((await request(route,{headers:{'if-none-match':response.headers.get('etag')}})).status,304);
+  const raw=await request('/files/raw?'+new URLSearchParams({path:file}));assert.equal(raw.headers.get('content-type'),'application/octet-stream');assert.match(raw.headers.get('content-disposition'),/^attachment;/);assert.equal(raw.headers.get('content-security-policy'),"sandbox; default-src 'none'");assert.match(await raw.text(),/must not run/);
+  const denied=await request('/files/list?path=%2Froot');assert.equal(denied.status,403,'Files never escalates to read root’s home');
+} finally { await fs.rm(root,{recursive:true,force:true}); }
+NODE
+}
+check "Files browses with t3 permissions, preserves managed link guards, and sandboxes downloads" files_browse_works
+
+files_changes_work() {
+  docker exec -i -u t3 -e FILES_SMOKE_KEY="$SETUP_KEY" "$NAME" node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import { randomUUID,createHash } from 'node:crypto';
+import path from 'node:path';
+const root=path.join(process.env.T3_WORKSPACE||'/workspace','.t3-files-smoke-'+randomUUID());
+await fs.mkdir(root);
+const request=async(route,body)=>{const response=await fetch('http://127.0.0.1:3774'+route,{method:body===undefined?'GET':'POST',headers:{'x-t3-setup-key':process.env.FILES_SMOKE_KEY,...(body===undefined?{}:{'content-type':Buffer.isBuffer(body)?'application/octet-stream':'application/json'})},body:body===undefined?undefined:Buffer.isBuffer(body)?body:JSON.stringify(body)});if(!response.ok)throw new Error(route+': '+await response.text());return response;};
+try {
+ const bytes=Buffer.alloc(20*1024*1024,0x61),start=await (await request('/files/upload/start',{dest:root,items:[{path:'fixture.bin',size:bytes.length,lastModified:1700000000000}]})).json(),id=start.uploads[0].id;
+ for(let offset=0;offset<bytes.length;offset+=start.chunkBytes)await request('/files/upload/chunk?'+new URLSearchParams({id,offset}),bytes.subarray(offset,offset+start.chunkBytes));
+ assert.equal(await fs.stat(path.join(root,'fixture.bin')).then(()=>true,()=>false),false);
+ const finished=await (await request('/files/upload/finish',{id})).json(),download=Buffer.from(await (await request('/files/raw?'+new URLSearchParams({path:finished.path}))).arrayBuffer());assert.equal(createHash('sha256').update(download).digest('hex'),createHash('sha256').update(bytes).digest('hex'));
+ const trashed=await (await request('/files/to-trash',{paths:[finished.path]})).json();assert.equal(await fs.stat(finished.path).then(()=>true,()=>false),false);await request('/files/trash/restore',{ids:trashed.ids});assert.equal((await fs.stat(finished.path)).size,bytes.length);
+} finally { await fs.rm(root,{recursive:true,force:true}); }
+NODE
+}
+check "Files uploads 20 MiB atomically, downloads identical bytes, and restores Trash" files_changes_work
+
+
+files_archives_work() {
+  docker cp tests/lib/zip-fixture.mjs "$NAME:/tmp/t3-files-zip-fixture.mjs" >/dev/null 2>&1 || return 1
+  docker exec -i -u t3 -e FILES_SMOKE_KEY="$SETUP_KEY" "$NAME" node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { inspectZip } from '/opt/t3-setup/files/zip-format.mjs';
+import { zipFixture } from '/tmp/t3-files-zip-fixture.mjs';
+const root=path.join(process.env.T3_WORKSPACE||'/workspace','.t3-files-archives-'+randomUUID());await fs.mkdir(root);
+const request=async(route,body)=>{const response=await fetch('http://127.0.0.1:3774'+route,{method:body?'POST':'GET',headers:{'x-t3-setup-key':process.env.FILES_SMOKE_KEY,...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});assert(response.ok,route+': '+await(response.ok?Promise.resolve(''):response.text()));return response;};
+const wait=async id=>{for(let at=0;at<300;at++){const job=(await(await request('/files/jobs')).json()).jobs.find(row=>row.id===id);if(job&&!['queued','running'].includes(job.state)){assert.equal(job.state,'done',job.error);return job;}await new Promise(resolve=>setTimeout(resolve,100));}assert.fail('Archive job did not finish');};
+try {
+ const project=path.join(root,'project');await fs.mkdir(project);await fs.writeFile(path.join(project,'hello [a]*.txt'),'archived bytes');
+ const review=await(await request('/files/zip/preview',{paths:[project]})).json(),prepared=await(await request('/files/zip/start',{token:review.token})).json();const response=await request('/files/zip?'+new URLSearchParams({token:prepared.token}));assert.equal(response.headers.get('content-length'),null);const archive=path.join(root,'download.zip');await fs.writeFile(archive,Buffer.from(await response.arrayBuffer()));assert((await inspectZip(archive)).entries.some(row=>row.name==='project/hello [a]*.txt'));
+ const malicious=path.join(root,'unsafe.zip');await fs.writeFile(malicious,zipFixture([{name:'../escape',data:'no'},{name:'out',mode:0o120777,data:'../../escape'},{name:'safe.txt',data:'kept'}]));const preview=await(await request('/files/extract/preview',{path:malicious})).json();assert.equal(preview.skippedCount,2);const action=await(await request('/files/extract',{token:preview.token,name:'extracted'})).json();await wait(action.job);assert.equal(await fs.readFile(path.join(root,'extracted/safe.txt'),'utf8'),'kept');assert.equal(await fs.stat(path.join(root,'escape')).then(()=>true,()=>false),false);assert.equal(await fs.lstat(path.join(root,'extracted/out')).then(()=>true,()=>false),false);
+} finally { await fs.rm(root,{recursive:true,force:true}); }
+NODE
+}
+check "Files streams literal ZIP names and extracts safely without traversal or external links" files_archives_work
+
 setup_pair="$(docker exec "$NAME" sh -c \
   "curl -sS -b /tmp/jar -H 'content-type: application/json' -d '{\"ttl\":\"1h\"}' \
      http://127.0.0.1:3774/pair" 2>/dev/null || true)"
@@ -653,6 +722,7 @@ skills_editor_works() {
   docker cp scripts/skills-update-ui-audit.js "$NAME:/tmp/skills-update-ui-audit.js" >/dev/null 2>&1 || return 1
   docker exec "$NAME" mkdir -p /tmp/lib /tmp/fixtures || return 1
   docker cp scripts/lib/mcp-fixtures.cjs "$NAME:/tmp/lib/mcp-fixtures.cjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/lib/files-fixtures.cjs "$NAME:/tmp/lib/files-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/chip-focus.cjs "$NAME:/tmp/lib/chip-focus.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/skills-fixtures.cjs "$NAME:/tmp/lib/skills-fixtures.cjs" >/dev/null 2>&1 || return 1
@@ -723,6 +793,7 @@ mcp_editor_works() {
   docker exec "$NAME" mkdir -p /tmp/t3-mcp-audit/lib /tmp/t3-mcp-audit/fixtures || return 1
   docker cp scripts/lib/mcp-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/mcp-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/mcp-ui-audit.js "$NAME:/tmp/t3-mcp-audit/mcp-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker cp scripts/lib/files-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/files-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/chip-focus.cjs "$NAME:/tmp/t3-mcp-audit/lib/chip-focus.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/skills-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/skills-fixtures.cjs" >/dev/null 2>&1 || return 1
@@ -731,6 +802,26 @@ mcp_editor_works() {
     "$NAME" node /tmp/t3-mcp-audit/mcp-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
 }
 check "MCP controls refresh immediately and preserve editor revisions and values" mcp_editor_works
+
+files_browser_works() {
+  [ "$HAS_BROWSER" -eq 1 ] || return 0
+  docker exec "$NAME" mkdir -p /tmp/t3-files-audit/lib /tmp/t3-files-audit/fixtures || return 1
+  docker cp scripts/files-ui-audit.js "$NAME:/tmp/t3-files-audit/files-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker cp scripts/files-change-ui-audit.js "$NAME:/tmp/t3-files-audit/files-change-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker cp scripts/files-space-ui-audit.js "$NAME:/tmp/t3-files-audit/files-space-ui-audit.js" >/dev/null 2>&1 || return 1
+  for helper in console-fixtures.cjs files-fixtures.cjs skills-fixtures.cjs mcp-fixtures.cjs console-download-fixture.cjs; do
+    docker cp "scripts/lib/$helper" "$NAME:/tmp/t3-files-audit/lib/$helper" >/dev/null 2>&1 || return 1
+  done
+  docker cp scripts/fixtures/console "$NAME:/tmp/t3-files-audit/fixtures/console" >/dev/null 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/t3-files-audit/files-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/t3-files-audit/files-change-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/t3-files-audit/files-space-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
+}
+check "Files browsing, selection, previews, Sizes and recovery work in every layout" files_browser_works
+
 
 hello_says_only_what_it_may() {
   local stranger member
@@ -998,8 +1089,24 @@ check "Muse saves an API key through stdin and replaces the stale signed-out ver
 as_t3() { docker exec -u t3 "$NAME" bash -lc "$1"; }
 
 codex_key_stored() {
-  auth_post '{"agent":"codex","key":"sk-smoke-test-key"}' /auth/apikey | grep -q '"ok":true' &&
-  as_t3 'codex login status' 2>&1 | grep -q "API key"
+  local reply native_status
+  # Consume both transports completely: grep -q can close Docker's pipe early
+  # and turn a successful response into SIGPIPE under pipefail.
+  if ! reply="$(auth_post '{"agent":"codex","key":"sk-smoke-test-key"}' /auth/apikey)"; then
+    printf 'Codex API-key request failed at the transport\n' >>"$UI_AUDIT_LOG"
+    return 1
+  fi
+  if ! jq -e '.ok == true' <<<"$reply" >/dev/null 2>&1; then
+    printf 'Codex API-key response was not successful JSON\n' >>"$UI_AUDIT_LOG"
+    return 1
+  fi
+  if ! native_status="$(as_t3 'codex login status' 2>&1)"; then
+    printf 'Codex native login status exited unsuccessfully\n' >>"$UI_AUDIT_LOG"
+    return 1
+  fi
+  if [[ "$native_status" == *"API key"* ]]; then return 0; fi
+  printf 'Codex native login status did not report API-key authentication\n' >>"$UI_AUDIT_LOG"
+  return 1
 }
 check "an API key signs Codex in" codex_key_stored
 

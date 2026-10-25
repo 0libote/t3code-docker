@@ -10,6 +10,12 @@ import { CHANNELS, exactVersion, databaseName, validScopes, runtimePaths, readJs
 const sqlite = /\.(?:sqlite3?|db)(?:-wal|-shm|-journal)?$/;
 const exists = async (file) => { try { await fs.access(file); return true; } catch (error) { if (error.code === "ENOENT") return false; throw error; } };
 
+export async function waitForFilesHold(file,{timeoutMs=10*60_000,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=Date.now,stopping=()=>false}={}) {
+  const deadline=now()+timeoutMs;
+  while(!stopping()&&await exists(file)&&now()<deadline)await sleep(500);
+  if(await exists(file))await fs.rm(file,{force:true});
+}
+
 async function databaseFiles(root, relative = "") {
   let entries;
   try { entries = await fs.readdir(path.join(root, relative), { withFileTypes: true }); }
@@ -198,6 +204,7 @@ export async function runSupervisor(args, { env = process.env, preparedTimeoutMs
   const pidFile = path.join(paths.run, "t3.pid");
   const restartFile = path.join(paths.run, "restart");
   await fs.rm(restartFile, { force: true });
+  await fs.rm(path.join(paths.run, "hold"), { force: true });
   await recoverUpdate(paths);
   await writeJson(path.join(paths.run, "supervisor.json"), { pid: process.pid, protocol: 3 });
   let child = null;
@@ -318,6 +325,8 @@ export async function runSupervisor(args, { env = process.env, preparedTimeoutMs
       if (stopping) return result.code;
       if (!await exists(restartFile)) return result.code;
       await fs.rm(restartFile, { force: true });
+      await waitForFilesHold(path.join(paths.run,"hold"),{stopping:()=>stopping});
+      if(stopping)return 143;
       if (await readJson(paths.request)) await trial();
       else console.error("[t3code] restarting T3 Code, as asked on the setup page");
     }

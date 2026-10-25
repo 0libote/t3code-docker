@@ -109,16 +109,19 @@ const portsFor = (scenario, change) => {
  * Answer the console's data requests on `page` from the fixtures: every POST
  * is accepted here and none reaches the server.
  */
-const routeConsole = async (page, { status, ports, skillOptions }) => {
+const routeConsole = async (page, { status, ports, skillOptions, downloadHTTP = false }) => {
   const skills = require('./skills-fixtures.cjs').createSkillsFixtures(skillOptions);
   const mcp = require('./mcp-fixtures.cjs').createMcpFixtures(status().context?.mcp);
-  await page.route("**/*", async (route) => {
+  const files = require('./files-fixtures.cjs').createFilesFixtures();
+  await page.route(downloadHTTP ? url => !url.pathname.endsWith('/files/zip') : "**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const at = (suffix) => url.pathname.endsWith(suffix);
-    const mcpResponse = await mcp.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
+    const fileResponse = await files.respond(request.method(), url, request.method() === 'POST' ? (url.pathname.endsWith('/files/upload/chunk')?request.postDataBuffer():request.postDataJSON()) : undefined);
+    if (fileResponse) return route.fulfill({ status: fileResponse.status || 200, ...(fileResponse.raw ? { body: fileResponse.raw, headers: fileResponse.headers } : { json: fileResponse.body }) });
+    const mcpResponse = await mcp.respond(request.method(), url, request.method() === 'POST' ? (url.pathname.endsWith('/files/upload/chunk')?request.postDataBuffer():request.postDataJSON()) : undefined);
     if (mcpResponse) return route.fulfill({ status: mcpResponse.status, json: mcpResponse.body });
-    const skillResponse = skills.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
+    const skillResponse = skills.respond(request.method(), url, request.method() === 'POST' ? (url.pathname.endsWith('/files/upload/chunk')?request.postDataBuffer():request.postDataJSON()) : undefined);
     if (skillResponse) return route.fulfill({ status: skillResponse.status, json: skillResponse.body });
     if (request.method() === "POST" && !at("/login")) return route.fulfill({ json: { ok: true } });
     if (at("/status")) return route.fulfill({ json: status() });

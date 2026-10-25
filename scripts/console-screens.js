@@ -58,6 +58,7 @@ const themes = list("themes", ["light", "dark"]);
 const scenarios = list("scenarios", ["ready", "setup", "attention"]);
 const withOverlays = args.includes("--overlays");
 const withSkillOverlays = args.includes("--skill-overlays");
+const withFilesOverlays = args.includes('--files-overlays');
 
 // The overlays worth a picture: how to reach each from a loaded console. Each
 // returns false when the scenario has nothing to open.
@@ -161,6 +162,26 @@ const SKILL_OVERLAYS = [
   }],
 ];
 
+const filesVisit=async(target,hash='files')=>{await target.evaluate(value=>{location.hash=value;},hash);await target.locator('#files-search').waitFor();await target.locator('#files-browser .tc-skel-row').first().waitFor({state:'detached'});};
+const FILES_OVERLAYS=[
+  ['files-clean',async target=>{await filesVisit(target);await target.locator('[data-cmd="files.clean"]').first().click();await target.locator('[data-clean-item]').first().waitFor();return true;}],
+  ['files-zip',async target=>{await filesVisit(target);await target.locator('[data-files-row][data-path="/workspace/acme-web"]').click({button:'right'});await target.getByRole('menuitem',{name:'Download as ZIP…',exact:true}).click();await target.locator('[data-zip-start]:not([disabled])').waitFor();return true;}],
+  ['files-extract',async target=>{await filesVisit(target,'files/projects/acme-web/apps/web/public');await target.locator('[data-files-row][data-path$="brand-kit.zip"]').click({button:'right'});await target.getByRole('menuitem',{name:'Extract…',exact:true}).click();await target.locator('[data-extract-start]:not([disabled])').waitFor();return true;}],
+  ['files-delete',async target=>{await filesVisit(target);await target.locator('[data-files-row][data-path="/workspace/acme-web"]').click({button:'right'});await target.getByRole('menuitem',{name:'Delete permanently…',exact:true}).click();await target.locator('#files-delete-name').waitFor();return true;}],
+  ['files-editor',async target=>{await filesVisit(target,'files/projects/acme-web/apps/web');await target.locator('[data-files-row][data-path$="next.config.mjs"]').click();await target.getByRole('button',{name:'Edit',exact:true}).click();await target.locator('[data-files-editor-text]').waitFor();return true;}],
+  ['files-new-folder',async target=>{await filesVisit(target,'files/projects/acme-web/apps/web');const button=target.locator('[data-cmd="files.new-folder"]:visible');if(await button.count())await button.click();else{await target.getByRole('button',{name:'View options',exact:true}).click();await target.getByRole('menuitem',{name:'New folder',exact:true}).click();}await target.locator('#files-rename-name').waitFor();return true;}],
+  ['files-trash',async target=>{await filesVisit(target,'files/projects/acme-web/apps/web');await target.locator('[data-files-row][data-path$="README.md"]').click({button:'right'});await target.getByRole('menuitem',{name:'Move to Trash',exact:true}).click();await filesVisit(target,'files/trash');await target.locator('[data-files-row]').waitFor();return true;}],
+  ['files-home',async target=>{await filesVisit(target,'files/home');return true;}],
+  ['files-managed',async target=>{await filesVisit(target,'files/home/.t3');return true;}],
+  ['files-read-only',async target=>{await filesVisit(target,'files/path//usr');return true;}],
+  ['files-no-access',async target=>{await filesVisit(target,'files/path//root');return true;}],
+  ['files-missing',async target=>{await filesVisit(target,'files/path//missing');return true;}],
+  ['files-preview',async(target,page)=>{await filesVisit(target,'files/projects/acme-web/apps/web');await target.locator('[data-files-row][data-path$="next.config.mjs"]').click();if(!await target.locator('.tc-fprev').isVisible())await page.keyboard.press('Space');await target.locator('.tc-fprev').waitFor();return true;}],
+  ['files-selection',async target=>{await filesVisit(target,'files/projects/acme-web/apps/web');const checks=target.locator('[data-files-check]');if(await checks.first().isVisible()){await checks.nth(0).check();await checks.nth(1).check();}else{await target.locator('[data-cmd="files.view-menu"]').click();await target.getByRole('menuitem',{name:/Select items/}).click();await target.locator('[data-files-row]').nth(0).click();await target.locator('[data-files-row]').nth(1).click();}return true;}],
+  ['files-sizes',async target=>{await filesVisit(target,'files/projects/acme-web');const sizes=target.locator('[data-cmd="files.view"][data-view="sizes"]').filter({visible:true});if(await sizes.count())await sizes.click();else{await target.locator('[data-cmd="files.view-menu"]').click();await target.getByRole('menuitemradio',{name:/Sizes/}).click();}await target.locator('[role="treegrid"]').waitFor();return true;}],
+  ['files-go-to-folder',async(target,page)=>{await filesVisit(target);await page.keyboard.press('Control+l');await target.locator('#files-goto-input').waitFor();return true;}],
+];
+
 // -------------------------------------------------------------- driving --
 const overflow = () => {
   const out = [];
@@ -192,7 +213,7 @@ const overflow = () => {
           else await page.screenshot({ path: file, fullPage: true });
           for (const issue of await target.evaluate(overflow)) problems.push(`${scenario} ${sizeName} ${theme} ${route}: ${issue}`);
         }
-        for (const [name, open] of [...(withOverlays ? OVERLAYS : []), ...(withSkillOverlays ? SKILL_OVERLAYS : [])]) {
+        for (const [name, open] of [...(withOverlays ? OVERLAYS : []), ...(withSkillOverlays ? SKILL_OVERLAYS : []), ...(withFilesOverlays ? FILES_OVERLAYS : [])]) {
           await page.keyboard.press("Escape").catch(() => {});
           await target.evaluate(() => window.scrollTo(0, 0));
           if (!(await open(target, page))) continue;

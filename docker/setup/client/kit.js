@@ -262,6 +262,10 @@ const Kit = (() => {
     syncInert();
     const first = (opts.focus && panel.querySelector(opts.focus)) || panel.querySelector('[data-initial-focus]') || focusables(panel)[0] || panel;
     first.focus({ preventScroll: true });
+    if(layer.kind==='menu'){
+      layer.scrollOffsets=new Map([[window,[window.scrollX,window.scrollY]]]);
+      for(let parent=trigger?.parentElement;parent;parent=parent.parentElement)layer.scrollOffsets.set(parent,[parent.scrollLeft,parent.scrollTop]);
+    }
     return layer;
   };
 
@@ -296,21 +300,31 @@ const Kit = (() => {
     const layer = top();
     if (layer && layer.kind === 'menu' && !layer.panel.contains(e.target) && !(layer.returnTo && layer.returnTo.contains(e.target))) layer.close('outside');
   }, true);
-  const closeMenusOnMove = () => { const layer = top(); if (layer && layer.kind === 'menu') layer.close('moved'); };
+  const closeMenusOnMove = event => {
+    const layer=top();if(!layer||layer.kind!=='menu')return;
+    if(event.type==='scroll'){
+      if(layer.panel.contains(event.target))return;
+      const target=event.target===document?window:event.target,prior=layer.scrollOffsets?.get(target),current=target===window?[window.scrollX,window.scrollY]:[target.scrollLeft,target.scrollTop];
+      // A scroll queued before a pointer opened the menu is not a new move.
+      if(prior&&prior[0]===current[0]&&prior[1]===current[1])return;
+    }
+    layer.close('moved');
+  };
   window.addEventListener('resize', closeMenusOnMove);
   window.addEventListener('scroll', closeMenusOnMove, true);
 
   // ---------------------------------------------------------------- menus --
   const menuItems = (items) => items.map((item, i) => item.sep
     ? html`<hr class="tc-menu-sep">`
-    : html`<button class="${cx('tc-menu-item', item.danger && 'tc-menu-item--danger')}" role="${item.radio ? 'menuitemradio' : item.checkbox ? 'menuitemcheckbox' : 'menuitem'}"${item.radio || item.checkbox ? html` aria-checked="${String(Boolean(item.checked))}"` : ''} type="button" data-menu-index="${i}"${item.disabled ? raw(' disabled') : ''}>${item.radio || item.checkbox ? icon('check', 'tc-menu-check') : icon(item.icon)}<span class="tc-menu-item-text">${item.description ? html`<strong>${item.label}</strong><span class="tc-menu-item-description">${item.description}</span>` : item.label}</span>${item.shortcut ? html`<span class="tc-menu-item-shortcut">${item.shortcut}</span>` : ''}</button>`);
+    : html`<button class="${cx('tc-menu-item', item.danger && 'tc-menu-item--danger')}" role="${item.radio ? 'menuitemradio' : item.checkbox ? 'menuitemcheckbox' : 'menuitem'}"${item.radio || item.checkbox ? html` aria-checked="${String(Boolean(item.checked))}"` : ''} type="button" data-menu-index="${i}"${item.disabled ? raw(' disabled aria-disabled="true"') : ''}>${item.radio || item.checkbox ? icon('check', 'tc-menu-check') : icon(item.icon)}<span class="tc-menu-item-text">${item.description ? html`<strong>${item.label}</strong><span class="tc-menu-item-description">${item.description}</span>` : item.label}</span>${item.shortcut ? html`<span class="tc-menu-item-shortcut">${item.shortcut}</span>` : ''}</button>`);
 
   const wireMenu = (layer, items) => {
-    const buttons = () => [...layer.panel.querySelectorAll('.tc-menu-item:not([disabled])')];
+    const buttons = () => [...layer.panel.querySelectorAll('.tc-menu-item:not([disabled]):not([aria-disabled="true"])')];
     layer.panel.addEventListener('click', (e) => {
       const button = e.target.closest('[data-menu-index]');
       if (button) {
         const item = items[Number(button.getAttribute('data-menu-index'))];
+        if (button.disabled || button.getAttribute('aria-disabled') === 'true' || item?.disabled) return;
         layer.close('select');
         if (item && item.run) item.run();
         return;
@@ -338,23 +352,24 @@ const Kit = (() => {
    *   items  [{label, icon, danger, run, radio?, checkbox?, checked?, description?} | {sep: true}]
    *   footer escaped Kit markup for settings paths or other contextual help
    */
-  const menu = (trigger, { label, head, items, footer, status }) => {
+  const menu = (trigger, { label, head, items, footer, status, at, className = '' }) => {
     const current = top();
     if (current && current.kind === 'menu' && current.returnTo === trigger) { current.close('toggle'); return null; }
     if (isPhone()) {
       const titleId = 'menu-title-' + Math.random().toString(36).slice(2, 8);
       const layer = open({
         kind: 'bottom',
-        panel: { tag: 'aside', class: 'tc-sheet tc-sheet--bottom', role: 'menu', 'aria-labelledby': titleId },
+        panel: { tag: 'aside', class: 'tc-sheet tc-sheet--bottom tc-sheet--menu', role: 'menu', 'aria-labelledby': titleId },
         returnTo: trigger,
         render: () => html`
           <div class="tc-sheet-head tc-menu-head">${head && head.tile ? head.tile : ''}<div class="tc-menu-head-text"><h2 class="tc-sheet-title" id="${titleId}">${(head && head.title) || label}</h2>${head && head.sub ? html`<span class="tc-small tc-muted">${head.sub}</span>` : ''}</div></div>
-          <div class="tc-sheet-actions">${status || ''}${menuItems(items)}${footer ? html`<div class="tc-menu-foot">${footer}</div>` : ''}</div>
+          <div class="tc-sheet-actions">${status || ''}${menuItems(items)}</div>
+          ${footer ? html`<div class="tc-menu-foot">${footer}</div>` : ''}
           <div class="tc-sheet-cancel"><button class="tc-btn tc-btn--block tc-btn--lg" type="button" data-menu-cancel>Cancel</button></div>`,
         backdrop: 'close',
       });
       wireMenu(layer, items);
-      const first = layer.panel.querySelector('.tc-menu-item');
+      const first = layer.panel.querySelector('.tc-menu-item:not([disabled]):not([aria-disabled="true"])');
       if (first) first.focus({ preventScroll: true });
       return layer;
     }
@@ -365,7 +380,7 @@ const Kit = (() => {
       modal: false,
       backdrop: false,
       returnTo: trigger,
-      panel: { class: 'tc-menu', role: 'menu', 'aria-label': label },
+      panel: { class: 'tc-menu' + (className ? ' ' + className : ''), role: 'menu', 'aria-label': label },
       render: () => html`${head && head.title ? html`<div class="tc-menu-label">${head.title}${head.sub ? ' · ' + head.sub : ''}</div>` : ''}${status || ''}${menuItems(items)}${footer ? html`<div class="tc-menu-foot">${footer}</div>` : ''}`,
       onClose: () => trigger.setAttribute('aria-expanded', 'false'),
     });
@@ -373,16 +388,18 @@ const Kit = (() => {
     const r = trigger.getBoundingClientRect();
     const m = layer.panel.getBoundingClientRect();
     const margin = 8;
-    let left = Math.min(Math.max(margin, r.right - m.width), window.innerWidth - m.width - margin);
-    let topPx = r.bottom + 4;
+    let left = Math.max(margin, Math.min(at ? (at.x + m.width > window.innerWidth - margin ? at.x - m.width : at.x) : r.right - m.width, window.innerWidth - m.width - margin));
+    let topPx = at ? at.y : r.bottom + 4;
     if (topPx + m.height > window.innerHeight - margin && r.top - 4 - m.height > margin) {
       topPx = r.top - 4 - m.height;
       layer.panel.style.transformOrigin = 'bottom right';
     }
+    if (at && topPx + m.height > window.innerHeight - margin) topPx = at.y - m.height;
+    topPx = Math.max(margin, Math.min(topPx, window.innerHeight - m.height - margin));
     layer.panel.style.left = left + 'px';
     layer.panel.style.top = topPx + 'px';
     wireMenu(layer, items);
-    const first = layer.panel.querySelector('.tc-menu-item');
+    const first = layer.panel.querySelector('.tc-menu-item:not([disabled]):not([aria-disabled="true"])');
     if (first) first.focus({ preventScroll: true });
     return layer;
   };
@@ -441,11 +458,13 @@ const Kit = (() => {
     if (!host) return null;
     const tone = opts.tone || 'ok';
     const sticky = tone === 'danger' || opts.sticky;
+    const actions=(opts.actions||(opts.action?[opts.action]:[])).slice(0,2);
+    const duration=Number.isFinite(opts.duration)?Math.max(1000,Math.min(60_000,opts.duration)):TOAST_MS;
     const node = document.createElement('div');
     node.className = 'tc-toast';
     node.setAttribute('data-tone', tone);
     node.setAttribute('role', tone === 'danger' ? 'alert' : 'status');
-    node.innerHTML = String(html`${icon(tone === 'danger' ? 'circle-alert' : tone === 'info' ? 'info' : 'circle-check')}<span class="tc-toast-text"><span>${text}</span>${opts.detail ? html`<small>${opts.detail}</small>` : ''}</span>${opts.action ? html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-toast-action>${opts.action.label}</button>` : ''}${sticky ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--xs" type="button" data-toast-close aria-label="Dismiss">${icon('x')}</button>` : ''}`);
+    node.innerHTML = String(html`${icon(tone === 'danger' ? 'circle-alert' : tone === 'info' ? 'info' : 'circle-check')}<span class="tc-toast-text"><span>${text}</span>${opts.detail ? html`<small>${opts.detail}</small>` : ''}</span>${actions.map((action,index)=>html`<button class="tc-btn tc-btn--ghost tc-btn--xs" type="button" data-toast-action="${index}">${action.label}</button>`)}${sticky ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--xs" type="button" data-toast-close aria-label="Dismiss">${icon('x')}</button>` : ''}`);
     let timer = null;
     const leave = () => {
       if (!node.isConnected || node.hasAttribute('data-leaving')) return;
@@ -453,14 +472,14 @@ const Kit = (() => {
       node.setAttribute('data-leaving', '');
       setTimeout(() => node.remove(), REDUCED.matches ? 0 : 200);
     };
-    const arm = () => { if (!sticky) { clearTimeout(timer); timer = setTimeout(leave, TOAST_MS); } };
+    const arm = () => { if (!sticky) { clearTimeout(timer); timer = setTimeout(leave, duration); } };
     node.addEventListener('mouseenter', () => clearTimeout(timer));
     node.addEventListener('mouseleave', arm);
     node.addEventListener('focusin', () => clearTimeout(timer));
     node.addEventListener('focusout', arm);
     node.addEventListener('click', (e) => {
       if (e.target.closest('[data-toast-close]')) leave();
-      else if (e.target.closest('[data-toast-action]')) { leave(); opts.action.run(); }
+      else if (e.target.closest('[data-toast-action]')) { const action=actions[Number(e.target.closest('[data-toast-action]').dataset.toastAction)];leave();Promise.resolve().then(()=>action.run()).catch(error=>toast('Couldn’t finish this action',{tone:'danger',detail:error.message})); }
     });
     host.appendChild(node);
     const live = [...host.children].filter((n) => !n.hasAttribute('data-leaving'));
@@ -536,7 +555,12 @@ const Kit = (() => {
       if (hit && (!modalOpen() || (top() && top().kind === 'palette'))) { e.preventDefault(); hit.run(e); }
       return;
     }
-    if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    if(e.isComposing)return;
+    if(e.metaKey||e.ctrlKey||e.altKey){
+      const chord=[...(e.metaKey||e.ctrlKey?['mod']:[]),...(e.altKey?['alt']:[]),...(e.shiftKey?['shift']:[]),e.key.toLowerCase()].join('+');
+      const hit=bindings.find(binding=>binding.keys.length===1&&binding.keys[0]===chord&&(!binding.when||binding.when()));
+      if(hit&&!modalOpen()){e.preventDefault();hit.run(e);}return;
+    }
     if (isTyping(e.target) || modalOpen()) { pending = null; return; }
     const key = e.key.toLowerCase();
     const seq = pending ? [pending, key] : [key];

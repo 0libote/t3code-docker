@@ -147,7 +147,7 @@ const T3StorageUI = (() => {
         </div></div>`)}
         ${part('storage-folders-title', 'Container data', html`<div class="tc-group"><button class="tc-storage-disclosure" type="button" data-cmd="storage.details" data-key="storage-details" aria-expanded="${String(expanded)}" aria-controls="storage-data"><span>Folder sizes</span><span class="tc-small tc-muted">${expanded ? 'Hide details' : 'Show details'}</span>${icon('chevron-down')}</button>
           <div id="storage-data" class="tc-storage-data"${expanded ? '' : raw(' hidden')}>
-            ${current.dataRows.map((row) => html`<div class="tc-storage-data-row" data-key="storage-data-${row.id}"><div><span class="tc-row-name">${row.label}</span><span class="tc-storage-path tc-mono" title="${row.path}">${row.path}</span></div><span class="tc-storage-size">${row.size}</span></div>`)}
+            ${current.dataRows.map((row) => html`<div class="tc-storage-data-row" data-key="storage-data-${row.id}"><div><span class="tc-row-name">${row.label}</span><span class="tc-storage-path tc-mono" title="${row.path}">${row.path}</span></div><span class="tc-storage-size">${row.size}</span>${['workspace','history','backups'].includes(row.id)?html`<a class="tc-btn tc-btn--ghost tc-btn--sm" href="${row.id==='workspace'?'#files':'#files/path/'+row.path.split('/').map(encodeURIComponent).join('/')}" aria-label="Open ${row.label} in Files">${icon('folder-open')}Open in Files</a>`:''}</div>`)}
             <p class="tc-hint tc-storage-data-note">Folder sizes are estimates. Projects, agent profiles and backups are managed separately from tool caches.</p>
           </div></div>`)}
         </div></div>
