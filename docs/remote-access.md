@@ -101,8 +101,11 @@ tunnel of your own. Devices then connect through your T3 account instead of a
 pairing link, and Connect renews their credentials, so you don't re-pair every
 30 days.
 
-On the setup page, **Access → T3 Connect → Set up** shows a link and a code
-to approve in any browser. T3 Code makes the link when it starts, so the page
+On the setup page, **Access → T3 Connect → Set up** lets you choose a
+**T3 Connect tunnel** or **Notifications only**, then shows a link and a code
+to approve in any browser. Notifications only enables activity publishing
+while devices keep using your own address, such as Tailscale or a reverse
+proxy. T3 Code makes the link when it starts, so the page
 then offers to restart it, and shows when the link is made. The container keeps
 running throughout. **Turn off T3 Connect**, in its **⋯** menu, undoes it and
 keeps your sign-in, so turning it on again asks for no new code.
@@ -112,8 +115,9 @@ notifications and Live Activities for agents running on this server. Sign in
 to the same T3 account in the mobile app and allow notifications there. These
 are agent activity notifications; they do not report container health or setup
 updates. The setting uses T3's native API and takes effect without a restart.
-Activity publishing also works with an existing notification-only T3 link;
-it does not require routing your connections through a T3 Connect tunnel.
+Activity publishing works with notification-only links; it does not require
+routing your connections through a T3 Connect tunnel. If the server was
+removed from your T3 account, **Set up again** restores its link.
 
 **Hold webhooks while offline** requires an active T3 Connect tunnel. When
 enabled, T3 Connect stores incoming webhook requests outside this server for
@@ -126,6 +130,12 @@ From a shell, the same sign-in is:
 
 ```bash
 docker compose exec -it t3code t3-login connect
+```
+
+For notifications through your own address, use:
+
+```bash
+docker compose exec -it t3code t3-login connect link --publish-only
 ```
 
 The link then takes effect **on T3 Code's next start**: use **Restart** under

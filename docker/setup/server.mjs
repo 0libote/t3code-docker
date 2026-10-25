@@ -1098,6 +1098,7 @@ const refreshConnect = () => {
     .then(async ({ stdout }) => {
       const value = connectState(jsonFrom(stdout));
       if (value) value.preferences = value.linked ? await connectPreferences.read().catch(() => null) : null;
+      if (value?.preferences?.revoked) Object.assign(value, { linked: false, revoked: true, state: "signin" });
       if (revision !== connectRevision) return;
       connectCache = { at: Date.now(), value, refreshing: null };
     })
@@ -1108,9 +1109,12 @@ const refreshConnect = () => {
   return connectCache.refreshing;
 };
 
-const forgetConnect = () => {
+const forgetConnect = (preferences) => {
   connectRevision += 1; // A read started before a settings save must not replace its result.
-  connectCache = { ...connectCache, at: 0 };
+  const value = preferences && connectCache.value
+    ? { ...connectCache.value, preferences, publishAgentActivity: preferences.publishAgentActivity }
+    : connectCache.value;
+  connectCache = { ...connectCache, value, at: 0 };
 };
 
 /**
@@ -1222,8 +1226,9 @@ const sourceControlSignIn = async (input, out = false) => {
  * The link it saves is made on T3 Code's next start; the page offers that
  * restart once this is done.
  */
-const startConnectLink = () => {
-  const child = spawn(T3_LAUNCHER, ["connect", "link", "--headless"], {
+const startConnectLink = (mode = "managed") => {
+  if (!["managed", "publish_only"].includes(mode)) throw new Error("Choose a T3 Connect tunnel or notifications only.");
+  const child = spawn(T3_LAUNCHER, ["connect", "link", "--headless", ...(mode === "publish_only" ? ["--publish-only"] : [])], {
     env: { ...process.env, NO_COLOR: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -2895,7 +2900,7 @@ const server = createServer(async (req, res) => {
       try {
         const input = JSON.parse((await readBody(req)) || "{}");
         if (input.agent === "antigravity") return sendJson(res, 200, publicSession(await startAntigravitySignin()));
-        if (input.agent === "connect") return sendJson(res, 200, publicSession(startConnectLink()));
+        if (input.agent === "connect") return sendJson(res, 200, publicSession(startConnectLink(input.mode)));
         // gh and az: a source control CLI's device code, from the harness's catalogue.
         await loadHarness();
         if (harnessModule.getSourceControl(input.agent)) return sendJson(res, 200, publicSession(await startScmDeviceSignin(input.agent)));
@@ -3027,7 +3032,7 @@ const server = createServer(async (req, res) => {
       try { input = JSON.parse((await readBody(req)) || "{}"); }
       catch { return sendJson(res, 400, { ok: false, error: "Expected a connection setting." }); }
       const answer = await connectPreferences.save(input);
-      forgetConnect();
+      forgetConnect(answer.body.preferences);
       return sendJson(res, answer.http, answer.body);
     }
 

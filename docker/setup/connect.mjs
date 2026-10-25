@@ -67,14 +67,17 @@ export function connectState(json) {
   if (!json || typeof json !== "object") return null;
   const desired = json.desired === true;
   const authenticated = json.authenticated === true;
-  const linked = json.linked === true;
-  const state = linked ? "on" : !desired ? "off" : authenticated ? "pending" : "signin";
+  const revoked = json.revoked === true;
+  const linked = json.linked === true && !revoked;
+  const state = revoked ? "signin" : linked ? "on" : !desired ? "off" : authenticated ? "pending" : "signin";
   const relayClient = json.relayClient && typeof json.relayClient === "object" ? json.relayClient : {};
   return {
     state,
     desired,
     authenticated,
     linked,
+    revoked,
+    linkMode: json.linkMode === "publish_only" ? "publish_only" : "managed",
     relayHost: hostOf(json.relayUrl),
     publishAgentActivity: json.publishAgentActivity === true,
     relayClient: {
@@ -99,18 +102,19 @@ export function jsonFrom(stdout) {
 /** Read and update native preferences without overwriting the other switch. */
 export function createConnectPreferences({ request }) {
   let saving = false;
-  const read = async () => {
-    const state = await request("/api/connect/link-state");
+  const preferencesOf = (state) => {
     if (typeof state?.publishAgentActivity !== "boolean" || typeof state?.linked !== "boolean") {
       throw new Error("This T3 Code version does not expose connection settings. Update T3 Code and try again.");
     }
     return {
-      linked: state.linked,
-      managedTunnelActive: state.managedTunnelActive === true,
+      linked: state.linked && state.linkRevoked !== true,
+      revoked: state.linkRevoked === true,
+      managedTunnelActive: state.linkRevoked !== true && (state.managedTunnelActive ?? state.linked) === true,
       publishAgentActivity: state.publishAgentActivity,
       holdWebhooksWhileOffline: typeof state.holdWebhooksWhileOffline === "boolean" ? state.holdWebhooksWhileOffline : null,
     };
   };
+  const read = async () => preferencesOf(await request("/api/connect/link-state"));
   const save = async (input) => {
     const fields = ["publishAgentActivity", "holdWebhooksWhileOffline"];
     if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 1
@@ -121,12 +125,12 @@ export function createConnectPreferences({ request }) {
     saving = true;
     try {
       const current = await read();
-      if (!current.linked) return { http: 409, body: { ok: false, error: "Set up T3 Connect before changing activity publishing." } };
+      if (!current.linked) return { http: 409, body: { ok: false, error: current.revoked ? "This server was removed from T3 Connect. Set it up again before changing connection settings." : "Set up T3 Connect before changing activity publishing." } };
       if (Object.hasOwn(input, "holdWebhooksWhileOffline") && (!current.managedTunnelActive || current.holdWebhooksWhileOffline === null)) {
         return { http: 409, body: { ok: false, error: "Webhook holding needs an active T3 Connect tunnel and a supported T3 Code version." } };
       }
-      await request("/api/connect/preferences", { publishAgentActivity: current.publishAgentActivity, ...input });
-      return { http: 200, body: { ok: true, preferences: await read() } };
+      const saved = await request("/api/connect/preferences", { publishAgentActivity: current.publishAgentActivity, ...input });
+      return { http: 200, body: { ok: true, preferences: preferencesOf(saved) } };
     } catch (error) {
       return { http: 502, body: { ok: false, error: String(error?.message || "Could not save connection settings.").slice(0, 300) } };
     } finally {

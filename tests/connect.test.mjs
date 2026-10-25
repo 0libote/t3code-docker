@@ -57,7 +57,7 @@ test("the saved state reads as off, signed out, waiting on a start, or on", () =
   const relayClient = { status: "available", executablePath: "/usr/local/bin/cloudflared", source: "override", version: "2026.5.2" };
   const base = { desired: false, authenticated: false, linked: false, cloudUserId: null, relayUrl: null, publishAgentActivity: false, relayClient };
   assert.deepEqual(connectState(base), {
-    state: "off", desired: false, authenticated: false, linked: false, relayHost: null, publishAgentActivity: false,
+    state: "off", desired: false, authenticated: false, linked: false, revoked: false, linkMode: "managed", relayHost: null, publishAgentActivity: false,
     relayClient: { status: "available", version: "2026.5.2" },
   });
   assert.equal(connectState({ ...base, desired: true, authenticated: true }).state, "pending");
@@ -134,4 +134,41 @@ test("overlapping connection writes cannot overwrite each other", async () => {
   assert.equal((await prefs.save({ publishAgentActivity: true })).http, 409);
   release();
   assert.equal((await first).http, 200);
+});
+
+test("revoked links need relinking and cannot save preferences", async () => {
+  const cli = connectState({ desired: true, authenticated: true, linked: true, revoked: true, linkMode: "publish_only" });
+  assert.equal(cli.state, "signin");
+  assert.equal(cli.linked, false);
+  assert.equal(cli.revoked, true);
+  assert.equal(cli.linkMode, "publish_only");
+  let writes = 0;
+  const prefs = createConnectPreferences({ request: async (_path, input) => {
+    if (input) writes++;
+    return { linked: true, linkRevoked: true, managedTunnelActive: true, publishAgentActivity: true, holdWebhooksWhileOffline: false };
+  } });
+  assert.equal((await prefs.read()).linked, false);
+  assert.equal((await prefs.read()).managedTunnelActive, false);
+  assert.equal((await prefs.save({ publishAgentActivity: false })).http, 409);
+  assert.equal(writes, 0);
+});
+
+test("older linked servers imply a managed tunnel when its optional flag is absent", async () => {
+  const prefs = createConnectPreferences({ request: async () => ({ linked: true, publishAgentActivity: false }) });
+  assert.equal((await prefs.read()).managedTunnelActive, true);
+});
+
+test("the native save response is authoritative without a fallible follow-up read", async () => {
+  let reads = 0;
+  const state = { linked: true, managedTunnelActive: true, publishAgentActivity: false, holdWebhooksWhileOffline: true };
+  const prefs = createConnectPreferences({ request: async (_path, input) => {
+    if (input) { Object.assign(state, input); return { ...state }; }
+    if (++reads > 1) throw new Error("A second read would fail after the setting was saved");
+    return { ...state };
+  } });
+  const saved = await prefs.save({ publishAgentActivity: true });
+  assert.equal(saved.http, 200);
+  assert.equal(saved.body.preferences.publishAgentActivity, true);
+  assert.equal(saved.body.preferences.holdWebhooksWhileOffline, true);
+  assert.equal(reads, 1);
 });

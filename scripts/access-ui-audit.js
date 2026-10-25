@@ -45,6 +45,7 @@ const geometry = () => {
       let heldStatus = null, renameGate = null, revokeGate = null, pairGate = null;
       let renameFail = false, revokeFail = false, pairFail = false, unavailable = false;
       let preferenceGate = null, preferenceFail = false;
+      let connectAuthorized = false, connectMode = 'managed';
       await page.route('**/*', async route => {
         const url = new URL(route.request().url()), method = route.request().method();
         const at = suffix => url.pathname.endsWith(suffix);
@@ -58,6 +59,19 @@ const geometry = () => {
         if (at('/ports')) return route.fulfill({ json: portsFor('ready') });
         if (at('/providers')) return route.fulfill({ json: fixture('providers.json') });
         if (at('/.well-known/t3/environment')) return route.fulfill({ json: {} });
+        if (at('/auth/signin')) {
+          const input = route.request().postDataJSON();
+          assert.equal(input.agent, 'connect'); connectMode = input.mode;
+          requests.push({ action: 'connect-signin', mode: input.mode });
+          return route.fulfill({ json: { id: 'connect-fixture', state: 'awaiting-browser', url: 'https://fixture.invalid/device', code: 'TEST-CODE' } });
+        }
+        if (at('/auth/session')) return route.fulfill({ json: { id: 'connect-fixture', state: connectAuthorized ? 'done' : 'awaiting-browser', url: 'https://fixture.invalid/device', code: 'TEST-CODE' } });
+        if (at('/auth/cancel')) return route.fulfill({ json: { ok: true } });
+        if (at('/t3/restart')) {
+          status.t3.pid += 1;
+          status.connect = { state: 'on', linked: true, linkMode: connectMode, relayHost: 'relay.t3.codes', preferences: { linked: true, managedTunnelActive: connectMode === 'managed', publishAgentActivity: connectMode === 'publish_only', holdWebhooksWhileOffline: false } };
+          return route.fulfill({ status: 202, json: { ok: true } });
+        }
         if (at('/connect/preferences')) {
           const input = route.request().postDataJSON(); requests.push({ action: 'preference', ...input });
           await preferenceGate?.promise;
@@ -138,6 +152,38 @@ const geometry = () => {
       await t.locator('#connect-toggle-publishAgentActivity:disabled').waitFor();
       await screenshot('connection-unavailable');
 
+      for (const mode of ['publish_only', 'managed']) {
+        connectAuthorized = false;
+        const removed = mode === 'managed';
+        status.connect = { state: removed ? 'signin' : 'off', linked: false, revoked: removed, linkMode: 'managed', preferences: null };
+        await page.clock.fastForward(16000);
+        const connect = t.locator('[data-key="connect"]');
+        await connect.getByRole('button', { name: removed ? 'Set up again' : 'Set up', exact: true }).waitFor();
+        assert.equal(await publish.isDisabled(), true);
+        if (removed) await connect.getByText(/removed from your T3 account/).waitFor();
+        await connect.getByRole('button', { name: removed ? 'Set up again' : 'Set up', exact: true }).click();
+        const dialog = t.getByRole('dialog', { name: 'T3 Connect', exact: true });
+        assert.equal(await dialog.getByRole('radio', { name: /^T3 Connect tunnel/ }).isChecked(), true);
+        const selectedMode = dialog.getByRole('radio', { name: mode === 'publish_only' ? /^Notifications only/ : /^T3 Connect tunnel/ });
+        await selectedMode.check();
+        await page.clock.runFor(250);
+        assert.equal(await selectedMode.isChecked(), true);
+        await screenshot('connection-choice-' + mode);
+        await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+        await dialog.getByText('TEST-CODE', { exact: true }).waitFor();
+        assert.equal(requests.filter(row => row.action === 'connect-signin').at(-1).mode, mode);
+        connectAuthorized = true;
+        await page.clock.fastForward(1600);
+        await dialog.getByRole('button', { name: 'Restart T3 Code', exact: true }).click();
+        await page.clock.fastForward(1600);
+        await dialog.getByRole('button', { name: 'Done', exact: true }).waitFor();
+        await dialog.getByText(mode === 'publish_only' ? /through your own address/ : /through relay\.t3\.codes/).waitFor();
+        await screenshot('connection-ready-' + mode);
+        await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+        assert.equal(await publish.getAttribute('aria-checked'), String(mode === 'publish_only'));
+        assert.equal(await hold.isDisabled(), mode === 'publish_only');
+      }
+
       await rename(); await t.locator('#device-label').fill('Travel phone <safe> & "work"');
       // Capture a poll before saving, then deliver it after the write.
       const old={started:gate(),release:gate()}; heldStatus=old;
@@ -209,7 +255,7 @@ const geometry = () => {
       await t.getByText(/This link was revoked before a device used it/).waitFor();
       await screenshot('link-revoked');
       assert.deepEqual(errors,[]);
-      await context.close(); console.log(`PASS ${tag}: pending states, duplicates, failures/retry, stale polls and pairing`);
+      await context.close(); console.log(`PASS ${tag}: connection modes, relinking, preferences, pending states, failures/retry, stale polls and pairing`);
     }
   } finally { await browser.close(); }
 })().catch(error=>{console.error(error);process.exitCode=1;});
