@@ -8,7 +8,7 @@ Environment variables (all optional except where noted):
 | `T3CODE_PORT` | `3773` | Server port inside the container |
 | `T3CODE_HOST` | `0.0.0.0` | Bind interface inside the container |
 | `T3CODE_HOME` | `/home/t3/.t3` | State directory (`userdata/state.sqlite`) |
-| `T3_WORKSPACE` | `/workspace` | Scanned for projects |
+| `T3_WORKSPACE` | `/workspace` | Absolute workspace directory, scanned for projects and used as T3's initial folder for browsing and cloning repositories |
 | `T3_AUTO_ADD_PROJECTS` | `1` | Register each git checkout under the workspace |
 | `T3_PRINT_PAIRING_ON_START` | `0` | Create a pairing link at startup and print it to the log |
 | `T3_PREINSTALL` | `default` | What the first start installs onto the volume: `default` (Claude Code, Codex, OpenCode and the toolchains), `all` (every agent and toolchain), `agents`, `toolchains`, `source-control` (glab, fj, tea, az), ids like `claude,go,glab`, or `none`. They combine (`default,source-control`); one on its own replaces the default |
@@ -28,6 +28,17 @@ Volumes:
 - `/home/t3`: state, agent credentials, installed agents and toolchains, and
   shell history. Back this up.
 - `/workspace`: your repositories.
+
+The first start seeds T3's native project-folder preference from `T3_WORKSPACE`.
+A folder you already chose in T3 is kept. Later changes, including clearing the
+preference, are kept across restarts. Changing `T3_WORKSPACE` updates the default
+only while it is still managed by the image. Explicit clone destinations always
+take precedence.
+
+T3's **New project** action currently creates repositories in
+`$T3CODE_HOME/projects`, independently of that preference. Changing this action
+requires native T3 support; the image does not move existing projects or redirect
+that directory.
 
 Installed agents and toolchains live under `/home/t3/.local/share/mise`, so they
 persist when the whole home directory is mounted. With only the state directory
