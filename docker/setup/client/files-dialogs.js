@@ -59,11 +59,14 @@ layer.panel.addEventListener('input',event=>{if(event.target.id==='files-new-nam
       expanded.add(root);void read(root);void choose(dest);
       let ancestor=ctx.path,depth=0;while(depth++<16&&ancestor!==root&&F.within(root,ancestor)){expanded.add(ancestor);void read(ancestor);ancestor=F.parent(ancestor);}
     });
+    let emptyPending=false;
     const empty=async items=>{
+      if(emptyPending)return;emptyPending=true;try{
       const snapshot=await api('/files/trash');if(!snapshot.ok){Kit.toast(snapshot.error||'Trash could not be read',{tone:'danger'});return;}
-      if(!items.length)return;const ids=items.flatMap(row=>row.ids||[row.id]),all=ids.length===snapshot.data.items.length;
+      items??=snapshot.data.items;if(!items.length){Kit.toast('Trash is already empty');return;}const ids=items.flatMap(row=>row.ids||[row.id]),all=ids.length===snapshot.data.items.length;
       if(!await Kit.confirm({title:'Empty Trash?',body:'This removes '+M.plural(items.length,'item')+' ('+(F.totalOf(items)===null?'size not measured':M.formatBytes(F.totalOf(items)))+') for good. This can’t be undone.',confirm:'Empty Trash',tone:'danger'}))return;
-      const result=await request('trash/empty',{ids:all?null:ids,revision:snapshot.data.revision,confirmed:true});if(result.ok){Kit.toast('Emptied Trash');await refresh();}
+      const notice=Kit.toast('Emptying Trash…',{tone:'info',duration:600000});try{const result=await request('trash/empty',{ids:all?null:ids,revision:snapshot.data.revision,confirmed:true});if(result.ok){Kit.toast('Emptied Trash');await refresh();}}finally{notice.close();}
+      }finally{emptyPending=false;}
     };
     return {managed,consequence,inUse,name,conflicts,move,empty};
   };

@@ -100,5 +100,5 @@ export function createRebuildableService({ sizes, git, workspace='/workspace', m
     if(!row.pending&&(!row.at||now()-row.at>=15_000))row.pending=limit(()=>inspect(boundary,root,listed)).then(value=>{row.value=value;},()=>{row.value={loading:false,candidates:[],kept:[],partial:true};}).finally(()=>{row.at=now();row.pending=null;});
     return row.value;
   };
-  return {get,settled:async(boundary,root,listed=[])=>{const fallback=get(boundary,root,listed);await cache.get(boundary)?.pending;return cache.get(boundary)?.value||fallback;},invalidate:()=>cache.clear()};
+  return {get,fresh:(boundary,root,listed=[])=>limit(()=>inspect(boundary,root,listed)),settled:async(boundary,root,listed=[])=>{const fallback=get(boundary,root,listed);await cache.get(boundary)?.pending;return cache.get(boundary)?.value||fallback;},invalidate:()=>cache.clear()};
 }

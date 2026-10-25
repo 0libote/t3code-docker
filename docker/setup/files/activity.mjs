@@ -29,7 +29,7 @@ export function createThreadFacts({ t3, now = Date.now } = {}) {
     return value;
   };
   const forPath = root => { const rows=get(); if(rows===null)return null; const matched=rows.filter(row=>inside(root,row.root)); const times=matched.map(row=>row.last).filter(Number.isFinite);return {count:matched.length,lastActiveAt:times.length?new Date(Math.max(...times)).toISOString():null}; };
-  return { get, forPath, settled:async()=>{get();await pending;return value;} };
+  return { get, forPath, settled:async()=>{get();await pending;return value;},fresh:async()=>{await pending;at=0;get();await pending;return value;} };
 }
 
 export function createActivityService({ env=process.env, snapshot=async()=>({complete:false,processes:[]}), run=createCommandRunner(env), listeners, now=Date.now }={}) {

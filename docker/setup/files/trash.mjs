@@ -76,7 +76,7 @@ export function createTrash({policy,guard,sizes,git,now=Date.now,recordEvent=()=
   const restore=input=>serial(async()=>{
     const items=await selected(input),restored=[];
     // Authorize every destination before restoring any item.
-    await guard.run(input,items.map(item=>({path:item.meta.from,mode:'write',missing:true})),async()=>{});
+    await guard.run(input,items.map(item=>({path:item.meta.from,mode:'write',missing:true})),async()=>{},{notify:false});
     for(const item of items){
       const parent=path.dirname(item.meta.from),name=await uniqueName(parent,path.basename(item.meta.from),{suffix:'restored'}),target=path.join(parent,name);
       const result=await guard.run(input,[{path:target,mode:'write',missing:true}],async([row],verify)=>{

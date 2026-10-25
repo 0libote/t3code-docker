@@ -25,7 +25,7 @@ jobs:
           node-version: "24"
       - name: Shell scripts parse and pass shellcheck
         run: |
-          sudo apt-get update && sudo apt-get install -y shellcheck
+          sudo apt-get update && sudo apt-get install -y shellcheck zip unzip
           for f in docker/entrypoint.sh docker/run-t3.sh docker/bin/* scripts/*.sh scripts/lib/*.sh tests/*.test.sh; do
             bash -n "$f"
             shellcheck -S warning "$f"

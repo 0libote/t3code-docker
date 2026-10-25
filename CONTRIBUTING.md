@@ -67,6 +67,12 @@ Issues and pull requests are welcome. Before opening one:
   cache or change preferences. Screenshots go to `/tmp/t3-storage-ui-audit`;
   set `T3_STORAGE_UI_OUTPUT` to change that location. The development console
   isolates its home, mise state, and caches under `/tmp/t3-dev/home`.
+  `node scripts/files-space-ui-audit.js http://127.0.0.1:23785/__setup/ dev`
+  exercises archive options, unsafe-entry disclosure, extraction conflicts and
+  low-space recovery, opt-in extraction after upload, stale cleanup/delete
+  reviews, repeated submissions and the typed-name gate in both themes and all
+  seven Files viewports. `--files-overlays` adds these reviews to
+  `console-screens.js`. All mutations stay in the in-memory fixture.
   For a focused visual pass, `T3_STORAGE_UI_SPACING_ONLY=1` checks text alignment,
   paragraph gaps, policy states, expanded limits and preference recovery across
   the same viewports. It stops before the version and cleanup job scenarios.
