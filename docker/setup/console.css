@@ -2896,6 +2896,16 @@ button.tc-fd-item:hover { background: var(--hover); }
 .tc-files-transfer-list { max-height: min(520px,65dvh); overflow-y: auto; }
 .tc-files-transfer-list .tc-tray-item small { white-space: normal; overflow-wrap: anywhere; }
 .tc-files-transfer-list .tc-tray-item b { max-width: 100%; }
+.tc-files-transfer-list .tc-btn--link[data-transfer-action="show"] { align-self: flex-start; min-width: 0; max-width: 100%; }
+.tc-files-transfer-list .tc-btn--link[data-transfer-action="show"] > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Size the project columns by their actual lane beside Details, rather than
+   the whole window. Dates and thread counts remain available in Details. */
+#files-browser .tc-fl--projects { container: files-projects / inline-size; }
+@container files-projects (max-width: 560px) {
+  #files-browser .tc-fl--projects :is(.tc-fl-head, .tc-fl-row) { grid-template-columns: 24px minmax(0, 1fr) 112px 28px; }
+  #files-browser .tc-fl--projects :is(.tc-fl-head, .tc-fl-row) > :nth-child(4),
+  #files-browser .tc-fl--projects:not([data-no-threads]) :is(.tc-fl-head, .tc-fl-row) > :nth-child(5) { display: none; }
+}
 .tc-files-transfer-pill { position: fixed; left: 16px; bottom: calc(22px + env(safe-area-inset-bottom)); z-index: var(--z-sticky); display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface-raised); box-shadow: var(--shadow-popup); color: var(--fg); font-size: 13px; }
 .tc-files-transfer-pill > .tc-icon { width: 18px; height: 18px; }
 .tc-files-transfer-sheet .tc-tray-head { padding-top: 18px; }
