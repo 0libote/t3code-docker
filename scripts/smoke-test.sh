@@ -809,7 +809,7 @@ files_browser_works() {
   docker cp scripts/files-ui-audit.js "$NAME:/tmp/t3-files-audit/files-ui-audit.js" >/dev/null 2>&1 || return 1
   docker cp scripts/files-change-ui-audit.js "$NAME:/tmp/t3-files-audit/files-change-ui-audit.js" >/dev/null 2>&1 || return 1
   docker cp scripts/files-space-ui-audit.js "$NAME:/tmp/t3-files-audit/files-space-ui-audit.js" >/dev/null 2>&1 || return 1
-  for helper in console-fixtures.cjs files-fixtures.cjs skills-fixtures.cjs mcp-fixtures.cjs; do
+  for helper in console-fixtures.cjs files-fixtures.cjs skills-fixtures.cjs mcp-fixtures.cjs console-download-fixture.cjs; do
     docker cp "scripts/lib/$helper" "$NAME:/tmp/t3-files-audit/lib/$helper" >/dev/null 2>&1 || return 1
   done
   docker cp scripts/fixtures/console "$NAME:/tmp/t3-files-audit/fixtures/console" >/dev/null 2>&1 || return 1

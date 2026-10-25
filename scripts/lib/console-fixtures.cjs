@@ -109,11 +109,11 @@ const portsFor = (scenario, change) => {
  * Answer the console's data requests on `page` from the fixtures: every POST
  * is accepted here and none reaches the server.
  */
-const routeConsole = async (page, { status, ports, skillOptions }) => {
+const routeConsole = async (page, { status, ports, skillOptions, downloadHTTP = false }) => {
   const skills = require('./skills-fixtures.cjs').createSkillsFixtures(skillOptions);
   const mcp = require('./mcp-fixtures.cjs').createMcpFixtures(status().context?.mcp);
   const files = require('./files-fixtures.cjs').createFilesFixtures();
-  await page.route("**/*", async (route) => {
+  await page.route(downloadHTTP ? url => !url.pathname.endsWith('/files/zip') : "**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const at = (suffix) => url.pathname.endsWith(suffix);

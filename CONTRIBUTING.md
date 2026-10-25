@@ -147,3 +147,8 @@ previews, Sizes, managed paths and permission/missing states. Screenshots go to
 `/tmp/t3-files-ui-audit` (`T3_FILES_UI_OUTPUT` overrides it). Use the existing
 Playwright installation through `NODE_PATH` and `CHROME_PATH`, as above. It cannot
 read or change the production filesystem.
+
+`node scripts/files-space-ui-audit.js URL KEY` checks archive and cleanup flows.
+It reads the console document from that URL and serves its download fixture over
+loopback HTTP, verifying the ZIP bytes saved by Chromium. API writes stay mocked;
+native attachments bypass Playwright response interception.
