@@ -25,6 +25,8 @@ const T3Routes = (() => {
       summary: 'What your agents read at the start of every session.', doc: 'context-management.md' },
     { route: 'mcp', title: 'MCP servers', icon: 'plug', key: 'm', group: 'agents',
       summary: 'Servers your agents can start or connect to.', doc: 'mcp-servers.md' },
+    { route: 'files', title: 'Files', icon: 'folder', key: 'f', group: 'tools',
+      summary: 'Your projects, your home folder and what fills the disk.', doc: 'files.md' },
     { route: 'toolchains', title: 'Toolchains', icon: 'wrench', key: 't', group: 'tools',
       summary: 'Languages and tools on every agent’s path, at exact versions.', doc: 'toolchains.md' },
     { route: 'sourcecontrol', title: 'Source control', icon: 'git-pull-request', key: 's', group: 'tools',

@@ -112,10 +112,13 @@ const portsFor = (scenario, change) => {
 const routeConsole = async (page, { status, ports, skillOptions }) => {
   const skills = require('./skills-fixtures.cjs').createSkillsFixtures(skillOptions);
   const mcp = require('./mcp-fixtures.cjs').createMcpFixtures(status().context?.mcp);
+  const files = require('./files-fixtures.cjs').createFilesFixtures();
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const at = (suffix) => url.pathname.endsWith(suffix);
+    const fileResponse = await files.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
+    if (fileResponse) return route.fulfill({ status: fileResponse.status || 200, ...(fileResponse.raw ? { body: fileResponse.raw, headers: fileResponse.headers } : { json: fileResponse.body }) });
     const mcpResponse = await mcp.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);
     if (mcpResponse) return route.fulfill({ status: mcpResponse.status, json: mcpResponse.body });
     const skillResponse = skills.respond(request.method(), url, request.method() === 'POST' ? request.postDataJSON() : undefined);

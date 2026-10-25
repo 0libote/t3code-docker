@@ -388,8 +388,11 @@ printf '\nSetup service\n'
 SETUP_JAR="$(mktemp)"
 # Gate the section on the service actually answering, so the first assertion
 # is not the one that discovers it is still starting.
-retry 30 "docker exec $NAME curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:3774/" \
-  || no "setup service never answered"
+if ! retry 30 "docker exec $NAME curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:3774/"; then
+  no "setup service never answered"
+  docker logs "$NAME" 2>&1 | tail -30
+  exit 1
+fi
 check "refuses an unauthenticated request" \
   "[ \"\$(docker exec $NAME curl -sS -o /dev/null -w '%{http_code}' \
      http://127.0.0.1:3774/status)\" = 401 ]"
@@ -397,6 +400,30 @@ docker exec "$NAME" sh -c \
   "curl -sS -c /tmp/jar -d 'key=$SETUP_KEY' -o /dev/null http://127.0.0.1:3774/login" >/dev/null 2>&1
 check "grants a session for the right key" \
   "docker exec $NAME sh -c 'curl -fsS -b /tmp/jar http://127.0.0.1:3774/status | grep -q publicUrl'"
+files_browse_works() {
+  docker exec -i -u t3 -e FILES_SMOKE_KEY="$SETUP_KEY" "$NAME" node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const root=await fs.mkdtemp(path.join(os.tmpdir(),'t3-files-smoke-'));
+const base='http://127.0.0.1:3774';
+const request=(route,options={})=>fetch(base+route,{...options,headers:{'x-t3-setup-key':process.env.FILES_SMOKE_KEY,...options.headers}});
+try {
+  const file=path.join(root,'page.html');await fs.writeFile(file,'<script>must not run</script>');
+  await fs.symlink(path.join(os.homedir(),'.t3'),path.join(root,'managed-link'));
+  const places=await (await request('/files/places')).json();assert.equal(places.capabilities.browse,true);assert(places.disk.totalBytes>0);
+  const route='/files/list?'+new URLSearchParams({path:root,sort:'name'});
+  await (await request(route)).json();const response=await request(route),listing=await response.json();
+  assert(listing.entries.find(row=>row.name==='managed-link').tags.includes('managed'));
+  assert.equal((await request(route,{headers:{'if-none-match':response.headers.get('etag')}})).status,304);
+  const raw=await request('/files/raw?'+new URLSearchParams({path:file}));assert.equal(raw.headers.get('content-type'),'application/octet-stream');assert.match(raw.headers.get('content-disposition'),/^attachment;/);assert.equal(raw.headers.get('content-security-policy'),"sandbox; default-src 'none'");assert.match(await raw.text(),/must not run/);
+  const denied=await request('/files/list?path=%2Froot');assert.equal(denied.status,403,'Files never escalates to read root’s home');
+} finally { await fs.rm(root,{recursive:true,force:true}); }
+NODE
+}
+check "Files browses with t3 permissions, preserves managed link guards, and sandboxes downloads" files_browse_works
+
 setup_pair="$(docker exec "$NAME" sh -c \
   "curl -sS -b /tmp/jar -H 'content-type: application/json' -d '{\"ttl\":\"1h\"}' \
      http://127.0.0.1:3774/pair" 2>/dev/null || true)"
@@ -653,6 +680,7 @@ skills_editor_works() {
   docker cp scripts/skills-update-ui-audit.js "$NAME:/tmp/skills-update-ui-audit.js" >/dev/null 2>&1 || return 1
   docker exec "$NAME" mkdir -p /tmp/lib /tmp/fixtures || return 1
   docker cp scripts/lib/mcp-fixtures.cjs "$NAME:/tmp/lib/mcp-fixtures.cjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/lib/files-fixtures.cjs "$NAME:/tmp/lib/files-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/chip-focus.cjs "$NAME:/tmp/lib/chip-focus.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/skills-fixtures.cjs "$NAME:/tmp/lib/skills-fixtures.cjs" >/dev/null 2>&1 || return 1
@@ -723,6 +751,7 @@ mcp_editor_works() {
   docker exec "$NAME" mkdir -p /tmp/t3-mcp-audit/lib /tmp/t3-mcp-audit/fixtures || return 1
   docker cp scripts/lib/mcp-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/mcp-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/mcp-ui-audit.js "$NAME:/tmp/t3-mcp-audit/mcp-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker cp scripts/lib/files-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/files-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/chip-focus.cjs "$NAME:/tmp/t3-mcp-audit/lib/chip-focus.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/skills-fixtures.cjs "$NAME:/tmp/t3-mcp-audit/lib/skills-fixtures.cjs" >/dev/null 2>&1 || return 1
@@ -731,6 +760,20 @@ mcp_editor_works() {
     "$NAME" node /tmp/t3-mcp-audit/mcp-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
 }
 check "MCP controls refresh immediately and preserve editor revisions and values" mcp_editor_works
+
+files_browser_works() {
+  [ "$HAS_BROWSER" -eq 1 ] || return 0
+  docker exec "$NAME" mkdir -p /tmp/t3-files-audit/lib /tmp/t3-files-audit/fixtures || return 1
+  docker cp scripts/files-ui-audit.js "$NAME:/tmp/t3-files-audit/files-ui-audit.js" >/dev/null 2>&1 || return 1
+  for helper in console-fixtures.cjs files-fixtures.cjs skills-fixtures.cjs mcp-fixtures.cjs; do
+    docker cp "scripts/lib/$helper" "$NAME:/tmp/t3-files-audit/lib/$helper" >/dev/null 2>&1 || return 1
+  done
+  docker cp scripts/fixtures/console "$NAME:/tmp/t3-files-audit/fixtures/console" >/dev/null 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/t3-files-audit/files-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
+}
+check "Files browsing, selection, previews, Sizes and recovery work in every layout" files_browser_works
+
 
 hello_says_only_what_it_may() {
   local stranger member

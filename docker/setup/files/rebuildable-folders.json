@@ -1,0 +1,381 @@
+{
+  "about": "What Files treats as rebuildable: folders an install or build recreates, which Free up space offers to remove and the size bars hatch. A folder qualifies only inside a project (a top-level folder of /workspace) or under another folder the person opened Sizes on. In a Git repository it must also be ignored by Git and hold no tracked file (git check-ignore and git ls-files); if Git tracks anything in it, it is listed under Kept with the reason. Outside Git it qualifies only when its marker matches. The outermost qualifying folder wins: nothing inside a counted folder is counted again. 'recreate' is the line under the name in Free up space; {pm} is the package manager named by the lockfile beside the marker.",
+  "packageManager": {
+    "about": "Choose {pm} from the lockfile next to package.json, first match wins.",
+    "order": [
+      {
+        "file": "pnpm-lock.yaml",
+        "pm": "pnpm install"
+      },
+      {
+        "file": "bun.lock",
+        "pm": "bun install"
+      },
+      {
+        "file": "bun.lockb",
+        "pm": "bun install"
+      },
+      {
+        "file": "yarn.lock",
+        "pm": "yarn install"
+      },
+      {
+        "file": "package-lock.json",
+        "pm": "npm install"
+      }
+    ],
+    "fallback": "npm install"
+  },
+  "rules": [
+    {
+      "name": "node_modules",
+      "marker": [
+        "package.json"
+      ],
+      "recreate": "Recreated by `{pm}`",
+      "group": "JavaScript"
+    },
+    {
+      "name": ".next",
+      "marker": [
+        "next.config.js",
+        "next.config.mjs",
+        "next.config.ts",
+        "package.json"
+      ],
+      "recreate": "Recreated by `next build`",
+      "group": "JavaScript",
+      "inUseWhen": "a process runs from the folder that holds it (next dev)"
+    },
+    {
+      "name": ".nuxt",
+      "marker": [
+        "nuxt.config.ts",
+        "nuxt.config.js"
+      ],
+      "recreate": "Recreated by the next build",
+      "group": "JavaScript"
+    },
+    {
+      "name": ".output",
+      "marker": [
+        "nuxt.config.ts",
+        "nuxt.config.js"
+      ],
+      "recreate": "Recreated by the next build",
+      "group": "JavaScript"
+    },
+    {
+      "name": ".svelte-kit",
+      "marker": [
+        "svelte.config.js",
+        "svelte.config.ts"
+      ],
+      "recreate": "Recreated by the next build",
+      "group": "JavaScript"
+    },
+    {
+      "name": ".astro",
+      "marker": [
+        "astro.config.mjs",
+        "astro.config.ts"
+      ],
+      "recreate": "Recreated by the next build",
+      "group": "JavaScript"
+    },
+    {
+      "name": ".docusaurus",
+      "marker": [
+        "docusaurus.config.js",
+        "docusaurus.config.ts"
+      ],
+      "recreate": "Recreated by the next build",
+      "group": "JavaScript"
+    },
+    {
+      "name": ".turbo",
+      "marker": [
+        "turbo.json"
+      ],
+      "recreate": "Turborepo’s local cache",
+      "group": "JavaScript"
+    },
+    {
+      "name": ".parcel-cache",
+      "marker": [
+        "package.json"
+      ],
+      "recreate": "Parcel’s cache",
+      "group": "JavaScript"
+    },
+    {
+      "name": ".angular",
+      "marker": [
+        "angular.json"
+      ],
+      "recreate": "Angular’s cache",
+      "group": "JavaScript"
+    },
+    {
+      "name": ".expo",
+      "marker": [
+        "app.json",
+        "app.config.js",
+        "app.config.ts"
+      ],
+      "recreate": "Expo’s local state",
+      "group": "JavaScript"
+    },
+    {
+      "name": "dist",
+      "marker": null,
+      "gitIgnoredOnly": true,
+      "recreate": "Recreated by the next build",
+      "group": "Build output"
+    },
+    {
+      "name": "build",
+      "marker": null,
+      "gitIgnoredOnly": true,
+      "recreate": "Recreated by the next build",
+      "group": "Build output"
+    },
+    {
+      "name": "out",
+      "marker": null,
+      "gitIgnoredOnly": true,
+      "recreate": "Recreated by the next build",
+      "group": "Build output"
+    },
+    {
+      "name": "coverage",
+      "marker": null,
+      "gitIgnoredOnly": true,
+      "recreate": "Test coverage reports",
+      "group": "Build output"
+    },
+    {
+      "name": ".venv",
+      "marker": [
+        "pyvenv.cfg (inside)"
+      ],
+      "recreate": "Recreated by `uv sync` when uv.lock is beside it, `poetry install` beside poetry.lock, otherwise “Recreated by creating a virtual environment and installing”",
+      "group": "Python"
+    },
+    {
+      "name": "venv",
+      "marker": [
+        "pyvenv.cfg (inside)"
+      ],
+      "recreate": "as .venv",
+      "group": "Python"
+    },
+    {
+      "name": "__pycache__",
+      "marker": [
+        "*.py beside it"
+      ],
+      "recreate": "Recreated when Python runs",
+      "group": "Python",
+      "countAsOne": "Report all __pycache__ folders of a project as one line: “__pycache__ in 38 folders”"
+    },
+    {
+      "name": ".pytest_cache",
+      "marker": null,
+      "recreate": "Recreated by the next test run",
+      "group": "Python"
+    },
+    {
+      "name": ".mypy_cache",
+      "marker": null,
+      "recreate": "Recreated by the next type check",
+      "group": "Python"
+    },
+    {
+      "name": ".ruff_cache",
+      "marker": null,
+      "recreate": "Recreated by the next lint",
+      "group": "Python"
+    },
+    {
+      "name": ".tox",
+      "marker": [
+        "tox.ini"
+      ],
+      "recreate": "Recreated by `tox`",
+      "group": "Python"
+    },
+    {
+      "name": ".nox",
+      "marker": [
+        "noxfile.py"
+      ],
+      "recreate": "Recreated by `nox`",
+      "group": "Python"
+    },
+    {
+      "name": "target",
+      "marker": [
+        "Cargo.toml"
+      ],
+      "recreate": "Recreated by `cargo build`",
+      "group": "Rust"
+    },
+    {
+      "name": "target",
+      "marker": [
+        "pom.xml"
+      ],
+      "recreate": "Recreated by `mvn package`",
+      "group": "Java"
+    },
+    {
+      "name": "build",
+      "marker": [
+        "build.gradle",
+        "build.gradle.kts"
+      ],
+      "recreate": "Recreated by the next Gradle build",
+      "group": "Java"
+    },
+    {
+      "name": ".gradle",
+      "marker": [
+        "build.gradle",
+        "build.gradle.kts",
+        "settings.gradle",
+        "settings.gradle.kts"
+      ],
+      "recreate": "Gradle’s project cache",
+      "group": "Java"
+    },
+    {
+      "name": "Pods",
+      "marker": [
+        "Podfile"
+      ],
+      "recreate": "Recreated by `pod install`",
+      "group": "iOS"
+    },
+    {
+      "name": "DerivedData",
+      "marker": [
+        "*.xcodeproj beside or above it"
+      ],
+      "recreate": "Recreated by the next Xcode build",
+      "group": "iOS"
+    },
+    {
+      "name": ".terraform",
+      "marker": [
+        "*.tf beside it"
+      ],
+      "recreate": "Recreated by `terraform init`",
+      "group": "Infrastructure",
+      "countAsOne": "“.terraform providers in 4 folders”"
+    },
+    {
+      "name": "bin",
+      "marker": [
+        "*.csproj",
+        "*.fsproj"
+      ],
+      "recreate": "Recreated by `dotnet build`",
+      "group": ".NET"
+    },
+    {
+      "name": "obj",
+      "marker": [
+        "*.csproj",
+        "*.fsproj"
+      ],
+      "recreate": "Recreated by `dotnet build`",
+      "group": ".NET"
+    },
+    {
+      "name": "_build",
+      "marker": [
+        "mix.exs"
+      ],
+      "recreate": "Recreated by `mix compile`",
+      "group": "Elixir"
+    },
+    {
+      "name": "deps",
+      "marker": [
+        "mix.exs"
+      ],
+      "recreate": "Recreated by `mix deps.get`",
+      "group": "Elixir"
+    },
+    {
+      "name": ".dart_tool",
+      "marker": [
+        "pubspec.yaml"
+      ],
+      "recreate": "Recreated by `dart pub get`",
+      "group": "Dart"
+    },
+    {
+      "name": "vendor",
+      "marker": [
+        "composer.json"
+      ],
+      "recreate": "Recreated by `composer install`",
+      "group": "PHP"
+    },
+    {
+      "name": "bundle",
+      "parent": "vendor",
+      "marker": [
+        "Gemfile"
+      ],
+      "recreate": "Recreated by `bundle install`",
+      "group": "Ruby"
+    },
+    {
+      "name": ".zig-cache",
+      "marker": [
+        "build.zig"
+      ],
+      "recreate": "Zig’s cache",
+      "group": "Zig"
+    },
+    {
+      "name": "zig-out",
+      "marker": [
+        "build.zig"
+      ],
+      "recreate": "Recreated by `zig build`",
+      "group": "Zig"
+    },
+    {
+      "name": "dist-newstyle",
+      "marker": [
+        "cabal.project",
+        "*.cabal"
+      ],
+      "recreate": "Recreated by `cabal build`",
+      "group": "Haskell"
+    },
+    {
+      "name": ".stack-work",
+      "marker": [
+        "stack.yaml"
+      ],
+      "recreate": "Recreated by `stack build`",
+      "group": "Haskell"
+    }
+  ],
+  "neverRebuildable": [
+    ".git",
+    "the project folder itself",
+    "anything Git tracks",
+    "anything outside the folder Free up space was opened on",
+    "a folder that is a mount point or a symlink (measured as a link, never followed)"
+  ],
+  "inUse": {
+    "about": "A candidate is in use when a process owned by t3 has its working directory inside the candidate or inside the folder that holds it, or holds an open file inside it (/proc/<pid>/cwd and /proc/<pid>/fd). In-use candidates start unchecked with a warning naming the process and, when it listens, its port. If /proc cannot be read for a t3 process, every candidate of that project starts unchecked with “Couldn’t check what’s running. Stop dev servers first.” (fail closed, as Storage does).",
+    "warning": "The dev server on port 3000 is using it. Stop the server first, or it may fail until it rebuilds."
+  }
+}

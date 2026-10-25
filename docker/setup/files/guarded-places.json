@@ -1,0 +1,192 @@
+{
+  "about": "Places Files treats with care. Nothing here is a wall: the console runs as t3, the same user as T3 Code's terminals, so everything t3 may change stays changeable. Managed folders are locked until 'Edit anyway'. Sign-in and key folders are open but every destructive action and every download names what is at stake. Read-only comes from the operating system, never from this list. Resolve every path below at startup from the same environment the storage manager uses (HOME, T3CODE_HOME, MISE_DATA_DIR, MISE_STATE_DIR, XDG_CACHE_HOME, GOMODCACHE, BUN_INSTALL), and classify a path by its real location (realpath of its parent plus its name), so a link in /workspace that points into ~/.t3 is still managed. Files never uses sudo, even when T3_ALLOW_SUDO=1 gives t3's terminals passwordless sudo.",
+  "managed": [
+    {
+      "path": "$T3CODE_HOME (~/.t3)",
+      "tag": "T3 Code and Setup",
+      "banner": {
+        "title": "Managed by T3 Code and Setup",
+        "body": "Threads, sign-ins, backups and runtimes live here. T3 Code and the Agents and Updates pages manage them, and check what’s in use first."
+      },
+      "pages": [
+        "agents",
+        "updates"
+      ],
+      "children": [
+        {
+          "name": "userdata",
+          "tag": "Storage",
+          "what": "Threads and agent data",
+          "openFiles": [
+            "state*.sqlite (T3 Code may name it stateN.sqlite; see docker/runtime/state.mjs)",
+            "its -wal and -shm companions"
+          ],
+          "openedBy": "T3 Code"
+        },
+        {
+          "name": "container-runtime",
+          "tag": "Updates",
+          "what": "T3 Code runtimes"
+        },
+        {
+          "name": "agents",
+          "tag": "Agents",
+          "what": "Agent profiles and sign-ins"
+        },
+        {
+          "name": "backups",
+          "tag": "Storage",
+          "what": "Upgrade backups",
+          "menuFoot": "Database copies kept from earlier T3 Code upgrades.",
+          "note": "Storage shows their size but has no archive or remove action; don't promise one."
+        },
+        {
+          "name": "trash",
+          "tag": "Trash",
+          "what": "Trash for Home",
+          "note": "Files’ own Trash for the home volume. Open it from the Trash tab, not here; deleting inside it directly is allowed after Edit anyway."
+        },
+        {
+          "name": "setup",
+          "tag": "Server",
+          "what": "Setup console state"
+        }
+      ]
+    },
+    {
+      "path": "$MISE_DATA_DIR (~/.local/share/mise)",
+      "tag": "Agents and toolchains",
+      "pages": [
+        "toolchains",
+        "agents"
+      ],
+      "banner": {
+        "title": "Managed by Toolchains and Agents",
+        "body": "Installed agents and language runtimes. Install, update and remove them from Toolchains or Agents, which check what still uses them."
+      }
+    },
+    {
+      "path": "$MISE_STATE_DIR (~/.local/state/mise)",
+      "tag": "Agents and toolchains",
+      "pages": [
+        "toolchains"
+      ],
+      "banner": {
+        "title": "Managed by Toolchains",
+        "body": "Which versions are selected and trusted. Change them from Toolchains."
+      }
+    },
+    {
+      "path": "~/.cache, ~/.npm, $GOMODCACHE, ~/.bun/install/cache and every cache location Storage detects",
+      "tag": "Caches",
+      "pages": [
+        "storage"
+      ],
+      "banner": {
+        "title": "Caches managed in Storage",
+        "body": "Storage clears these with each tool’s own command, after checking nothing is using them."
+      }
+    }
+  ],
+  "ancestors": "A folder that holds a managed folder shows the managed tag of its largest managed child (so ~/.local reads “Agents and toolchains”), without the lock. Only the managed folder and what is inside it are locked.",
+  "signIns": {
+    "tag": "Sign-in inside",
+    "icon": "file-key",
+    "about": "Agent and CLI sign-ins. Verify each path against docker/harness/catalogue.mjs and the providers' own config overrides (CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_CONFIG_HOME…) before shipping; the skills service already resolves several of them.",
+    "paths": [
+      {
+        "path": "~/.codex",
+        "agent": "Codex",
+        "file": "auth.json"
+      },
+      {
+        "path": "~/.claude",
+        "agent": "Claude Code",
+        "file": ".credentials.json"
+      },
+      {
+        "path": "~/.claude.json",
+        "agent": "Claude Code"
+      },
+      {
+        "path": "~/.local/share/opencode",
+        "agent": "OpenCode",
+        "file": "auth.json"
+      },
+      {
+        "path": "~/.config/gh",
+        "agent": "GitHub CLI",
+        "file": "hosts.yml"
+      },
+      {
+        "path": "~/.grok",
+        "agent": "Grok Build"
+      },
+      {
+        "path": "~/.cursor",
+        "agent": "Cursor"
+      }
+    ],
+    "onTrashOrDelete": "Signs Codex out on this server. Paired devices keep working; Codex asks you to sign in again.",
+    "onDownload": "{name} holds a sign-in. Anyone with the download can use it."
+  },
+  "keys": {
+    "tag": "Keys",
+    "icon": "file-key",
+    "paths": [
+      "~/.ssh",
+      "~/.gnupg",
+      "~/.aws",
+      "~/.kube",
+      "~/.docker/config.json",
+      "~/.netrc",
+      "~/.git-credentials",
+      "~/.npmrc",
+      "~/.pypirc"
+    ],
+    "onTrashOrDelete": "Anything that signs in with these keys stops working until they’re back.",
+    "onDownload": "{name} holds keys. Anyone with the download can use them."
+  },
+  "secretFiles": {
+    "about": "Single files that may hold passwords or keys, anywhere. Drawn with the file-key icon; the editor hides their values; ZIP downloads that include them say so.",
+    "patterns": [
+      ".env",
+      ".env.*",
+      "*.pem",
+      "*.key",
+      "*.p12",
+      "*.pfx",
+      "id_rsa",
+      "id_rsa.*",
+      "id_ecdsa*",
+      "id_ed25519*",
+      "credentials.json",
+      "auth.json",
+      "*.kdbx",
+      ".npmrc",
+      ".pypirc",
+      ".netrc",
+      ".git-credentials"
+    ],
+    "except": [
+      ".env.example",
+      ".env.sample",
+      ".env.template",
+      "*.pub"
+    ],
+    "zipWarning": "{first} and {n} more may hold passwords or keys. Anyone with the ZIP can read them."
+  },
+  "readOnly": {
+    "about": "From the operating system: a folder where fs.access(dir, W_OK) fails for t3. Never hard-coded.",
+    "badge": "Read-only for t3",
+    "banner": {
+      "title": "You can look and download here",
+      "body": "Changing system folders needs root, which this console doesn’t have."
+    }
+  },
+  "noAccess": {
+    "about": "fs.opendir fails with EACCES.",
+    "title": "You can’t open {path}",
+    "body": "It belongs to {owner}. This console runs as `t3`, like agents’ terminals."
+  }
+}

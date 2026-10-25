@@ -43,6 +43,8 @@ export const CONSOLE_SCRIPTS = [
   "client/mcp-inspector.js",
   "client/mcp-editor.js",
   "client/mcp.js",
+  "client/files-model.js",
+  "client/files.js",
   "app.js",
 ];
 export const UNLOCK_SCRIPTS = ["client/base.js", "design/ui.js", "client/unlock.js"];
@@ -109,7 +111,8 @@ export const contentSecurityPolicy = (nonce) => [
   "default-src 'none'",
   `script-src 'nonce-${nonce}'`,
   "style-src 'unsafe-inline'",
-  "img-src data:",
+  "img-src data: blob:",
+  "frame-src blob:",
   "connect-src 'self'",
   "form-action 'self'",
   "base-uri 'none'",

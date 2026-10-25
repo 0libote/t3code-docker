@@ -40,7 +40,7 @@ export async function countProjects(workspace) {
   if (await isRepo(workspace)) return 1;
   const entries = await fs.readdir(workspace, { withFileTypes: true }).catch(() => []);
   let count = 0;
-  for (const entry of entries) if (entry.isDirectory() && await isRepo(path.join(workspace, entry.name))) count += 1;
+  for (const entry of entries) if (entry.isDirectory() && !entry.name.startsWith('.')) count += 1;
   return count;
 }
 
@@ -190,7 +190,7 @@ export async function checkCachePath(target, { userHome, cacheHome, stateRoot, w
 
 /** Arguments stay internal; UI/status receive only a generic activity verdict.
  * Unreadable processes owned by this user make cleanup fail closed. */
-export async function processSnapshot({ pid = process.pid, uid = process.getuid?.(), proc = "/proc" } = {}) {
+export async function processSnapshot({ pid = process.pid, uid = process.getuid?.(), proc = "/proc", includeOpenFiles = false } = {}) {
   const entries = await fs.readdir(proc).catch(() => null);
   if (!entries) return { complete: false, processes: [] };
   const processes = [];
@@ -205,8 +205,22 @@ export async function processSnapshot({ pid = process.pid, uid = process.getuid?
       const args = raw.toString().split("\0").filter(Boolean);
       if (!args.length) continue;
       const executable = await fs.readlink(path.join(directory, "exe")).catch(() => null);
-      const cwd = await fs.readlink(path.join(directory, "cwd")).catch(() => null);
-      processes.push({ pid: Number(name), args, executable, cwd });
+      const cwd = await fs.readlink(path.join(directory, "cwd")).catch((error) => {
+        if (includeOpenFiles && owner.uid === uid && !["ENOENT", "ESRCH"].includes(error.code)) complete = false;
+        return null;
+      });
+      const openFiles = [];
+      if (includeOpenFiles && owner.uid === uid) {
+        try {
+          const descriptors = await fs.readdir(path.join(directory, "fd"));
+          if (descriptors.length > 4096) complete = false;
+          for (const descriptor of descriptors.slice(0, 4096)) {
+            try { const file = await fs.readlink(path.join(directory, "fd", descriptor)); if (path.isAbsolute(file)) openFiles.push(file.replace(/ \(deleted\)$/, "")); }
+            catch (error) { if (!["ENOENT", "ESRCH"].includes(error.code)) complete = false; }
+          }
+        } catch (error) { if (!["ENOENT", "ESRCH"].includes(error.code)) complete = false; }
+      }
+      processes.push({ pid: Number(name), uid: owner.uid, args, executable, cwd, ...(includeOpenFiles ? { openFiles } : {}) });
     } catch (error) { if (owner.uid === uid && error.code !== "ENOENT" && error.code !== "ESRCH") complete = false; }
   }
   return { complete, processes };

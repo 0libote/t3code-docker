@@ -62,4 +62,5 @@ if (args[0] === 'cp') {
   ]);
   assert.notEqual((await run('skill-audit.cjs')).status, 0, 'a missing helper must fail the smoke audit');
   assert.notEqual((await run('skills-fixtures.cjs')).status, 0, 'a missing fixture module must fail the smoke audit');
+  assert.notEqual((await run('files-fixtures.cjs')).status, 0, 'the shared Files fixture must be staged too');
 });

@@ -25,6 +25,7 @@ import {
 } from "./cache.mjs";
 import { loadAssets, renderConsole, renderUnlock, contentSecurityPolicy } from "./page.mjs";
 import { parseListeners, processLabel, looksLikeDatabase } from "./ports.mjs";
+import { createFilesService, FILES_ROUTES, filesFailure } from "./files.mjs";
 import { createLatestCache } from "./latest.mjs";
 import { createT3Api } from "./t3-api.mjs";
 import { createAntigravity } from "./antigravity.mjs";
@@ -523,6 +524,10 @@ const skillsService = createSkillsService({ home: CONTEXT_HOME, env: process.env
 const mcpService = createMcpService({ home: CONTEXT_HOME, env: process.env, baseDir: STATE_DIR,
   io: await contextFs(),
 });
+let filesPromise;
+const loadFiles = () => filesPromise ??= loadStorage().then(storage => createFilesService({
+  home: CONTEXT_HOME, workspace: WORKSPACE, stateDir: STATE_DIR, env: process.env, storage, processSnapshot: harnessModule.processSnapshot, t3: t3Api, recordEvent,
+})).catch(error => { filesPromise = null; throw error; });
 
 // The browser image's agent browser, as built: the versions are build args the
 // Dockerfile bakes into the environment. Absent on the core image.
@@ -2152,7 +2157,7 @@ const cancelLifecycle = (target, rawId) => {
   return { http: 404, body: { ok: false, code: "not-running", error: "Nothing is running or waiting for that row." } };
 };
 
-const ROUTES = ["/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/devices/rename", "/ports",
+const ROUTES = [...FILES_ROUTES, "/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/devices/rename", "/ports",
   "/storage/versions/prune", "/storage/versions", "/storage/refresh", "/storage/clean/preview", "/storage/clean", "/storage/policy", "/storage",
   "/public-url/clear", "/public-url", "/setup-key/reveal", "/setup-key/replace", "/connect/unlink", "/t3/restart",
   "/t3/updates/check", "/t3/update", "/ports/expose", "/ports/unexpose",
@@ -2470,12 +2475,36 @@ const server = createServer(async (req, res) => {
     noteActivity();
 
     if (req.method === "POST" && runtimeModule.databaseBusy(runtimeOperation()) && !["/logout", "/t3/updates/check"].includes(route)) {
-      return sendJson(res, 409, { ok: false, error: "T3 Code is applying an update. Try again when it is back." });
+      return sendJson(res, 409, { ok: false, code: "busy", error: "T3 Code is applying an update. Try again when it is back." });
     }
 
     // `viewer` says how this browser got in, so the page offers Lock only
     // where locking would end something.
     if (route === "/status") return sendJson(res, 200, { ...(await status()), viewer: { via: viewer.via } });
+
+    if (route.startsWith("/files/")) {
+      if (req.method !== (route === "/files/measure" ? "POST" : "GET")) return sendJson(res, 405, { ok: false, code: "invalid", error: "Use the supported method for this Files action." });
+      try {
+        let input = {};
+        if (req.method === "POST") {
+          try { input = JSON.parse((await readBody(req)) || "{}"); }
+          catch (error) { return sendJson(res, error.message === "body too large" ? 413 : 400, { ok: false, code: error.message === "body too large" ? "too-large" : "invalid", error: error.message === "body too large" ? "This Files request exceeds 64 KiB." : "Use a valid JSON request." }); }
+          if (!input || Array.isArray(input) || typeof input !== "object") return sendJson(res, 400, { ok: false, code: "invalid", error: "Use a JSON object." });
+        }
+        const data = await (await loadFiles()).handle(route, { query: raw.searchParams, input, headers: req.headers });
+        if (data.raw) {
+          res.writeHead(data.status, data.headers);
+          res.once("close", () => data.stream.destroy());
+          data.stream.once("error", () => res.destroy());
+          data.stream.pipe(res);
+          return;
+        }
+        const etag = data.etag;
+        if (etag && req.headers["if-none-match"] === etag) { res.writeHead(304, { ETag: etag, "Cache-Control": "private, no-cache" }); return res.end(); }
+        if (etag) res.setHeader("ETag", etag);
+        return sendJson(res, 200, data);
+      } catch (error) { const failure = filesFailure(error); return sendJson(res, failure.status, failure.body); }
+    }
 
     if (req.method === "GET" && route === "/auto-update") {
       return sendJson(res, 200, { ok: true, policy: autoPolicy, state: autoState, lastActivityAt, busy: await autoBusyReason().catch(() => null) });

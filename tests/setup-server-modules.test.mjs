@@ -99,14 +99,14 @@ test("mounts are judged the way t3-doctor judges them", () => {
   assert.deepEqual(mountSource("/opt/elsewhere", MOUNTINFO), { kind: "none", volume: null });
 });
 
-test("projects are the git repositories T3 Code registers on start", async () => {
+test("project counts agree with Files for every visible top-level folder", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "t3-projects-"));
   try {
     assert.equal(await countProjects(root), 0);
     await mkdir(path.join(root, "a", ".git"), { recursive: true });
     await mkdir(path.join(root, "b", ".git"), { recursive: true });
     await mkdir(path.join(root, "notes"));
-    assert.equal(await countProjects(root), 2);
+    assert.equal(await countProjects(root), 3, "non-Git folders are projects too");
     await mkdir(path.join(root, ".git"));
     assert.equal(await countProjects(root), 1, "a workspace that is itself a repository is one project");
     assert.equal(await countProjects(path.join(root, "missing")), 0);
