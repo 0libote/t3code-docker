@@ -71,3 +71,10 @@ test('replacement choices bind the reviewed destination revision',async t=>{
  try{await f.changes.move({paths:[source],dest});}catch(error){reviewed=error.fields.conflicts[0].existing.revision;}
  await fs.writeFile(target,'newer');await assert.rejects(f.changes.move({paths:[source],dest,onConflict:'replace',expected:{file:reviewed}}),{code:'stale'});assert.equal(await fs.readFile(target,'utf8'),'newer');
 });
+
+
+test('exclusive rename normalizes GNU refused-replacement exits and verifies successful inode transitions',async t=>{
+ const {workspace}=await filesFixture(t),a=path.join(workspace,'source'),b=path.join(workspace,'taken');await fs.writeFile(a,'keep source');await fs.writeFile(b,'keep destination');
+ const refusal=Object.assign(new Error('mv: not replacing destination'),{code:1});await assert.rejects(renameExclusive(a,b,{run:async()=>{throw refusal;}}),{code:'exists'});assert.equal(await fs.readFile(a,'utf8'),'keep source');assert.equal(await fs.readFile(b,'utf8'),'keep destination');
+ const moved=path.join(workspace,'moved');await renameExclusive(a,moved,{run:async()=>{await fs.rename(a,moved);throw Object.assign(new Error('late CLI exit'),{code:1});}});assert.equal(await fs.readFile(moved,'utf8'),'keep source');assert.equal(await fs.stat(a).then(()=>true,()=>false),false);
+});

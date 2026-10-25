@@ -9,9 +9,14 @@ import { createCommandRunner } from './io.mjs';
 // --no-copy also makes an unexpected device change fail without a partial copy.
 export async function renameExclusive(from,to,{run=createCommandRunner()}={}) {
   const before=await fs.lstat(from,{bigint:true}),forChild=value=>value.replace(/^\/proc\/self\/fd\//,`/proc/${process.pid}/fd/`);
-  await run('mv',['--no-clobber','--no-copy','-T','--',forChild(from),forChild(to)]);
-  const after=await maybeStat(to);
-  if(identity(before)!==identity(after)||await maybeStat(from))fail('exists','This name is now taken. Choose another name.');
+  let commandError;try{await run('mv',['--no-clobber','--no-copy','-T','--',forChild(from),forChild(to)]);}catch(error){commandError=error;}
+  // GNU versions disagree on the exit status for a refused replacement.
+  // Verify the actual inode transition; never retry or fall back to copying.
+  const [after,remaining]=await Promise.all([maybeStat(to),maybeStat(from)]);
+  if(identity(before)===identity(after)&&!remaining)return;
+  if(after&&remaining)fail('exists','This name is now taken. Choose another name.');
+  if(commandError)throw commandError;
+  fail('changed','The move could not be confirmed. Check both locations before trying again.');
 }
 
 export const maybeStat=value=>fs.lstat(value,{bigint:true}).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
