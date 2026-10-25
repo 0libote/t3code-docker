@@ -24,11 +24,11 @@ export function filesFailure(error) {
   return {status:STATUS[code]||500,body:{ok:false,code,error:error instanceof FilesError?error.message:messages[code],...(error instanceof FilesError?error.fields:{})}};
 }
 const iso = value => Number.isFinite(Date.parse(value))?value:null;
-export function createFilesService({ home=os.homedir(), workspace='/workspace', stateDir, env=process.env, storage, listeners, t3, recordEvent=()=>{}, git:givenGit, activity:givenActivity, now=Date.now }={}) {
+export function createFilesService({ home=os.homedir(), workspace='/workspace', stateDir, env=process.env, storage, listeners, t3, recordEvent=()=>{}, git:givenGit, activity:givenActivity, processSnapshot, now=Date.now }={}) {
   const policy=createPathPolicy({home,workspace,stateDir,env,storage});
   const git=givenGit||createGitService({env,now}), sizes=createSizesService({storage,home:policy.home,workspace:policy.workspace,now});
   const rebuildable=createRebuildableService({sizes,git,workspace:policy.workspace,now}), listing=createListingService({policy,sizes,git,rebuildable});
-  const activity=givenActivity||createActivityService({env,listeners,now}), threads=createThreadFacts({t3,now});
+  const activity=givenActivity||createActivityService({env,listeners,now,snapshot:processSnapshot}), threads=createThreadFacts({t3,now});
   const search=createSearchService({policy,sizes,git,rebuildable,now});
   const capabilities={browse:true,change:false,archives:false,space:false};
   let placesCache=null,placesAt=0,placesPending=null;

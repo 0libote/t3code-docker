@@ -1,6 +1,5 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { processSnapshot } from '../../harness/storage/system.mjs';
 import { parseListeners, processLabel } from '../ports.mjs';
 import { createCommandRunner, mapLimit } from './io.mjs';
 import { inside } from './paths.mjs';
@@ -33,7 +32,7 @@ export function createThreadFacts({ t3, now = Date.now } = {}) {
   return { get, forPath, settled:async()=>{get();await pending;return value;} };
 }
 
-export function createActivityService({ env=process.env, snapshot=processSnapshot, run=createCommandRunner(env), listeners, now=Date.now }={}) {
+export function createActivityService({ env=process.env, snapshot=async()=>({complete:false,processes:[]}), run=createCommandRunner(env), listeners, now=Date.now }={}) {
   let value={complete:false,processes:[]},at=0,pending;
   const read=async()=>{
     const [processes,ports,pid]=await Promise.all([

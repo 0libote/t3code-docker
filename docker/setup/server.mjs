@@ -526,7 +526,7 @@ const mcpService = createMcpService({ home: CONTEXT_HOME, env: process.env, base
 });
 let filesPromise;
 const loadFiles = () => filesPromise ??= loadStorage().then(storage => createFilesService({
-  home: CONTEXT_HOME, workspace: WORKSPACE, stateDir: STATE_DIR, env: process.env, storage, t3: t3Api, recordEvent,
+  home: CONTEXT_HOME, workspace: WORKSPACE, stateDir: STATE_DIR, env: process.env, storage, processSnapshot: harnessModule.processSnapshot, t3: t3Api, recordEvent,
 })).catch(error => { filesPromise = null; throw error; });
 
 // The browser image's agent browser, as built: the versions are build args the

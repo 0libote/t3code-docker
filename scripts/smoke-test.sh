@@ -388,8 +388,11 @@ printf '\nSetup service\n'
 SETUP_JAR="$(mktemp)"
 # Gate the section on the service actually answering, so the first assertion
 # is not the one that discovers it is still starting.
-retry 30 "docker exec $NAME curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:3774/" \
-  || no "setup service never answered"
+if ! retry 30 "docker exec $NAME curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:3774/"; then
+  no "setup service never answered"
+  docker logs "$NAME" 2>&1 | tail -30
+  exit 1
+fi
 check "refuses an unauthenticated request" \
   "[ \"\$(docker exec $NAME curl -sS -o /dev/null -w '%{http_code}' \
      http://127.0.0.1:3774/status)\" = 401 ]"
