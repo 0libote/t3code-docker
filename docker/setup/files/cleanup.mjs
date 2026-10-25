@@ -50,16 +50,16 @@ export function createCleanup({policy,guard,sizes,git,rebuildable,activity,threa
     const all=current.projects.flatMap(project=>project.items.map(row=>({...row,project:project.path}))),selected=[...new Set(input.ids)].map(id=>all.find(row=>row.id===id));
     if(selected.some(row=>!row))fail('stale','A selected folder is no longer rebuildable. Review it again.');
     if(selected.some(row=>row.inUse))fail('in-use','Stop the processes using these folders, then review them again.',{processes:selected.flatMap(row=>row.inUse?.processes||[]),complete:selected.every(row=>row.inUse?.complete!==false)});
-    const specs=selected.map(row=>({path:row.absolutePath,mode:'remove'}));await preflight(input,specs);reviews.consume(input.token,'clean');
+    const bytesKnown=selected.every(row=>Number.isFinite(row.bytes)),specs=selected.map(row=>({path:row.absolutePath,mode:'remove'}));await preflight(input,specs);reviews.consume(input.token,'clean');
     const job=jobs.add('clean','Free up space',async({signal,progress,stage})=>{
       const fresh=await cleanFacts({path:saved.root});if(fresh.signature!==saved.signature)fail('stale','The cleanup changed while waiting. Nothing was removed; review it again.');
       return guard.run(input,specs,async(rows,verify)=>{
         for(let index=0;index<rows.length;index++)if(statRevision(rows[index].stat)!==selected[index].revision)fail('stale','A folder changed. Nothing was removed; review it again.');await verify();checkAbort(signal);progress({cancellable:false,phase:'removing',total:rows.length});let count=0,bytes=0;
         for(let index=0;index<rows.length;index++){
           const row=rows[index],lease=await stage(row.pin.parent,'copy');
-          try{await renameExclusive(row.pin.pinned,lease.payload);await fs.rm(lease.payload,{recursive:true,force:false});count++;bytes+=selected[index].bytes||0;progress({done:count,total:rows.length,freedBytes:bytes,unit:'folders'});}finally{await lease.dispose();}
+          try{await renameExclusive(row.pin.pinned,lease.payload);await fs.rm(lease.payload,{recursive:true,force:false});count++;bytes+=selected[index].bytes||0;progress({done:count,total:rows.length,freedBytes:bytesKnown?bytes:null,unit:'folders'});}finally{await lease.dispose();}
         }
-        const projects=new Set(selected.map(row=>row.project)).size;recordEvent('files.cleaned','Freed '+displayBytes(bytes)+' in '+projects+' '+(projects===1?'project':'projects'));return {ok:true,bytes,estimated:true,projects,removed:count};
+        const projects=new Set(selected.map(row=>row.project)).size;recordEvent('files.cleaned',(bytesKnown?'Freed '+displayBytes(bytes):'Removed '+count+' rebuildable '+(count===1?'folder':'folders'))+' in '+projects+' '+(projects===1?'project':'projects'));return {ok:true,bytes:bytesKnown?bytes:null,estimated:true,projects,removed:count};
       });
     },{paths:selected.map(row=>row.absolutePath),dest:saved.root});return {ok:true,job};
   };

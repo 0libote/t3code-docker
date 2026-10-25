@@ -40,3 +40,8 @@ test('project delete review reports local-only commits and modified files withou
  const f=await setup(t),project=path.join(f.workspace,'repo');await fs.mkdir(project);await f.git.command(project,['init','-q']);await fs.writeFile(path.join(project,'README.md'),'first');await f.git.command(project,['add','README.md']);await f.git.command(project,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','Local commit']);await fs.writeFile(path.join(project,'README.md'),'modified');
  const preview=await f.cleanup.deletePreview({paths:[project]});assert.equal(preview.risks.find(row=>row.kind==='unpushed').count,1);assert.equal(preview.risks.find(row=>row.kind==='unpushed').commits[0].subject,'Local commit');assert(preview.risks.find(row=>row.kind==='uncommitted').files.some(row=>row.path==='README.md'));assert.equal(preview.confirmName,'repo');
 });
+
+
+test('cleanup without a measurement reports removed folders without inventing reclaimed bytes',async t=>{
+ const f=await setup(t),project=path.join(f.workspace,'unmeasured');await fs.mkdir(path.join(project,'node_modules'),{recursive:true});await fs.writeFile(path.join(project,'package.json'),'{}');await fs.writeFile(path.join(project,'node_modules/cache'),'output');const preview=await f.cleanup.cleanPreview({path:project});assert.equal(preview.bytes,null);const action=await f.cleanup.clean({token:preview.token,ids:preview.projects[0].items.map(row=>row.id)}),job=await f.jobs.settled(action.job);assert.equal(job.state,'done',job.error);assert.equal(job.result.bytes,null);assert.equal(job.result.removed,1);assert.equal(job.freedBytes,null);assert.equal(await fs.readFile(path.join(project,'package.json'),'utf8'),'{}');
+});
