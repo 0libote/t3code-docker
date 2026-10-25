@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import path from 'node:path';
+import os from 'node:os';
+import { promises as fs } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
+import { once } from 'node:events';
+import { fileURLToPath } from 'node:url';
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+
+test('Files HTTP enforces authentication, same-origin POST, method and body limits; streams sandboxed downloads and honors etags',{timeout:20_000},async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'t3-files-api-')),home=path.join(root,'home'),workspace=path.join(root,'workspace'),outside=path.join(root,'outside');
+ await Promise.all([home,workspace,outside].map(file=>fs.mkdir(file,{recursive:true})));
+ await fs.writeFile(path.join(outside,'hello.html'),'<script>window.mustNotRun=true</script>');
+ await fs.symlink(outside,path.join(workspace,'link'));
+ const module=path.join(root,'harness.mjs');
+ await fs.writeFile(module,`export * from ${JSON.stringify(new URL('../docker/harness/index.mjs',import.meta.url).href)};
+ export const createStorageManager=()=>({ready:Promise.resolve(),snapshot:()=>({categories:[]}),sizes:()=>({at:'2026-10-25T00:00:00Z',partial:false,bytesOf:()=>4096,childrenOf:()=>[],entries:()=>new Map().entries()}),refresh:async()=>({}),status:async()=>({categories:[],disk:{totalBytes:1000,availableBytes:500}}),stop(){}});`);
+ const reservation=createServer().listen(0,'127.0.0.1');await once(reservation,'listening');const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
+ const child=spawn(process.execPath,[fileURLToPath(new URL('../docker/setup/server.mjs',import.meta.url))],{env:{...process.env,HOME:home,T3CODE_HOME:path.join(home,'.t3'),T3_WORKSPACE:workspace,MISE_DATA_DIR:path.join(home,'.local/share/mise'),MISE_STATE_DIR:path.join(home,'.local/state/mise'),MISE_CONFIG_DIR:path.join(home,'.config/mise'),T3_HARNESS_MODULE:module,T3_SETUP_PORT:String(port),T3_SETUP_KEY:'files-fixture-key',T3_SETUP_KEY_SOURCE:'env',T3_INFRA_LAUNCHER:'/bin/false',T3CODE_PORT:'1'},stdio:['ignore','pipe','pipe']});
+ let logs='';child.stdout.on('data',chunk=>{logs+=chunk;});child.stderr.on('data',chunk=>{logs+=chunk;});
+ t.after(async()=>{if(child.exitCode===null){const ended=once(child,'exit');child.kill();await ended;}await fs.rm(root,{recursive:true,force:true});});
+ const base=`http://127.0.0.1:${port}`;
+ for(let i=0;i<150;i++){if(child.exitCode!==null)throw new Error(logs);try{if((await fetch(base+'/hello')).ok)break;}catch{}await pause(20);}
+ const request=(route,{body,headers={},method}={})=>fetch(base+route,{method:method||(body===undefined?'GET':'POST'),headers:{'x-t3-setup-key':'files-fixture-key',...(body!==undefined?{'content-type':'application/json'}:{}),...headers},body:body===undefined?undefined:typeof body==='string'?body:JSON.stringify(body)});
+ assert.equal((await fetch(base+'/files/places')).status,401);
+ const places=await request('/proxy/__setup/files/places');assert.equal(places.status,200);assert.equal((await places.json()).projects.path,workspace);
+ assert.equal((await request('/files/measure',{body:{path:workspace},headers:{'sec-fetch-site':'cross-site'}})).status,403);
+ assert.equal((await request('/files/places',{body:{}})).status,405);
+ assert.equal((await request('/files/measure',{body:'{bad'})).status,400);
+ assert.equal((await request('/files/measure',{body:' '.repeat(65537)})).status,413);
+ const url='/files/list?'+new URLSearchParams({path:outside,sort:'name'});
+ let listing=await request(url);assert.equal(listing.status,200);await listing.json();await pause(100);
+ listing=await request(url);const data=await listing.json();assert.equal(data.entries[0].name,'hello.html');assert(listing.headers.get('etag'));
+ assert.equal((await request(url,{headers:{'if-none-match':listing.headers.get('etag')}})).status,304);
+ const raw=await request('/files/raw?'+new URLSearchParams({path:path.join(outside,'hello.html')}));assert.equal(raw.status,200);assert.equal(raw.headers.get('content-type'),'application/octet-stream');assert.equal(raw.headers.get('x-content-type-options'),'nosniff');assert.match(raw.headers.get('content-disposition'),/^attachment;/);assert.equal(raw.headers.get('content-security-policy'),"sandbox; default-src 'none'");assert.match(await raw.text(),/mustNotRun/);
+ const range=await request('/files/raw?'+new URLSearchParams({path:path.join(outside,'hello.html')}),{headers:{range:'bytes=1-3'}});assert.equal(range.status,206);assert.equal(await range.text(),'scr');
+ assert.equal((await request('/files/raw?'+new URLSearchParams({path:path.join(outside,'hello.html')}),{headers:{range:'bytes=999999-'}})).status,416);
+ const broken=await request('/files/list?'+new URLSearchParams({path:path.join(root,'missing')}));assert.equal(broken.status,404);assert.equal((await broken.json()).code,'missing');
+ const page=await request('/');const csp=page.headers.get('content-security-policy');assert.match(csp,/img-src data: blob:/);assert.match(csp,/frame-src blob:/);assert.doesNotMatch(csp,/script-src[^;]*blob:|connect-src[^;]*blob:/);
+});

@@ -296,7 +296,7 @@ const Kit = (() => {
     const layer = top();
     if (layer && layer.kind === 'menu' && !layer.panel.contains(e.target) && !(layer.returnTo && layer.returnTo.contains(e.target))) layer.close('outside');
   }, true);
-  const closeMenusOnMove = () => { const layer = top(); if (layer && layer.kind === 'menu') layer.close('moved'); };
+  const closeMenusOnMove = event => { const layer = top(); if (layer && layer.kind === 'menu' && !(event.type === 'scroll' && layer.panel.contains(event.target))) layer.close('moved'); };
   window.addEventListener('resize', closeMenusOnMove);
   window.addEventListener('scroll', closeMenusOnMove, true);
 
@@ -338,7 +338,7 @@ const Kit = (() => {
    *   items  [{label, icon, danger, run, radio?, checkbox?, checked?, description?} | {sep: true}]
    *   footer escaped Kit markup for settings paths or other contextual help
    */
-  const menu = (trigger, { label, head, items, footer, status }) => {
+  const menu = (trigger, { label, head, items, footer, status, at, className = '' }) => {
     const current = top();
     if (current && current.kind === 'menu' && current.returnTo === trigger) { current.close('toggle'); return null; }
     if (isPhone()) {
@@ -365,7 +365,7 @@ const Kit = (() => {
       modal: false,
       backdrop: false,
       returnTo: trigger,
-      panel: { class: 'tc-menu', role: 'menu', 'aria-label': label },
+      panel: { class: 'tc-menu' + (className ? ' ' + className : ''), role: 'menu', 'aria-label': label },
       render: () => html`${head && head.title ? html`<div class="tc-menu-label">${head.title}${head.sub ? ' · ' + head.sub : ''}</div>` : ''}${status || ''}${menuItems(items)}${footer ? html`<div class="tc-menu-foot">${footer}</div>` : ''}`,
       onClose: () => trigger.setAttribute('aria-expanded', 'false'),
     });
@@ -373,12 +373,14 @@ const Kit = (() => {
     const r = trigger.getBoundingClientRect();
     const m = layer.panel.getBoundingClientRect();
     const margin = 8;
-    let left = Math.min(Math.max(margin, r.right - m.width), window.innerWidth - m.width - margin);
-    let topPx = r.bottom + 4;
+    let left = Math.max(margin, Math.min(at ? (at.x + m.width > window.innerWidth - margin ? at.x - m.width : at.x) : r.right - m.width, window.innerWidth - m.width - margin));
+    let topPx = at ? at.y : r.bottom + 4;
     if (topPx + m.height > window.innerHeight - margin && r.top - 4 - m.height > margin) {
       topPx = r.top - 4 - m.height;
       layer.panel.style.transformOrigin = 'bottom right';
     }
+    if (at && topPx + m.height > window.innerHeight - margin) topPx = at.y - m.height;
+    topPx = Math.max(margin, Math.min(topPx, window.innerHeight - m.height - margin));
     layer.panel.style.left = left + 'px';
     layer.panel.style.top = topPx + 'px';
     wireMenu(layer, items);

@@ -16,6 +16,7 @@
 import { createHarnessManager } from "./manager.mjs";
 import { createStorageManager as storageManager } from "./storage/manager.mjs";
 export { createHarnessManager };
+export { processSnapshot } from "./storage/system.mjs";
 export function createStorageManager(options = {}) {
   const harness = options.harness ?? createHarnessManager({ env: options.env, home: options.home });
   return storageManager({ ...options, retention: options.retention ?? harness.retention });

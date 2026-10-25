@@ -10,6 +10,7 @@ import * as lock from "../lock.mjs";
 import { DEFAULT_POLICY, policyPath, policyRevision, readPolicy, storageStateDir, validatePolicy, writeStorageJson } from "./policy.mjs";
 import { buildsOrInstallsRunning, checkCachePath, countProjects, detectCaches, filesystemUsage, inside, measureStorage, mountSource, processSnapshot } from "./system.mjs";
 import { CACHES, CACHE_IDS, cacheLabel, cacheTarget, cacheSafety, cacheCommand, cacheFingerprint, validCacheIds } from "./caches.mjs";
+import { createFilesSizesIndex } from "./files-sizes.mjs";
 export { CACHE_IDS, cacheLabel } from "./caches.mjs";
 
 const IDLE_MS = 10 * 60 * 1000;
@@ -35,6 +36,7 @@ export function createStorageManager(options = {}) {
   const policyFile = policyPath(env, userHome);
   const operationFile = path.join(storageStateDir(env, userHome), "storage-operation.json");
   const snapshotFile = path.join(storageStateDir(env, userHome), "storage-snapshot.json");
+  const filesSizes = createFilesSizesIndex({ file: path.join(storageStateDir(env, userHome), "files-sizes.json.gz"), home: userHome, workspace, io, now });
   const ctx = { fs: options.lockFs ?? createFs(), lockPath: lock.lockPath(stateDir), pid: options.pid ?? process.pid,
     now, lockStaleMs: 60 * 60 * 1000, isAlive: options.isAlive ?? processAlive, startTimeOf: options.startTimeOf ?? processStartTime };
   let caches = null, scan = null, stopped = false;
@@ -48,6 +50,7 @@ export function createStorageManager(options = {}) {
     cachePolicies, policy: { ...DEFAULT_POLICY }, policyError: null, error: null, partial: false, operation: null };
 
   const ready = (async () => {
+    await filesSizes.ready;
     const preferences = await readPolicy(policyFile, io);
       facts.policy = preferences.policy; facts.policyError = preferences.error;
     try {
@@ -156,6 +159,7 @@ export function createStorageManager(options = {}) {
         facts.workspaceKind = work.kind; facts.workspaceVolumeName = work.volume;
         facts.stateKind = stateMount.kind; facts.stateVolumeName = stateMount.volume; facts.statePath = stateRoot;
         facts.workspaceProjects = await (options.countProjects ?? countProjects)(workspace);
+        await filesSizes.replace(sizes, { at: facts.at, partial });
         const { operation, policy, policyError, refreshing, ...inventory } = facts;
         await writeStorageJson(snapshotFile, { schema: 1, home: userHome, workspace, facts: inventory }, io);
       } catch (error) { facts.error = error.message || "Storage could not be measured. Try again."; }
@@ -404,6 +408,7 @@ export function createStorageManager(options = {}) {
   ];
   timers.forEach((timer) => timer.unref?.());
   return { ready, refresh, snapshot, status, clean, previewClean, setPolicy, maintain, previewVersions, trimVersions,
+    sizes: filesSizes.snapshot,
     paths: { home: userHome, workspace, stateRoot, policyFile },
     stop: () => { stopped = true; timers.forEach(clearInterval); } };
 }

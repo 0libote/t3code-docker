@@ -133,3 +133,11 @@ agent lifecycle test and measures the image size on amd64, and then combines
 the tested digests into one manifest without rebuilding. `latest` points at
 `browser`. Published releases are then mirrored to Docker Hub; see
 [Docker Hub publishing](docs/dockerhub-publishing.md).
+
+`node scripts/files-ui-audit.js http://127.0.0.1:23785/__setup/ dev` checks Files
+against synthetic in-memory paths. It covers desktop, tablet, phone, narrow phone
+and embedded layouts in both themes, including selection, polling, late replies,
+previews, Sizes, managed paths and permission/missing states. Screenshots go to
+`/tmp/t3-files-ui-audit` (`T3_FILES_UI_OUTPUT` overrides it). Use the existing
+Playwright installation through `NODE_PATH` and `CHROME_PATH`, as above. It cannot
+read or change the production filesystem.

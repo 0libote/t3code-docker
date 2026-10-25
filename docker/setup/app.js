@@ -62,12 +62,13 @@
    * One request to the setup API. Never throws: the answer carries `ok`,
    * `status`, the parsed body and a sentence for the user when it failed.
    */
-  const api = async (path, { body, method } = {}) => {
+  const api = async (path, { body, method, headers = {}, signal } = {}) => {
     let res;
     try {
       res = await fetch(BASE + path, {
         method: method || (body === undefined ? 'GET' : 'POST'),
-        headers: body === undefined ? { accept: 'application/json' } : { accept: 'application/json', 'content-type': 'application/json' },
+        headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
+        signal,
         body: body === undefined ? undefined : JSON.stringify(body),
         cache: 'no-store',
         credentials: 'same-origin',
@@ -83,6 +84,7 @@
       // the same address with a #page in it would only scroll).
       location.reload();
     }
+    if (res.status === 304) return { ok: true, status: 304, data: null, error: null };
     const data = await res.json().catch(() => ({}));
     const ok = res.ok && data.ok !== false;
     return { ok, status: res.status, data, error: ok ? null : (data.error || 'HTTP ' + res.status) };
@@ -137,6 +139,7 @@
   const skillsUI = T3SkillsUI.create({ api, getStatus: () => state.status, render: () => render(),
     readMarkdown: (file) => readMarkdownFile(file, 64 * 1024), downloadMarkdown: (...args) => downloadMarkdown(...args) });
   const mcpUI = T3McpUI.create({ api, getStatus: () => state.status, render: () => render() });
+  const filesUI = T3FilesUI.create({ api, base: BASE, getStatus: () => state.status, getRoute: () => state.route, render: () => render(), go: route => go(route) });
 
   /** Whether this browser came in on its T3 Code session rather than the key, so Lock would end nothing. */
   const viaT3 = (s) => Boolean(s && s.viewer && s.viewer.via === 't3');
@@ -214,6 +217,7 @@
         checkHere();
         if (state.route === 'instructions' && state.contextTab === 'skills') skillsUI.activate();
         if (state.route === 'mcp') mcpUI.activate();
+        if (state.route === 'files') filesUI.activate();
         if (state.route === 'instructions' && state.contextTab === 'instructions') void loadInstructionsPreview();
       } else if (!locked) {
         // Name the URL and the reason. "Could not read status" sent someone
@@ -1785,6 +1789,7 @@
 
   // ---------------------------------------------------------------- shell --
   const PAGES = {
+    files: () => html`${filesUI.phoneHead()}${pageHead('files')}${filesUI.content()}`,
     overview: overviewPage, access: accessPage, agents: agentsPage, instructions: instructionsPage,
     mcp: () => html`${mcpUI.phoneHead()}${pageHead('mcp', { sub: 'Servers your agents can start or connect to. Define one once, then add it to the agents you choose.' })}${mcpUI.content()}`,
     toolchains: toolchainsPage, sourcecontrol: sourceControlPage, ports: portsPage,
@@ -1885,6 +1890,7 @@
     if (route === 'instructions' && state.contextTab === 'skills' && state.status) skillsUI.activate(true);
     if (route === 'instructions' && state.contextTab === 'instructions' && state.status) void loadInstructionsPreview(true);
     if (route === 'mcp' && state.status) mcpUI.activate(true);
+    if (route === 'files' && state.status) filesUI.activate();
   };
   const navigateFromHash = async focus => {
     const version = ++navigationVersion;
@@ -1894,7 +1900,8 @@
     if (!navigationTask) navigationTask = (async () => {
       if (contextEditor.layer && !await contextEditor.requestClose()) return false;
       if (!await skillsUI.beforeNavigate()) return false;
-      return mcpUI.beforeNavigate();
+      if (!await mcpUI.beforeNavigate()) return false;
+      return filesUI.beforeNavigate();
     })();
     const allowed = await navigationTask;
     if (version !== navigationVersion) return;
@@ -3866,7 +3873,7 @@
 
   /** Run one command by name: buttons, menus, shortcuts and the palette all come through here. */
   const run = (name, args, el) => {
-    const command = COMMANDS[name];
+    const command = name.startsWith('files.') ? (a, target) => filesUI.command(name.slice(6), a, target) : COMMANDS[name];
     if (!command) return;
     try {
       const result = command(args || {}, el || null);
@@ -3922,7 +3929,7 @@
   // -------------------------------------------------------------- palette --
   const openPalette = () => {
     const layer = Kit.palette({
-      items: () => [...M.paletteItems(state.status || {}, state.ports, ui, now()), ...skillsUI.paletteItems().map(item => ({ ...item, group: 'Instructions & skills', keywords: item.desc || '' }))],
+      items: () => [...M.paletteItems(state.status || {}, state.ports, ui, now()), ...skillsUI.paletteItems().map(item => ({ ...item, group: 'Instructions & skills', keywords: item.desc || '' })), ...filesUI.paletteItems()],
       search: M.searchPalette,
       run: (item) => {
         const { cmd, ...args } = item.cmd;
@@ -3937,7 +3944,7 @@
 
   // ------------------------------------------------------------ shortcuts --
   Kit.bind('mod+k', openPalette);
-  Kit.bind('/', () => state.route === 'mcp' ? mcpUI.focusSearch() : state.route === 'instructions' && state.contextTab === 'skills' ? skillsUI.focusSearch() : openPalette());
+  Kit.bind('/', () => state.route === 'files' ? filesUI.focusSearch() : state.route === 'mcp' ? mcpUI.focusSearch() : state.route === 'instructions' && state.contextTab === 'skills' ? skillsUI.focusSearch() : openPalette());
   for (const page of T3Routes.PAGES) {
     if (page.key) Kit.bind('g ' + page.key, () => { keyboardNav = true; go(page.route); });
   }
