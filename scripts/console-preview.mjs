@@ -21,7 +21,8 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/.well-known/t3/environment') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ environmentId: 'fixture-preview', serverVersion: 'fixture', label: 'Fixture preview' })); return; }
   if (url.pathname === '/__setup/' || url.pathname === '/') {
     res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store', 'content-security-policy': contentSecurityPolicy('fixture') });
-    res.end(renderConsole({ assets: loadAssets(), nonce: 'fixture', mount: '/__setup', embed: url.searchParams.get('embed') === 't3' }));
+    // Match both real Setup entry points, including direct-port image smoke tests.
+    res.end(renderConsole({ assets: loadAssets(), nonce: 'fixture', mount: url.pathname === '/' ? '' : '/__setup', embed: url.searchParams.get('embed') === 't3' }));
     return;
   }
   const chunks = []; let bytes = 0;

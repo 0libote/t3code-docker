@@ -2941,7 +2941,8 @@ button.tc-fd-item:hover { background: var(--hover); }
 #files-browser .tc-split { align-self: center; }
 #files-browser .tc-split > .tc-btn:last-child { background: var(--accent); color: var(--on-accent); border-color: var(--accent); margin-left: 0; box-shadow: inset 1px 0 0 color-mix(in srgb,var(--on-accent) 24%,transparent); }
 @media(min-width:640px) and (max-width:1100px) { #files-browser .tc-ftb .tc-path { flex-basis: 100%; } }
-.tc-root:has(.tc-files-editor,.tc-files-move,.tc-files-conflicts,.tc-files-in-use,.tc-files-name-dialog,.tc-ctx) .tc-toaster { visibility: hidden; }
+/* Owned Files layers also hide notices while the main route is changing. */
+.tc-root:has(.tc-files-editor,.tc-files-move,.tc-files-conflicts,.tc-files-in-use,.tc-files-name-dialog,.tc-files-transfer-sheet,.tc-ctx) .tc-toaster { visibility: hidden; }
 @media(max-width:639.98px) { body[data-console-route="files"] .tc-toaster { bottom: calc(86px + env(safe-area-inset-bottom)); } }
 body[data-console-route="files"]:has(.tc-layer) .tc-toaster { visibility: hidden; }
 @media(min-width:1024px) and (max-width:1360px) {
