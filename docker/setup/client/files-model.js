@@ -51,5 +51,9 @@ const T3FilesModel = (() => {
     failed:{icon:'circle-alert',title:'This folder could not be read',copy:'Check the connection and try again.'},
   })[code]||{icon:'circle-alert',title:'This folder could not be read',copy:'Check the connection and try again.'};
   const consequences = row => row.keys?'This download includes private keys. Anyone with them may be able to access your other services.':row.signIns?.length?'This download includes '+row.signIns.join(' and ')+' sign-in credentials. Anyone with them may be able to use those accounts.':row.secret?'This file may contain secrets. Keep the download somewhere private.':null;
-  return {icons,basename,normalize,parent,within,display,route,address,encode,partsOf,proportion,totalOf,gitLine,mask,tokens,state,consequences};
+  const groupTrash=items=>{
+    const groups=new Map();for(const item of items){const key=item.batch||item.id;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(item);}
+    return [...groups].map(([key,rows])=>rows.length===1?{...rows[0],ids:[rows[0].id],path:'trash:'+key}:{...rows[0],id:key,ids:rows.map(row=>row.id),path:'trash:'+key,name:rows.length+' items',names:rows[0].name+' and '+(rows.length-1)+' more',bytes:totalOf(rows),kind:'folder'});
+  };
+  return {groupTrash,icons,basename,normalize,parent,within,display,route,address,encode,partsOf,proportion,totalOf,gitLine,mask,tokens,state,consequences};
 })();

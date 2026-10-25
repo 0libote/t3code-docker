@@ -41,3 +41,47 @@ its supported RPC, project details include thread activity. Files never reads
 T3’s database. Unsupported runtimes omit this information.
 
 See [Storage](storage.md) for cache and tool-version maintenance.
+
+
+Create folders and rename items in place. Move to opens a destination picker;
+copy keeps the originals. Same-mount moves can be undone for five minutes if
+nothing has changed since the move. Replaced destinations are kept in Trash.
+Cross-filesystem moves copy into private staging, verify the source, then publish
+complete copies before removing the originals. Two server jobs run at a time.
+
+Trash is per filesystem, merged into one view. Workspace items use
+`/workspace/.t3-trash`; home items use `~/.t3/trash`. A symlink is moved as a link.
+Restore keeps any conflicting name by adding `(restored)`. Items expire after
+seven days; disk pressure at 90% removes the oldest until usage is below 85%,
+while preserving the first ten minutes for Undo. Empty Trash requires a fresh
+confirmation. Other mounts have no implicit Trash.
+
+Upload files, a folder, clipboard files or a desktop drop. At most three files
+upload together in ordered 8 MiB chunks. Received data stays under a private
+staging name until completion. The server reserves 1 GiB of headroom. The tray
+shows progress, recovery, conflicts and completed files; phones use a sheet.
+Choose the same name, size and modification time in the same destination to
+resume after reopening the console. Unfinished sessions expire after 24 hours.
+Conflicts offer Replace (the old file goes to Trash), Keep both or Skip.
+A lost finish reply is checked against the server's saved result, never replayed
+as a fresh upload. Empty folders from desktop drops are preserved.
+
+The editor supports valid UTF-8 text up to 5 MiB. Drafts live only in this tab;
+refresh polling never replaces an unsaved draft. Secret values remain masked
+except on the line being edited. A stale save offers Discard mine, Save as a
+copy, Overwrite theirs and Compare. Saves use a synced temporary file, preserve
+the mode and publish by rename. The console never executes the edited file.
+
+Managed folders begin locked. **Edit anyway** unlocks only the named managed
+root until you leave it; **Lock again** ends that permission immediately.
+Sign-ins and keys have separate consequences. Process checks fail closed when
+activity cannot be established. For a supervised T3 process, **Stop T3 Code
+first** pauses it for the change and verifies that it restarts. Other processes
+must be stopped in their terminals. Setup remains available during this pause.
+
+The authenticated `/files/*` API uses absolute paths and the same permissions as
+the UI. Writes require same-origin requests. JSON bodies are limited to 64 KiB,
+except `/files/write` (5 MiB + 64 KiB); raw upload chunks allow 8 MiB. Managed
+writes carry `unlock` equal to the managed root, and sign-in/key changes require
+`confirmed: true`. `requestId` deduplicates editor, rename, mkdir and move replies
+within a bounded five-minute window. See the Files tests for request examples.

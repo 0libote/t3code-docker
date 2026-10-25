@@ -424,6 +424,26 @@ NODE
 }
 check "Files browses with t3 permissions, preserves managed link guards, and sandboxes downloads" files_browse_works
 
+files_changes_work() {
+  docker exec -i -u t3 -e FILES_SMOKE_KEY="$SETUP_KEY" "$NAME" node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import { randomUUID,createHash } from 'node:crypto';
+import path from 'node:path';
+const root=path.join(process.env.T3_WORKSPACE||'/workspace','.t3-files-smoke-'+randomUUID());
+await fs.mkdir(root);
+const request=async(route,body)=>{const response=await fetch('http://127.0.0.1:3774'+route,{method:body===undefined?'GET':'POST',headers:{'x-t3-setup-key':process.env.FILES_SMOKE_KEY,...(body===undefined?{}:{'content-type':Buffer.isBuffer(body)?'application/octet-stream':'application/json'})},body:body===undefined?undefined:Buffer.isBuffer(body)?body:JSON.stringify(body)});if(!response.ok)throw new Error(route+': '+await response.text());return response;};
+try {
+ const bytes=Buffer.alloc(20*1024*1024,0x61),start=await (await request('/files/upload/start',{dest:root,items:[{path:'fixture.bin',size:bytes.length,lastModified:1700000000000}]})).json(),id=start.uploads[0].id;
+ for(let offset=0;offset<bytes.length;offset+=start.chunkBytes)await request('/files/upload/chunk?'+new URLSearchParams({id,offset}),bytes.subarray(offset,offset+start.chunkBytes));
+ assert.equal(await fs.stat(path.join(root,'fixture.bin')).then(()=>true,()=>false),false);
+ const finished=await (await request('/files/upload/finish',{id})).json(),download=Buffer.from(await (await request('/files/raw?'+new URLSearchParams({path:finished.path}))).arrayBuffer());assert.equal(createHash('sha256').update(download).digest('hex'),createHash('sha256').update(bytes).digest('hex'));
+ const trashed=await (await request('/files/to-trash',{paths:[finished.path]})).json();assert.equal(await fs.stat(finished.path).then(()=>true,()=>false),false);await request('/files/trash/restore',{ids:trashed.ids});assert.equal((await fs.stat(finished.path)).size,bytes.length);
+} finally { await fs.rm(root,{recursive:true,force:true}); }
+NODE
+}
+check "Files uploads 20 MiB atomically, downloads identical bytes, and restores Trash" files_changes_work
+
 setup_pair="$(docker exec "$NAME" sh -c \
   "curl -sS -b /tmp/jar -H 'content-type: application/json' -d '{\"ttl\":\"1h\"}' \
      http://127.0.0.1:3774/pair" 2>/dev/null || true)"
@@ -765,12 +785,15 @@ files_browser_works() {
   [ "$HAS_BROWSER" -eq 1 ] || return 0
   docker exec "$NAME" mkdir -p /tmp/t3-files-audit/lib /tmp/t3-files-audit/fixtures || return 1
   docker cp scripts/files-ui-audit.js "$NAME:/tmp/t3-files-audit/files-ui-audit.js" >/dev/null 2>&1 || return 1
+  docker cp scripts/files-change-ui-audit.js "$NAME:/tmp/t3-files-audit/files-change-ui-audit.js" >/dev/null 2>&1 || return 1
   for helper in console-fixtures.cjs files-fixtures.cjs skills-fixtures.cjs mcp-fixtures.cjs; do
     docker cp "scripts/lib/$helper" "$NAME:/tmp/t3-files-audit/lib/$helper" >/dev/null 2>&1 || return 1
   done
   docker cp scripts/fixtures/console "$NAME:/tmp/t3-files-audit/fixtures/console" >/dev/null 2>&1 || return 1
   docker exec -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
-    "$NAME" node /tmp/t3-files-audit/files-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
+    "$NAME" node /tmp/t3-files-audit/files-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1 || return 1
+  docker exec -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \
+    "$NAME" node /tmp/t3-files-audit/files-change-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
 }
 check "Files browsing, selection, previews, Sizes and recovery work in every layout" files_browser_works
 

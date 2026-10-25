@@ -24,9 +24,11 @@ export async function openRegular(value, { io = fs } = {}) {
   } catch (error) { await handle.close(); throw error; }
 }
 
-export async function readText(value, { edit = false, io = fs } = {}) {
+const readTags=new Map();
+export async function readText(value, { edit = false, io = fs,ifNoneMatch } = {}) {
   const file = await openRegular(value, { io }), limit = edit ? EDIT_BYTES : PREVIEW_BYTES;
   try {
+    const key=file.target+':'+edit,prior=readTags.get(key);if(ifNoneMatch&&prior?.etag===ifNoneMatch&&prior.stat===file.etag)return {ok:true,notModified:true,etag:prior.etag};
     if (edit && file.info.size > BigInt(limit)) throw new FilesError('too-large', 'This file is too large to edit here. Download it instead.');
     const chunks = []; let count = 0;
     while (count <= limit) {
@@ -46,6 +48,7 @@ export async function readText(value, { edit = false, io = fs } = {}) {
     } catch { return { ok: true, kind: 'binary', bytes: Number(file.info.size), editable: false, etag: file.etag }; }
     const writable = await Promise.all([io.access(file.target, constants.W_OK), io.access(path.dirname(file.target), constants.W_OK)]).then(() => true, () => false);
     const etag = '"' + createHash('sha256').update(file.etag).update(bytes).digest('hex') + '"';
+    if(readTags.size>=256)readTags.delete(readTags.keys().next().value);readTags.set(key,{etag,stat:file.etag});
     return { ok: true, kind: 'text', text, truncated, bytes: Number(file.info.size), lines: text ? text.split('\n').length : 0,
       linesTruncated: truncated, encoding: 'utf-8', eol: text.includes('\r\n') ? 'crlf' : 'lf', etag,
       secret: isSecret(path.basename(file.path)) || isSecret(path.basename(file.target)), writable,

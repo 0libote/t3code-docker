@@ -15,7 +15,7 @@ export const access = async (value, flags) => fs.access(value, flags).then(() =>
 export async function permissions(value) {
   const [writable, facts] = await Promise.all([access(value, constants.W_OK), mounts.forPath(value)]);
   const readOnly = !!facts.mount?.readOnly;
-  return { writable: writable && !readOnly, readOnly };
+  return { writable: writable && !readOnly, readOnly, volumeId: facts.mount?.id || null };
 }
 
 /** Open descriptor pins the folder while names and lstat facts are read. */

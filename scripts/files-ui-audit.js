@@ -27,7 +27,7 @@ const delayGate=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});retu
     requests.push(url.pathname+url.search);
     if(gate&&url.pathname.endsWith('/list'))await gate.promise;
     if(readError&&url.pathname.endsWith('/read'))return route.fulfill({status:503,json:{ok:false,error:'Synthetic preview interruption'}});
-    const result=await api.respond(request.method(),url,request.method()==='POST'?request.postDataJSON():{});
+    const result=await api.respond(request.method(),url,request.method()==='POST'?(url.pathname.endsWith('/files/upload/chunk')?request.postDataBuffer():request.postDataJSON()):{});
     if(result.raw)return route.fulfill({body:result.raw,headers:result.headers});
     const headers={...(result.body.etag?{etag:result.body.etag}:{})};
     if(result.body.etag&&request.headers()['if-none-match']===result.body.etag)return route.fulfill({status:304,headers});
@@ -85,7 +85,7 @@ const delayGate=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});retu
    if(phone)await target.getByRole('button',{name:'Done',exact:true}).click();else await target.getByRole('button',{name:'Clear selection',exact:true}).click();
    // Sizes folding never allocates a trailing action column. Expand/collapse works.
    await visit('files/projects/acme-web');
-   if(phone){await target.getByRole('button',{name:'View options',exact:true}).click();await target.getByRole('menuitemradio',{name:'Sizes',exact:true}).click();}
+   if(phone||!await target.locator('[data-cmd="files.view"][data-view="sizes"]').isVisible()){await target.getByRole('button',{name:phone?'View options':'View',exact:true}).click();await target.getByRole('menuitemradio',{name:'Sizes',exact:true}).click();}
    else await target.locator('[data-cmd="files.view"][data-view="sizes"]').click();
    await target.locator('[role="treegrid"] [data-files-tree-row]').first().waitFor();
    const collapse=target.getByRole('button',{name:'Collapse node_modules',exact:true});await collapse.waitFor();

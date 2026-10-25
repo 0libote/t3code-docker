@@ -5,6 +5,7 @@ import os from 'node:os';
 import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
+import { FILES_POST_ROUTES, FILES_ROUTES } from '../docker/setup/files.mjs';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -24,7 +25,17 @@ test('Files HTTP enforces authentication, same-origin POST, method and body limi
  const base=`http://127.0.0.1:${port}`;
  for(let i=0;i<150;i++){if(child.exitCode!==null)throw new Error(logs);try{if((await fetch(base+'/hello')).ok)break;}catch{}await pause(20);}
  const request=(route,{body,headers={},method}={})=>fetch(base+route,{method:method||(body===undefined?'GET':'POST'),headers:{'x-t3-setup-key':'files-fixture-key',...(body!==undefined?{'content-type':'application/json'}:{}),...headers},body:body===undefined?undefined:typeof body==='string'?body:JSON.stringify(body)});
- assert.equal((await fetch(base+'/files/places')).status,401);
+ await Promise.all(FILES_ROUTES.map(async route=>assert.equal((await fetch(base+route)).status,401,route+' requires authentication')));
+ for(const route of FILES_ROUTES)assert.equal((await request(route,{method:FILES_POST_ROUTES.includes(route)?'GET':'POST',...(FILES_POST_ROUTES.includes(route)?{}:{body:{}})})).status,405,route+' checks the method');
+ for(const route of FILES_POST_ROUTES)assert.equal((await request(route,{body:{},headers:{'sec-fetch-site':'cross-site'}})).status,403,route+' rejects cross-site writes');
+ const locked=await request('/files/mkdir',{body:{parent:path.join(home,'.t3'),name:'locked'}});assert.equal(locked.status,423);assert.equal((await locked.json()).managed.root,path.join(home,'.t3'));
+ const created=await request('/files/write',{body:{path:path.join(workspace,'large.txt'),text:'a'.repeat(100_000),mode:'create'}});assert.equal(created.status,200);const saved=await created.json();assert.equal((await fs.stat(saved.path)).size,100_000);
+ assert.equal((await request('/files/read?'+new URLSearchParams({path:saved.path,edit:'1'}),{headers:{'if-none-match':saved.etag}})).status,304);
+ const tooLarge=await request('/files/write',{body:{path:saved.path,text:'a'.repeat(5*1024*1024+1),mode:'overwrite'}});assert.equal(tooLarge.status,413);assert.equal((await fs.stat(saved.path)).size,100_000);
+ const start=await request('/files/upload/start',{body:{dest:workspace,items:[{path:'chunk.txt',size:5,lastModified:1700000000000}]}});assert.equal(start.status,200);const id=(await start.json()).uploads[0].id;
+ const chunk=await fetch(base+'/files/upload/chunk?'+new URLSearchParams({id,offset:0}),{method:'POST',headers:{'x-t3-setup-key':'files-fixture-key','content-type':'application/octet-stream'},body:Buffer.from('hello')});assert.equal(chunk.status,200);assert.equal((await chunk.json()).received,5);
+ assert.equal(await fs.stat(path.join(workspace,'chunk.txt')).then(()=>true,()=>false),false);const finish=await request('/files/upload/finish',{body:{id}});assert.equal(finish.status,200);assert.equal(await fs.readFile(path.join(workspace,'chunk.txt'),'utf8'),'hello');
+
  const places=await request('/proxy/__setup/files/places');assert.equal(places.status,200);assert.equal((await places.json()).projects.path,workspace);
  assert.equal((await request('/files/measure',{body:{path:workspace},headers:{'sec-fetch-site':'cross-site'}})).status,403);
  assert.equal((await request('/files/places',{body:{}})).status,405);

@@ -62,14 +62,27 @@
    * One request to the setup API. Never throws: the answer carries `ok`,
    * `status`, the parsed body and a sentence for the user when it failed.
    */
-  const api = async (path, { body, method, headers = {}, signal } = {}) => {
+  const api = async (path, { body, method, headers = {}, signal, rawBody, onProgress } = {}) => {
     let res;
     try {
-      res = await fetch(BASE + path, {
-        method: method || (body === undefined ? 'GET' : 'POST'),
+      if(rawBody!==undefined&&onProgress)res=await new Promise((resolve,reject)=>{
+        const xhr=new XMLHttpRequest();let idle;
+        const arm=()=>{clearTimeout(idle);idle=setTimeout(()=>xhr.abort(),120000);};
+        const abort=()=>xhr.abort();
+        const cleanup=()=>{clearTimeout(idle);signal?.removeEventListener('abort',abort);};
+        xhr.open(method||'POST',BASE+path);xhr.withCredentials=true;
+        for(const [name,value]of Object.entries({accept:'application/json','content-type':'application/octet-stream',...headers}))xhr.setRequestHeader(name,value);
+        xhr.upload.onprogress=event=>{arm();onProgress(event.loaded);};
+        xhr.onprogress=arm;
+        xhr.onload=()=>{cleanup();resolve({status:xhr.status,ok:xhr.status>=200&&xhr.status<300,json:async()=>JSON.parse(xhr.responseText)});};
+        xhr.onerror=()=>{cleanup();reject(new Error('The upload connection was interrupted.'));};
+        xhr.onabort=()=>{cleanup();reject(new DOMException('Upload paused or interrupted','AbortError'));};
+        if(signal?.aborted){reject(new DOMException('Aborted','AbortError'));return;}signal?.addEventListener('abort',abort,{once:true});arm();xhr.send(rawBody);
+      });else res = await fetch(BASE + path, {
+        method: method || (body === undefined && rawBody === undefined ? 'GET' : 'POST'),
         headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
         signal,
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: rawBody === undefined ? body === undefined ? undefined : JSON.stringify(body) : rawBody,
         cache: 'no-store',
         credentials: 'same-origin',
       });
