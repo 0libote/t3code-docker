@@ -20,6 +20,15 @@ const variants=[['desktop',1440,1000],['compact',1280,800],['small-desktop',1100
   const fits=async()=>{const bad=await target.evaluate(()=>[...document.querySelectorAll('.tc-layer:not([hidden]) .tc-fdlg,.tc-layer:not([hidden]) .tc-files-editor,#files-browser .tc-ftb')].filter(el=>{const r=el.getBoundingClientRect();return r.left<-.5||r.right>innerWidth+.5||r.bottom>innerHeight+.5&&el.closest('.tc-layer');}).map(el=>el.className));assert.deepEqual(bad,[],variant+' '+theme+' layers fit');assert.equal(await target.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);assert.deepEqual(await target.locator('#files-browser .tc-fl--projects .tc-fcell').evaluateAll(cells=>cells.filter(cell=>cell.clientWidth&&cell.scrollWidth>cell.clientWidth+1).map(cell=>cell.textContent)),[],'project names and badges stay inside their column');checks++;};
   await target.evaluate(()=>{window.__fileMenuCloses=[];const menu=Kit.menu;Kit.menu=(...args)=>{const layer=menu(...args);if(layer){const close=layer.close;layer.close=reason=>{window.__fileMenuCloses.push({reason,y:scrollY,triggerConnected:!!layer.returnTo?.isConnected});return close(reason);};}return layer;};});
   const visit=async hash=>{await target.evaluate(value=>{location.hash=value;},hash);await target.locator('#files-search').waitFor();await target.locator('#files-browser .tc-skel-row').first().waitFor({state:'detached'});};
+  // Reduced motion must not create a new visibility transition on
+  // the notification host. Hiding and restoration both happen in this task.
+  const ownership=await target.evaluate(()=>{
+   const host=document.getElementById('toaster'),before=getComputedStyle(host).visibility;
+   const layer=Kit.open({kind:'bottom',panel:{class:'tc-sheet tc-sheet--bottom tc-files-transfer-sheet',role:'dialog','aria-label':'Notification visibility probe'},render:()=>''});
+   const immediate=getComputedStyle(host).visibility==='hidden';layer.close('replaced');
+   return {immediate,restored:getComputedStyle(host).visibility===before};
+  });
+  assert.deepEqual(ownership,{immediate:true,restored:true});
   try{await visit('files/projects/acme-web/apps/web');await target.locator('[data-path$="next.config.mjs"][data-files-row]').waitFor();await fits();
   // Native textarea draft survives a refresh; conflict comparison never drops it.
   if(width<1024){await target.locator('[data-path$="next.config.mjs"][data-files-row]').click();await target.getByRole('button',{name:'Edit',exact:true}).click();}else await target.locator('[data-path$="next.config.mjs"][data-files-row]').dblclick();await target.locator('[data-files-editor-text]').waitFor();
