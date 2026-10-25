@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { fail, inside, normalizePath, validateName } from './paths.mjs';
 import { maybeStat, pathsOf, uniqueName, same, copyEntry, treeRevision, checkAbort, renameExclusive } from './entries.mjs';
-import { readText, EDIT_BYTES } from './text.mjs';
+import { readText, EDIT_BYTES, statRevision } from './text.mjs';
 
 export function createChanges({policy,guard,trash,jobs,sizes,now=Date.now}) {
   const undos=new Map(),requests=new Map();
@@ -55,18 +55,19 @@ export function createChanges({policy,guard,trash,jobs,sizes,now=Date.now}) {
       let name=input.duplicate?await uniqueName(dest,path.basename(from),{suffix:'copy'}):path.basename(from),target=path.join(dest,name),stat=await maybeStat(target);
       const choice=input.choices?.[path.basename(from)]||input.onConflict||'ask';
       if(!['ask','replace','keep-both','skip'].includes(choice))fail('invalid','Choose Replace, Keep both or Skip.');
-      if(stat&&choice==='ask'){conflicts.push({name,path:target,existing:{bytes:Number(stat.size),modified:new Date(Number(stat.mtimeMs)).toISOString()}});continue;}
+      if(stat&&choice==='ask'){conflicts.push({name,path:target,existing:{revision:statRevision(stat),bytes:Number(stat.size),modified:new Date(Number(stat.mtimeMs)).toISOString()}});continue;}
       if(stat&&choice==='skip')continue;
       if(stat&&choice==='keep-both'){name=await uniqueName(dest,name);target=path.join(dest,name);stat=null;}
       if(taken.has(target))fail('conflicts','Two selected items have the same destination name. Move them separately.');taken.add(target);
-      plans.push({from,to:target,replace:!!stat});
+      if(stat&&input.expected?.[path.basename(from)]&&input.expected[path.basename(from)]!==statRevision(stat))fail('stale','A file to replace changed. Review the destination again.');
+      plans.push({from,to:target,replace:!!stat,expected:stat?statRevision(stat):null});
     }
     if(conflicts.length)fail('conflicts','Some names are already in this folder. Choose what to keep.',{conflicts});
     if(!plans.length)return {ok:true,moved:0,instant:true};
-    const specs=plans.flatMap(plan=>[{path:plan.from,mode:copy?'read':'remove'},{path:plan.to,mode:'write',missing:true}]);
+    const specs=plans.flatMap(plan=>[{path:plan.from,mode:copy?'read':'remove'},{path:plan.to,mode:plan.replace?'remove':'write',missing:true}]);
     const sourceStats=await Promise.all(plans.map(plan=>fs.lstat(plan.from,{bigint:true}))),destMount=await guard.mounts.forPath(dest,{fresh:true}),sourceMounts=await Promise.all(plans.map(plan=>guard.mounts.forPath(path.dirname(plan.from)))),instant=!copy&&destMount.available&&sourceMounts.every(row=>row.mount?.id===destMount.mount?.id)&&sourceStats.every(stat=>stat.dev===destStat.dev);
     if(instant)return guard.run(input,specs,async(rows,verify)=>{
-      await verify();const replaced=[],done=[];
+      await verify();for(let index=0;index<plans.length;index++)if((rows[index*2+1].stat?statRevision(rows[index*2+1].stat):null)!==plans[index].expected)fail('stale','A destination changed. Review what to keep again.');const replaced=[],done=[];
       try{
         for(let index=0;index<plans.length;index++){
           const from=rows[index*2],to=rows[index*2+1];
@@ -89,6 +90,7 @@ export function createChanges({policy,guard,trash,jobs,sizes,now=Date.now}) {
         }
         return await guard.run(input,specs,async(rows,verify)=>{
           checkAbort(signal);await verify();
+          for(let index=0;index<plans.length;index++)if((rows[index*2+1].stat?statRevision(rows[index*2+1].stat):null)!==plans[index].expected)fail('stale','A destination changed. Review what to keep again.');
           for(const item of staged)if((await treeRevision(item.from,{signal})).revision!==item.before.revision)fail('changed','A source changed. The originals were kept.');
           progress({cancellable:false,phase:'finishing'});const output=[];
           for(let index=0;index<staged.length;index++){

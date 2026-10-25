@@ -115,7 +115,7 @@ export function createUploads({policy,guard,trash,now=Date.now,statfs=value=>fs.
     if(existing&&choice==='ask')fail('conflicts','This name is already here. Choose what to keep.',{conflicts:[{name:path.basename(row.target),...current}],received:row.received});
     if(existing&&choice==='skip'){await safeUnlink(row);row.result={skipped:true,path:row.target};row.finalRevision=statRevision(existing);await persist(row);return {ok:true,...row.result};}
     const dest=existing&&choice==='keep-both'?path.join(row.parent,await uniqueName(row.parent,path.basename(row.target))):row.target;
-    const result=await guard.run(input,[{path:dest,mode:'write',missing:true}],async([target],verify)=>{
+    const result=await guard.run(input,[{path:dest,mode:existing&&choice==='replace'?'remove':'write',missing:true}],async([target],verify)=>{
       if(identity(target.pin.stat)!==row.parentIdentity)fail('changed','The upload folder changed.');
       const temp=path.join(`/proc/self/fd/${target.pin.handle.fd}`,path.basename(row.temp)),staged=await maybeStat(temp);
       if(!staged?.isFile()||staged.isSymbolicLink()||identity(staged)!==row.identity||Number(staged.size)!==row.size)fail('changed','The staged upload changed. Start again.');

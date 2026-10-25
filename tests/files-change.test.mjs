@@ -60,3 +60,14 @@ test('Undo restores the replaced destination as well as the moved source',async 
   const f=await filesFixture(t),source=path.join(f.workspace,'one'),dest=path.join(f.workspace,'dest');await fs.mkdir(dest);await fs.writeFile(source,'new');await fs.writeFile(path.join(dest,'one'),'old');
   const result=await f.changes.move({paths:[source],dest,onConflict:'replace'});await f.changes.move({undo:result.undo});assert.equal(await fs.readFile(source,'utf8'),'new');assert.equal(await fs.readFile(path.join(dest,'one'),'utf8'),'old');assert.equal((await f.trash.list()).items.length,0);
 });
+
+test('a destination appearing after move planning is never replaced without a new decision',async t=>{
+ const f=await filesFixture(t),source=path.join(f.workspace,'file'),dest=path.join(f.workspace,'dest'),target=path.join(dest,'file');await fs.mkdir(dest);await fs.writeFile(source,'source');
+ const original=f.guard.run;let injected=false;f.guard.run=async(input,specs,work)=>{if(!injected){injected=true;await fs.writeFile(target,'arrived later');}return original(input,specs,work);};
+ await assert.rejects(f.changes.move({paths:[source],dest}),{code:'stale'});assert.equal(await fs.readFile(target,'utf8'),'arrived later');assert.equal(await fs.readFile(source,'utf8'),'source');
+});
+test('replacement choices bind the reviewed destination revision',async t=>{
+ const f=await filesFixture(t),source=path.join(f.workspace,'file'),dest=path.join(f.workspace,'dest'),target=path.join(dest,'file');await fs.mkdir(dest);await fs.writeFile(source,'source');await fs.writeFile(target,'original');let reviewed;
+ try{await f.changes.move({paths:[source],dest});}catch(error){reviewed=error.fields.conflicts[0].existing.revision;}
+ await fs.writeFile(target,'newer');await assert.rejects(f.changes.move({paths:[source],dest,onConflict:'replace',expected:{file:reviewed}}),{code:'stale'});assert.equal(await fs.readFile(target,'utf8'),'newer');
+});
