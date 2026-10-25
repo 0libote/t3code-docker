@@ -447,7 +447,7 @@ check "Files uploads 20 MiB atomically, downloads identical bytes, and restores 
 
 files_archives_work() {
   docker cp tests/lib/zip-fixture.mjs "$NAME:/tmp/t3-files-zip-fixture.mjs" >/dev/null 2>&1 || return 1
-  docker exec -e FILES_SMOKE_KEY="$SETUP_KEY" -i "$NAME" node --input-type=module <<'NODE'
+  docker exec -i -u t3 -e FILES_SMOKE_KEY="$SETUP_KEY" "$NAME" node --input-type=module <<'NODE'
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';

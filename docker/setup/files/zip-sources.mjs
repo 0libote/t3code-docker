@@ -30,10 +30,13 @@ export function createZipSources({policy,guard,sizes,git,rebuildable}){
         candidates.push(...analysis.candidates);
       }
     }
-    const choose=row=>!(options.leaveOutRebuildable&&candidates.some(item=>inside(item.path,row.path)))&&(options.includeGit||!row.name.split('/').includes('.git'))&&(options.includeHidden||!row.name.split('/').some(part=>part.startsWith('.')));
+    const excludedRoots=new Set(candidates.map(row=>row.path)),excluded=value=>{while(inside(parent,value)&&value!==parent){if(excludedRoots.has(value))return true;value=path.dirname(value);}return false;};
+    const hidden=row=>row.name.split('/').some(part=>part.startsWith('.')&&part!=='.git');
+    const common=row=>!(options.leaveOutRebuildable&&excluded(row.path))&&(options.includeGit||!row.name.split('/').includes('.git'));
+    const choose=row=>common(row)&&(options.includeHidden||!hidden(row));
     const selected=entries.filter(choose);if(!selected.length)fail('invalid','These options leave no files to archive. Include hidden files or select another folder.');
-    const rawBytes=selected.reduce((sum,row)=>sum+(row.kind==='folder'?0:row.bytes),0),excludedBytes=candidates.reduce((sum,row)=>sum+(row.bytes||0),0),gitBytes=entries.filter(row=>row.name.split('/').includes('.git')&&row.kind!=='folder').reduce((sum,row)=>sum+row.bytes,0),selectedNames=new Set(selected.map(row=>row.name)),activeSecrets=secrets.filter(name=>selectedNames.has(name));
-    return {paths,parent,roots,entries:selected,rawBytes,count:selected.length,secrets:activeSecrets,options,name:paths.length===1?path.basename(paths[0])+'.zip':'Files.zip',estimate:{bytes:rawBytes,files:selected.length},offered:{leaveOutRebuildable:{default:options.leaveOutRebuildable,bytes:excludedBytes,folders:candidates.slice(0,100).map(row=>path.relative(parent,row.path))},includeGit:{default:options.includeGit,bytes:gitBytes},includeHidden:{default:options.includeHidden,secrets:activeSecrets}}};
+    const rawBytes=selected.reduce((sum,row)=>sum+(row.kind==='folder'?0:row.bytes),0),excludedBytes=candidates.reduce((sum,row)=>sum+(row.bytes||0),0),gitBytes=entries.filter(row=>row.name.split('/').includes('.git')&&row.kind!=='folder').reduce((sum,row)=>sum+row.bytes,0),hiddenBytes=entries.filter(common).filter(hidden).reduce((sum,row)=>sum+(row.kind==='folder'?0:row.bytes),0),selectedNames=new Set(selected.map(row=>row.name)),activeSecrets=secrets.filter(name=>selectedNames.has(name));
+    return {paths,parent,roots,entries:selected,rawBytes,count:selected.length,secrets:activeSecrets,options,name:paths.length===1?path.basename(paths[0])+'.zip':'Files.zip',estimate:{bytes:rawBytes,files:selected.length},offered:{leaveOutRebuildable:{default:options.leaveOutRebuildable,bytes:excludedBytes,folders:candidates.slice(0,100).map(row=>path.relative(parent,row.path))},includeGit:{default:options.includeGit,bytes:gitBytes},includeHidden:{default:options.includeHidden,bytes:hiddenBytes,secrets:activeSecrets}}};
   };
   const verify=async(saved,options=saved.options)=>{
     const current=await inspect({paths:saved.paths},{options});
