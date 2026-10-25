@@ -11,7 +11,10 @@ const variants=[['desktop',1440,900],['compact',1280,800],['tablet',834,1112],['
   const context=await browser.newContext({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce',acceptDownloads:true}),page=await context.newPage(),fixture=createFilesFixtures(),errors=[],writes=new Map();let hold=null,lowSpace=false,nearFull=false,activeFixture=fixture;
   page.setDefaultTimeout(10000);page.on('pageerror',error=>errors.push(error.stack));await routeConsole(page,{status:()=>statusFor('skills'),ports:()=>portsFor('ready')});
   await page.route('**/*',async route=>{const req=route.request(),url=new URL(req.url());if(!url.pathname.includes('/files/'))return route.fallback();const input=req.method()==='POST'?(url.pathname.endsWith('/chunk')?req.postDataBuffer():req.postDataJSON()):{};
-   if(req.method()==='POST')writes.set(url.pathname,(writes.get(url.pathname)||0)+1);if(hold&&url.pathname.endsWith(hold.route))await hold.promise;
+   const gate=hold&&url.pathname.endsWith(hold.route)?hold:null;
+   if(gate?.latency)await new Promise(resolve=>setTimeout(resolve,gate.latency));
+   const operation=url.pathname.slice(url.pathname.lastIndexOf('/files/'));
+   if(req.method()==='POST')writes.set(operation,(writes.get(operation)||0)+1);if(gate){gate.entered?.();await gate.promise;}
    const result=await activeFixture.respond(req.method(),url,input);if(nearFull&&url.pathname.endsWith('/places'))Object.assign(result.body.disk,{usedPercent:94,availableBytes:60e9});if(lowSpace&&url.pathname.endsWith('/extract/preview'))Object.assign(result.body,{canExtract:false,canExtractHere:false,topLevelCount:501,freeBytes:512e6});if(result.raw)return route.fulfill({body:result.raw,headers:result.headers});
    if(result.body.etag&&result.body.etag===req.headers()['if-none-match'])return route.fulfill({status:304,headers:{etag:result.body.etag}});return route.fulfill({status:result.status||200,json:result.body});});
   const target=variant.startsWith('embedded')?await framed(page,base+'?embed=t3&theme='+theme):page;if(target===page)await page.goto(base);await unlock(target,key);
@@ -24,7 +27,30 @@ const variants=[['desktop',1440,900],['compact',1280,800],['tablet',834,1112],['
   try{
    await visit('files');await target.locator('[data-cmd="files.clean"]').first().click();await target.locator('[data-clean-item]').first().waitFor();assert(await target.locator('[data-clean-project]').first().evaluate(el=>el.indeterminate));assert.equal(await target.locator('[data-clean-item]:disabled').count(),1);await fits();await shot('clean');
    const first=target.locator('[data-clean-item]:not([disabled])').first(),id=await first.getAttribute('data-clean-item');await first.uncheck();await mutate();await target.locator('[data-clean-start]').click();await target.locator('[data-clean-review]').waitFor();await fits();await shot('clean-stale');await target.locator('[data-clean-review]').click();await target.locator('[data-clean-start]:not([disabled])').waitFor();assert.equal(await target.locator('[data-clean-item='+JSON.stringify(id)+']').isChecked(),false);
-   let release;hold={route:'/clean',promise:new Promise(resolve=>{release=resolve;})};const cleanBefore=writes.get('/__setup/files/clean')||0;await target.locator('[data-clean-start]').click();assert.equal(await target.locator('[data-clean-start]').isDisabled(),true);await target.locator('[data-clean-start]').dispatchEvent('click');await page.waitForTimeout(50);assert.equal(writes.get('/__setup/files/clean')||0,cleanBefore+1);await shot('clean-pending');release();hold=null;await target.locator('.tc-files-review-progress').waitFor();await fits();await shot('clean-progress');if(await target.locator('[data-clean-close]').isVisible())await target.locator('[data-clean-close]').click({timeout:1000}).catch(async error=>{if(await target.locator('[data-clean-close]').count())throw error;});if(width<640)await target.locator('.tc-files-transfer-pill').click();await target.getByText('Space freed',{exact:true}).first().waitFor();if(width<640)await target.locator('[data-transfer-action="fold"]').click();checks++;
+   // Observe the request at the fixture boundary, including delayed transport;
+   // neither the Setup mount prefix nor a fixed sleep determines submission.
+   let release,entered;
+   const cleanReached=new Promise(resolve=>{entered=resolve;});
+   hold={route:'/clean',latency:200,entered,promise:new Promise(resolve=>{release=resolve;})};
+   const cleanBefore=writes.get('/files/clean')||0;
+   await target.locator('[data-clean-start]').click();
+   assert.equal(await target.locator('[data-clean-start]').isDisabled(),true);
+   await target.locator('[data-clean-start]').dispatchEvent('click');
+   let requestTimer;
+   try{
+    await Promise.race([cleanReached,new Promise((_,reject)=>{
+     requestTimer=setTimeout(()=>reject(new Error('Cleanup did not reach the request gate')),10000);
+    })]);
+   }finally{clearTimeout(requestTimer);}
+   assert.equal(writes.get('/files/clean')||0,cleanBefore+1);
+   await shot('clean-pending');release();hold=null;
+   await target.locator('.tc-files-review-progress').waitFor();
+   await fits();await shot('clean-progress');
+   if(await target.locator('[data-clean-close]').isVisible())await target.locator('[data-clean-close]').click({timeout:1000}).catch(async error=>{if(await target.locator('[data-clean-close]').count())throw error;});
+   if(width<640)await target.locator('.tc-files-transfer-pill').click();
+   await target.getByText('Space freed',{exact:true}).first().waitFor();
+   assert.equal(writes.get('/files/clean')||0,cleanBefore+1,'cleanup submits exactly once through completion');
+   if(width<640)await target.locator('[data-transfer-action="fold"]').click();checks++;
    await visit('files');await menu('/workspace/acme-web','Download as ZIP…');await target.locator('[data-zip-start]:not([disabled])').waitFor();assert.equal(await target.locator('[data-zip-option="leaveOutRebuildable"]').isChecked(),true);assert.match(await target.locator('.tc-files-zip').innerText(),/Keep this download private/);await fits();await shot('zip');
    await target.locator('[data-zip-option="includeHidden"]').uncheck();await target.locator('[data-zip-start]:not([disabled])').waitFor();assert.doesNotMatch(await target.locator('.tc-files-zip').innerText(),/Keep this download private/);await mutate();await target.locator('[data-zip-start]').click();await target.locator('[data-zip-review]').waitFor();await shot('zip-stale');await target.locator('[data-zip-review]').click();await target.locator('[data-zip-start]:not([disabled])').waitFor();const downloaded=page.waitForEvent('download');await target.locator('[data-zip-start]').click();const download=await downloaded;assert.equal(await download.failure(),null);await target.locator('.tc-files-zip').waitFor({state:'detached'});checks++;
    await visit('files/projects/acme-web/apps/web/public');await menu('/workspace/acme-web/apps/web/public/brand-kit.zip','Extract…');await target.locator('[data-extract-start]:not([disabled])').waitFor();assert.match(await target.locator('.tc-files-extract').innerText(),/312 MB/);await target.getByText('Show skipped entries',{exact:true}).click();await fits();await shot('extract');
