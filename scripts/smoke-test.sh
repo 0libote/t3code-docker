@@ -1064,8 +1064,24 @@ check "Muse saves an API key through stdin and replaces the stale signed-out ver
 as_t3() { docker exec -u t3 "$NAME" bash -lc "$1"; }
 
 codex_key_stored() {
-  auth_post '{"agent":"codex","key":"sk-smoke-test-key"}' /auth/apikey | grep -q '"ok":true' &&
-  as_t3 'codex login status' 2>&1 | grep -q "API key"
+  local reply native_status
+  # Consume both transports completely: grep -q can close Docker's pipe early
+  # and turn a successful response into SIGPIPE under pipefail.
+  if ! reply="$(auth_post '{"agent":"codex","key":"sk-smoke-test-key"}' /auth/apikey)"; then
+    printf 'Codex API-key request failed at the transport\n' >>"$UI_AUDIT_LOG"
+    return 1
+  fi
+  if ! jq -e '.ok == true' <<<"$reply" >/dev/null 2>&1; then
+    printf 'Codex API-key response was not successful JSON\n' >>"$UI_AUDIT_LOG"
+    return 1
+  fi
+  if ! native_status="$(as_t3 'codex login status' 2>&1)"; then
+    printf 'Codex native login status exited unsuccessfully\n' >>"$UI_AUDIT_LOG"
+    return 1
+  fi
+  if [[ "$native_status" == *"API key"* ]]; then return 0; fi
+  printf 'Codex native login status did not report API-key authentication\n' >>"$UI_AUDIT_LOG"
+  return 1
 }
 check "an API key signs Codex in" codex_key_stored
 
