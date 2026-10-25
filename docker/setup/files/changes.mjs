@@ -79,7 +79,7 @@ export function createChanges({policy,guard,trash,jobs,sizes,now=Date.now}) {
     });
     // Authorize before queuing, then again at publication. A changing source
     // cannot cause an across-disk move to remove a newer original.
-    await guard.run(input,specs,async()=>{});
+    await guard.run(input,specs,async()=>{},{notify:false});
     const job=jobs.add(copy?'copy':'move',(copy?'Copy ':'Move ')+plans.length+' items',async({signal,progress,stage:makeStage})=>{
       const staged=[],publishedPaths=[];let published=false;
       try{

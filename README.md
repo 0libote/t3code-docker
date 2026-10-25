@@ -109,7 +109,7 @@ and to GHCR as `ghcr.io/dizys/t3code-docker`, each for `linux/amd64` and
 
 ## Highlights
 
-- **No shell needed.** Pair devices, sign agents in, and install or update
+- **No shell needed.** [Manage files](docs/files.md), pair devices, sign agents in, and install or update
   everything from the setup page, which also opens from T3 Code's Settings.
 - **Every T3 Code agent.** Claude Code, Codex and OpenCode install on first
   start; Grok, Cursor, Muse Code and Antigravity take one click.
@@ -174,6 +174,7 @@ instead. Details: [Reaching the server from a phone](docs/remote-access.md).
 | [Giving agents a browser](docs/agent-browser.md) | T3's server browser and the browser MCP servers |
 | [Context management](docs/context-management.md) | Global `AGENTS.md` and the shared skill library |
 | [MCP servers](docs/mcp-servers.md) | Define once, compare and configure native agent copies |
+| [Files](docs/files.md) | Browse, edit, upload, ZIP, Trash and project cleanup |
 | [Storage management](docs/storage.md) | Disk usage, cache cleanup, version retention |
 | [Configuration](docs/configuration.md) | Every environment variable, volumes, building |
 | [Troubleshooting](docs/troubleshooting.md) | Pairing, providers, terminals, permissions |

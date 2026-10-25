@@ -45,13 +45,13 @@ export async function atomicJSON(file,value) {
   try{handle=await fs.open(temp,'wx',0o600);await handle.writeFile(JSON.stringify(value));await handle.sync();await handle.close();handle=null;await fs.rename(temp,file);}
   finally{await handle?.close();await fs.rm(temp,{force:true});}
 }
-export async function uniqueName(parent,name,{suffix='',start=2}={}) {
-  validateName(name);if(!await maybeStat(path.join(parent,name)))return name;
+export async function uniqueName(parent,name,{suffix='',start=2,reserved=new Set()}={}) {
+  validateName(name);if(!reserved.has(name)&&!await maybeStat(path.join(parent,name)))return name;
   const ext=path.extname(name),stem=name.slice(0,name.length-ext.length);
   for(let count=start;count<10000;count++){
     let trimmed=stem;const ending=(suffix?(count===start?' ('+suffix+')':' ('+suffix+' '+(count-start+1)+')'):' ('+count+')')+ext;while(Buffer.byteLength(trimmed+ending)>255)trimmed=[...trimmed].slice(0,-1).join('');
     const next=validateName(trimmed+(suffix?(count===start?' ('+suffix+')':' ('+suffix+' '+(count-start+1)+')'):' ('+count+')')+ext);
-    if(!await maybeStat(path.join(parent,next)))return next;
+    if(!reserved.has(next)&&!await maybeStat(path.join(parent,next)))return next;
   }
   fail('exists','Too many copies have this name. Choose another name.');
 }
@@ -100,17 +100,18 @@ export async function copyEntry(source,dest,{signal,progress=()=>{},mounts,timeo
   await copy(source,dest);return {entries,bytes};
 }
 
-export async function treeRevision(value,{signal,maxEntries=200_000,timeoutMs=20_000}={}) {
-  const root=await fs.lstat(value,{bigint:true}),hash=createHash('sha256'),at=Date.now();let entries=0,bytes=0;
+export async function treeRevision(value,{signal,maxEntries=200_000,timeoutMs=20_000,onEntry,skip}={}) {
+  const root=await fs.lstat(value,{bigint:true}),hash=createHash('sha256'),at=Date.now(),inodes=new Set();let entries=0,bytes=0;
   const visit=async(file,relative='',depth=0)=>{
+    if(relative&&skip?.(relative))return;
     checkAbort(signal);if(++entries>maxEntries||depth>128||Date.now()-at>timeoutMs)fail('too-large','This folder is too large to review here. Work with a smaller selection.');
     const pin=await pinParent(file);
     try{
       const stat=await fs.lstat(pin.pinned,{bigint:true});if(stat.dev!==root.dev)fail('invalid','The selection includes a mounted filesystem.');
-      hash.update(relative+'\0'+statRevision(stat)+'\0');bytes+=Number(stat.blocks)*512;
+      hash.update(relative+'\0'+statRevision(stat)+'\0');const inode=String(stat.dev)+':'+String(stat.ino);if(!inodes.has(inode)){inodes.add(inode);bytes+=Number(stat.blocks)*512;}await onEntry?.({path:value+relative,relative,stat});
       if(stat.isDirectory()&&!stat.isSymbolicLink()){
         const handle=await fs.open(pin.pinned,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);
-        try{if(identity(await handle.stat({bigint:true}))!==identity(stat))fail('changed','The folder changed. Review it again.');const names=[],directory=await fs.opendir(`/proc/self/fd/${handle.fd}`);for await(const entry of directory){if(names.length+entries>=maxEntries)fail('too-large','This folder is too large to review here.');names.push(entry.name);}names.sort();for(const name of names)await visit(`/proc/self/fd/${handle.fd}/${name}`,relative+'/'+name,depth+1);if(!same(stat,await handle.stat({bigint:true})))fail('changed','The folder changed. Review it again.');}finally{await handle.close();}
+        try{if(identity(await handle.stat({bigint:true}))!==identity(stat))fail('changed','The folder changed. Review it again.');const names=[],directory=await fs.opendir(`/proc/self/fd/${handle.fd}`,{encoding:'buffer'}),decoder=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true});for await(const entry of directory){if(names.length+entries>=maxEntries)fail('too-large','This folder is too large to review here.');let name;try{name=decoder.decode(entry.name);}catch{fail('invalid','This folder contains a filename that cannot be represented as UTF-8. Use a terminal to review it without changing its name.');}names.push(name);}names.sort();for(const name of names)await visit(`/proc/self/fd/${handle.fd}/${name}`,relative+'/'+name,depth+1);if(!same(stat,await handle.stat({bigint:true})))fail('changed','The folder changed. Review it again.');}finally{await handle.close();}
       }
     }finally{await pin.close();}
   };

@@ -29,7 +29,7 @@ test('browse is not jailed; link entries preserve their identity and opening fol
   assert.equal(list.entries[0].kind,'link');assert(list.entries[0].tags.includes('managed'));assert.equal(list.entries[0].target.kind,'folder');
   assert.equal((await service.handle('/files/list',{query:query({path:external})})).entries[0].name,'hello.txt');
   assert.equal((await service.handle('/files/list',{query:query({path:path.join(workspace,'managed-alias')})})).managed.root,path.join(home,'.t3'));
-  assert.equal(service.capabilities.change,true);assert.equal(service.capabilities.archives,false);
+  assert.equal(service.capabilities.change,true);assert.equal(service.capabilities.archives,true);assert.equal(service.capabilities.space,true);
 });
 
 test('listing has stable etags, natural sorting, hidden counts and explicit 500 / 20,000 paging',async t=>{

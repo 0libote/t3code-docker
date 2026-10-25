@@ -13,6 +13,7 @@
  *   setup-light.png, setup-dark.png   the README's picture: Overview at a
  *                                     desk and Agents on a phone, mid-setup
  *   ports-panel.png                   the Ports guide's list of ports
+ *   files-light.png, files-dark.png   the Files guide's projects and details
  */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -109,6 +110,12 @@ const frame = (theme, desk, phone) => `<!doctype html><html><head><style>
       await page.screenshot({ path: path.join(OUT, `setup-${theme}.png`) });
       await context.close();
       console.log(path.join(OUT, `setup-${theme}.png`));
+    }
+    // The Files guide uses the same real page and synthetic Files routes.
+    for (const theme of ["light", "dark"]) {
+      const files = await shoot(browser, { width: 1440, height: 900, scale: 1, theme, route: "files", status: () => statusFor("ready"), ports: heroPorts });
+      fs.writeFileSync(path.join(OUT, `files-${theme}.png`), files);
+      console.log(path.join(OUT, `files-${theme}.png`));
     }
     const panel = await shoot(browser, { width: 1100, height: 900, scale: 2, theme: "light", route: "ports", status: heroStatus, ports: panelPorts, clip: "#page-ports [data-key='pl-title']" });
     fs.writeFileSync(path.join(OUT, "ports-panel.png"), panel);

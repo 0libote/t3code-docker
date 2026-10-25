@@ -5,6 +5,7 @@ import { createStages } from './stages.mjs';
 /** Two independent jobs; queued work owns an AbortSignal before it starts. */
 export function createJobs({ concurrency=2, now=Date.now,stateDir,mounts }={}) {
   const jobs=new Map(); let running=0;
+  const failures={ENOSPC:['no-space','The disk is full. Check the destination and free space before reviewing again.'],EDQUOT:['no-space','The disk quota is full. Check the destination before retrying.'],EACCES:['no-access','t3 cannot change every item here. Check the destination before reviewing another change.'],EPERM:['no-access','The filesystem refused part of this change. Check the destination before retrying.'],EROFS:['read-only','This filesystem became read-only. Check the destination before retrying.'],ENOENT:['missing','An item is no longer here. Check the destination and review the current files again.']};
   const stages=createStages({stateDir,mounts});
   const ready=stages.ready.then(interrupted=>{for(const job of interrupted)if(!jobs.has(job.id))jobs.set(job.id,{...job,finishedAt:new Date(now()).toISOString(),controller:new AbortController()});});
   const pump=()=>{
@@ -14,7 +15,7 @@ export function createJobs({ concurrency=2, now=Date.now,stateDir,mounts }={}) {
       running++;job.state='running';job.startedAt=new Date(now()).toISOString();
       void ready.then(()=>{if(job.controller.signal.aborted)throw new DOMException('Cancelled','AbortError');return job.work({signal:job.controller.signal,progress:facts=>Object.assign(job,facts),stage:(parent,kind)=>stages.create(parent,kind,{id:job.id,label:job.label,kind:job.kind,dest:job.dest,paths:job.paths})});}).then(result=>{
         job.result=result;job.state=job.controller.signal.aborted?'cancelled':'done';
-      },error=>{job.state=job.controller.signal.aborted?'cancelled':'failed';job.error=error.message||'This operation could not finish.';job.code=error.code||'failed';}).finally(()=>{
+      },error=>{job.state=job.controller.signal.aborted?'cancelled':'failed';const failure=failures[error.code];job.error=failure?.[1]||error.message||'This operation could not finish.';job.code=failure?.[0]||error.code||'failed';}).finally(()=>{
         running--;job.finishedAt=new Date(now()).toISOString();delete job.work;pump();
       });
     }

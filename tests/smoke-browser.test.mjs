@@ -8,12 +8,14 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-test('the image smoke test stages every Skills browser audit with its dependencies and fixtures', async (t) => {
+test('the image smoke test stages Skills and Files audits with their complete dependency graphs', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 't3-smoke-browser-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const source = await fs.readFile(new URL('../scripts/smoke-test.sh', import.meta.url), 'utf8');
-  const body = source.match(/^skills_editor_works\(\) \{[\s\S]*?^\}/m)?.[0];
-  assert.ok(body, 'the shipping smoke function exists');
+  const body = name => {
+    const value=source.match(new RegExp('^'+name+'\\(\\) \\{[\\s\\S]*?^\\}','m'))?.[0];
+    assert.ok(value, 'the shipping smoke function exists');return value;
+  };
   const container = path.join(root, 'container'), log = path.join(root, 'audits.jsonl');
   const transport = path.join(root, 'docker.cjs');
   await fs.writeFile(transport, `
@@ -40,17 +42,17 @@ if (args[0] === 'cp') {
       for (const match of text.matchAll(/require\\(['"](\\.[^'"]+)['"]\\)/g)) inspect(createRequire(file).resolve(match[1]));
     };
     inspect(audit);
-    require(inside('/tmp/lib/skills-fixtures.cjs')).createSkillsFixtures();
+    require(path.join(path.dirname(audit),'lib/skills-fixtures.cjs')).createSkillsFixtures();
     fs.appendFileSync(process.env.SMOKE_AUDITS, JSON.stringify(path.basename(audit)) + '\\n');
   } else process.exit(9);
 } else process.exit(9);
 `);
   await fs.writeFile(path.join(root, 'docker'), `#!/bin/bash\nexec '${process.execPath}' '${transport}' "$@"\n`, { mode: 0o700 });
-  const run = async (drop = '') => {
+  const run = async (drop = '', name = 'skills_editor_works') => {
     await fs.rm(container, { recursive: true, force: true });
     await fs.rm(log, { force: true });
     await fs.mkdir(path.join(container, 'tmp'), { recursive: true });
-    return spawnSync('bash', ['-c', `set -euo pipefail\nHAS_BROWSER=1\nNAME=fixture\nSETUP_KEY=fixture\nUI_AUDIT_LOG='${path.join(root, 'output.log')}'\n${body}\nskills_editor_works`], {
+    return spawnSync('bash', ['-c', `set -euo pipefail\nHAS_BROWSER=1\nNAME=fixture\nSETUP_KEY=fixture\nUI_AUDIT_LOG='${path.join(root, 'output.log')}'\n${body(name)}\n${name}`], {
       cwd: new URL('..', import.meta.url), encoding: 'utf8',
       env: { ...process.env, PATH: `${root}:${process.env.PATH}`, SMOKE_CONTAINER: container, SMOKE_AUDITS: log, SMOKE_DROP_FILE: drop },
     });
@@ -63,4 +65,10 @@ if (args[0] === 'cp') {
   assert.notEqual((await run('skill-audit.cjs')).status, 0, 'a missing helper must fail the smoke audit');
   assert.notEqual((await run('skills-fixtures.cjs')).status, 0, 'a missing fixture module must fail the smoke audit');
   assert.notEqual((await run('files-fixtures.cjs')).status, 0, 'the shared Files fixture must be staged too');
+  const files=await run('','files_browser_works');
+  assert.equal(files.status,0,await fs.readFile(path.join(root,'output.log'),'utf8'));
+  assert.deepEqual((await fs.readFile(log,'utf8')).trim().split('\n').map(JSON.parse),[
+    'files-ui-audit.js','files-change-ui-audit.js','files-space-ui-audit.js',
+  ]);
+  assert.notEqual((await run('console-download-fixture.cjs','files_browser_works')).status,0,'native download transport must be staged');
 });

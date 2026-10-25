@@ -47,6 +47,8 @@ export const CONSOLE_SCRIPTS = [
   "client/files-editor.js",
   "client/files-dialogs.js",
   "client/files-transfers.js",
+  "client/files-archives.js",
+  "client/files-space.js",
   "client/files.js",
   "app.js",
 ];

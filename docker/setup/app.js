@@ -825,6 +825,7 @@
     'toolchain.installed': 'download', 'toolchain.updated': 'circle-arrow-up', 'toolchain.uninstalled': 'trash-2', 'toolchain.failed': 'circle-alert',
     'package.installed': 'download', 'package.updated': 'circle-arrow-up', 'package.uninstalled': 'trash-2', 'package.failed': 'circle-alert',
     'url.set': 'globe', 'url.cleared': 'globe', 'key.replaced': 'key-round',
+    'files.deleted':'trash-2', 'files.cleaned':'eraser', 'files.extracted':'file-archive', 'files.trash-emptied':'trash-2', 'files.managed':'file-code', 'files.t3-stopped':'circle-stop',
     'connect.linked': 'globe', 'connect.unlinked': 'globe', 't3.restarted': 'refresh-cw', 't3.updating': 'circle-arrow-up',
   };
   const recentSection = (s, n) => {

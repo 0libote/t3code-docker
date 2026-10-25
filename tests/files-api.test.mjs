@@ -10,13 +10,14 @@ import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
-test('Files HTTP enforces authentication, same-origin POST, method and body limits; streams sandboxed downloads and honors etags',{timeout:20_000},async t=>{
+async function filesHTTP(t){
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'t3-files-api-')),home=path.join(root,'home'),workspace=path.join(root,'workspace'),outside=path.join(root,'outside');
  await Promise.all([home,workspace,outside].map(file=>fs.mkdir(file,{recursive:true})));
  await fs.writeFile(path.join(outside,'hello.html'),'<script>window.mustNotRun=true</script>');
  await fs.symlink(outside,path.join(workspace,'link'));
  const module=path.join(root,'harness.mjs');
  await fs.writeFile(module,`export * from ${JSON.stringify(new URL('../docker/harness/index.mjs',import.meta.url).href)};
+ export const processSnapshot=async()=>({complete:true,processes:[]});
  export const createStorageManager=()=>({ready:Promise.resolve(),snapshot:()=>({categories:[]}),sizes:()=>({at:'2026-10-25T00:00:00Z',partial:false,bytesOf:()=>4096,childrenOf:()=>[],entries:()=>new Map().entries()}),refresh:async()=>({}),status:async()=>({categories:[],disk:{totalBytes:1000,availableBytes:500}}),stop(){}});`);
  const reservation=createServer().listen(0,'127.0.0.1');await once(reservation,'listening');const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
  const child=spawn(process.execPath,[fileURLToPath(new URL('../docker/setup/server.mjs',import.meta.url))],{env:{...process.env,HOME:home,T3CODE_HOME:path.join(home,'.t3'),T3_WORKSPACE:workspace,MISE_DATA_DIR:path.join(home,'.local/share/mise'),MISE_STATE_DIR:path.join(home,'.local/state/mise'),MISE_CONFIG_DIR:path.join(home,'.config/mise'),T3_HARNESS_MODULE:module,T3_SETUP_PORT:String(port),T3_SETUP_KEY:'files-fixture-key',T3_SETUP_KEY_SOURCE:'env',T3_INFRA_LAUNCHER:'/bin/false',T3CODE_PORT:'1'},stdio:['ignore','pipe','pipe']});
@@ -25,6 +26,11 @@ test('Files HTTP enforces authentication, same-origin POST, method and body limi
  const base=`http://127.0.0.1:${port}`;
  for(let i=0;i<150;i++){if(child.exitCode!==null)throw new Error(logs);try{if((await fetch(base+'/hello')).ok)break;}catch{}await pause(20);}
  const request=(route,{body,headers={},method}={})=>fetch(base+route,{method:method||(body===undefined?'GET':'POST'),headers:{'x-t3-setup-key':'files-fixture-key',...(body!==undefined?{'content-type':'application/json'}:{}),...headers},body:body===undefined?undefined:typeof body==='string'?body:JSON.stringify(body)});
+ return {root,home,workspace,outside,base,request};
+}
+
+test('Files HTTP enforces authentication, same-origin POST, method and body limits; streams sandboxed downloads and honors etags',{timeout:20_000},async t=>{
+ const {root,home,workspace,outside,base,request}=await filesHTTP(t);
  await Promise.all(FILES_ROUTES.map(async route=>assert.equal((await fetch(base+route)).status,401,route+' requires authentication')));
  for(const route of FILES_ROUTES)assert.equal((await request(route,{method:FILES_POST_ROUTES.includes(route)?'GET':'POST',...(FILES_POST_ROUTES.includes(route)?{}:{body:{}})})).status,405,route+' checks the method');
  for(const route of FILES_POST_ROUTES)assert.equal((await request(route,{body:{},headers:{'sec-fetch-site':'cross-site'}})).status,403,route+' rejects cross-site writes');
@@ -50,4 +56,17 @@ test('Files HTTP enforces authentication, same-origin POST, method and body limi
  assert.equal((await request('/files/raw?'+new URLSearchParams({path:path.join(outside,'hello.html')}),{headers:{range:'bytes=999999-'}})).status,416);
  const broken=await request('/files/list?'+new URLSearchParams({path:path.join(root,'missing')}));assert.equal(broken.status,404);assert.equal((await broken.json()).code,'missing');
  const page=await request('/');const csp=page.headers.get('content-security-policy');assert.match(csp,/img-src data: blob:/);assert.match(csp,/frame-src blob:/);assert.doesNotMatch(csp,/script-src[^;]*blob:|connect-src[^;]*blob:/);
+});
+
+test('Files HTTP archive and space jobs use single-use reviews and publish verified results',{timeout:40000},async t=>{
+ const {workspace,outside,request}=await filesHTTP(t);
+ // The real server exposes review-first archives and destructive jobs, too.
+ const reviewed=await (await request('/files/zip/preview',{body:{paths:[path.join(outside,'hello.html')]}})).json();assert(reviewed.token);
+ const prepared=await request('/files/zip/start',{body:{token:reviewed.token}});assert.equal(prepared.status,200);const downloadInfo=await prepared.json();
+ const zip=await request('/files/zip?'+new URLSearchParams({token:downloadInfo.token}));assert.equal(zip.status,200);assert.equal(zip.headers.get('content-length'),null);assert.equal(zip.headers.get('content-type'),'application/zip');assert.match(zip.headers.get('content-disposition'),/^attachment;/);assert.equal(zip.headers.get('content-security-policy'),"sandbox; default-src 'none'");const archive=path.join(outside,'download.zip');await fs.writeFile(archive,Buffer.from(await zip.arrayBuffer()));assert.equal((await request('/files/zip?'+new URLSearchParams({token:downloadInfo.token}))).status,409);
+ const extraction=await (await request('/files/extract/preview',{body:{path:archive}})).json();assert.equal(extraction.canExtract,true);assert.deepEqual(extraction.topLevel,['hello.html']);const action=await (await request('/files/extract',{body:{token:extraction.token,name:'extracted'}})).json();assert(action.job);
+ const settled=async id=>{assert.equal(typeof id,'string','The action must return a job');for(let attempt=0;attempt<200;attempt++){const job=(await (await request('/files/jobs')).json()).jobs.find(row=>row.id===id);if(job&&!['queued','running'].includes(job.state)){assert.equal(job.state,'done',job.error);return job;}await pause(20);}assert.fail('File job did not complete');};await settled(action.job);assert.match(await fs.readFile(path.join(outside,'extracted/hello.html'),'utf8'),/mustNotRun/);
+ const cleanupProject=path.join(workspace,'cleanup-project');await fs.mkdir(path.join(cleanupProject,'node_modules'),{recursive:true});await fs.writeFile(path.join(cleanupProject,'package.json'),'{}');await fs.writeFile(path.join(cleanupProject,'node_modules/cache'),'output');
+ const cleanReview=await (await request('/files/clean/preview',{body:{path:cleanupProject}})).json();assert.equal(cleanReview.projects.length,1);const cleaned=await (await request('/files/clean',{body:{token:cleanReview.token,ids:cleanReview.projects[0].items.map(row=>row.id)}})).json();assert.equal(cleaned.ok,true,JSON.stringify(cleaned));await settled(cleaned.job);assert.equal(await fs.stat(path.join(cleanupProject,'node_modules')).then(()=>true,()=>false),false);
+ const deleteReview=await (await request('/files/delete/preview',{body:{paths:[cleanupProject]}})).json();assert.equal(deleteReview.confirmName,'cleanup-project');assert.equal((await request('/files/delete',{body:{token:deleteReview.token,confirmName:'wrong'}})).status,400);const deleted=await (await request('/files/delete',{body:{token:deleteReview.token,confirmName:deleteReview.confirmName,confirmed:true}})).json();await settled(deleted.job);assert.equal(await fs.stat(cleanupProject).then(()=>true,()=>false),false);assert.equal((await request('/files/delete',{body:{token:deleteReview.token,confirmName:deleteReview.confirmName,confirmed:true}})).status,409);
 });

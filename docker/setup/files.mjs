@@ -11,7 +11,7 @@ import { createListingService, permissions, directoryEntries, fingerprint } from
 import { createActivityService, createThreadFacts } from './files/activity.mjs';
 import { createSearchService } from './files/search.mjs';
 import { kindOf, typeOf, previewOf } from './files/kinds.mjs';
-import { readText, rawFile, fileMode } from './files/text.mjs';
+import { readText, rawFile, fileMode, statRevision } from './files/text.mjs';
 import { mapLimit } from './files/io.mjs';
 import { createJobs } from './files/jobs.mjs';
 import { createMutationGuard } from './files/guard.mjs';
@@ -19,8 +19,12 @@ import { createTrash } from './files/trash.mjs';
 import { createChanges } from './files/changes.mjs';
 import { createUploads } from './files/uploads.mjs';
 
-export const FILES_POST_ROUTES=['/mkdir','/rename','/move','/to-trash','/trash/restore','/trash/empty','/write','/upload/start','/upload/chunk','/upload/finish','/upload/cancel','/jobs/cancel','/measure'].map(route=>'/files'+route);
-export const FILES_ROUTES = [...FILES_POST_ROUTES,...['/places','/projects','/list','/details','/tree','/largest','/read','/raw','/search','/suggest','/trash','/jobs'].map(route=>'/files'+route)];
+import { createReviews } from './files/reviews.mjs';
+import { createArchives } from './files/archives.mjs';
+import { createCleanup } from './files/cleanup.mjs';
+
+export const FILES_POST_ROUTES=['/zip/start','/zip/preview','/compress','/extract/preview','/extract','/clean/preview','/clean','/delete/preview','/delete','/mkdir','/rename','/move','/to-trash','/trash/restore','/trash/empty','/write','/upload/start','/upload/chunk','/upload/finish','/upload/cancel','/jobs/cancel','/measure'].map(route=>'/files'+route);
+export const FILES_ROUTES = [...FILES_POST_ROUTES,...['/zip','/places','/projects','/list','/details','/tree','/largest','/read','/raw','/search','/suggest','/trash','/jobs'].map(route=>'/files'+route)];
 const STATUS={invalid:400,'no-access':403,'read-only':403,missing:404,'too-large':413,locked:423,range:416,
   exists:409,conflicts:409,stale:409,changed:409,'in-use':409,busy:409,'no-trash-here':409,'no-space':507};
 export function filesFailure(error) {
@@ -35,13 +39,14 @@ export function createFilesService({ home=os.homedir(), workspace='/workspace', 
   const rebuildable=createRebuildableService({sizes,git,workspace:policy.workspace,now}), listing=createListingService({policy,sizes,git,rebuildable});
   const activity=givenActivity||createActivityService({env,listeners,now,snapshot:processSnapshot}), threads=createThreadFacts({t3,now});
   const search=createSearchService({policy,sizes,git,rebuildable,now});
-  const capabilities={browse:true,change:true,archives:false,space:false};
+  const capabilities={browse:true,change:true,archives:true,space:true};
   let placesCache=null,placesAt=0,placesPending=null;
   const jobs=createJobs({now,stateDir:policy.stateDir});
   const changed=async value=>{placesAt=0;placesCache=null;sizes.invalidate(value);rebuildable.invalidate();const root=await git.rootFor(path.dirname(value)).catch(()=>null);if(root)git.invalidate(root);};
   const guard=createMutationGuard({policy,activity,withStopped,changed,recordEvent});
   const trashService=createTrash({policy,guard,sizes,git,now,recordEvent});
   const changes=createChanges({policy,guard,trash:trashService,jobs,sizes,now});
+  const reviews=createReviews({now}),archives=createArchives({policy,guard,sizes,git,rebuildable,reviews,jobs,trash:trashService,recordEvent}),cleanup=createCleanup({policy,guard,sizes,git,rebuildable,activity,threads,reviews,jobs,trash:trashService,recordEvent});
   const uploads=createUploads({policy,guard,trash:trashService,now,onFinish:()=>trashService.retention()});
   const maintain=()=>Promise.allSettled([trashService.retention(),uploads.prune()]);
   let maintenanceTimer;if(maintenance){void maintain();maintenanceTimer=setInterval(()=>void maintain(),60*60_000);maintenanceTimer.unref();}
@@ -128,7 +133,7 @@ export function createFilesService({ home=os.homedir(), workspace='/workspace', 
     }
     let text=null;const preview=previewOf(kind,Number(stat.size));
     if(preview==='text')text=await readText(absolute);
-    return {...common,...activity.forPath(absolute,{parent:true}),bytes:Number(stat.size),preview:text?.kind==='binary'?null:preview,editable:!!text?.editable,etag:text?.etag||null,
+    return {...common,...activity.forPath(absolute,{parent:true}),bytes:Number(stat.size),preview:text?.kind==='binary'?null:preview,editable:!!text?.editable,etag:text?.etag||statRevision(await fs.lstat(absolute,{bigint:true})),
       ...(text?.kind==='text'?{lines:text.lines,encoding:'utf-8',eol:text.eol,truncated:text.truncated}:{})};
   };
   const tree=async (value,limit=6)=>{
@@ -138,6 +143,16 @@ export function createFilesService({ home=os.homedir(), workspace='/workspace', 
   };
   const handle=async(route,{query=new URLSearchParams(),input={},headers={},bodyBuffer}={})=>{
     const value=()=>normalizePath(query.get('path')||input.path||policy.workspace);
+    if(route==='/files/zip/start')return archives.zipStart(input);
+    if(route==='/files/zip/preview')return archives.zipPreview(input);
+    if(route==='/files/zip'){const options={};for(const [param,key]of [['git','includeGit'],['hidden','includeHidden'],['rebuildable','leaveOutRebuildable']])if(query.has(param)){if(!['0','1'].includes(query.get(param)))throw new FilesError('invalid','Use 0 or 1 for ZIP options.');options[key]=key==='leaveOutRebuildable'?query.get(param)==='0':query.get(param)==='1';}return archives.zip({token:query.get('token'),options});}
+    if(route==='/files/compress')return archives.compress(input);
+    if(route==='/files/extract/preview')return archives.extractPreview(input);
+    if(route==='/files/extract')return archives.extract(input);
+    if(route==='/files/clean/preview')return cleanup.cleanPreview(input);
+    if(route==='/files/clean')return cleanup.clean(input);
+    if(route==='/files/delete/preview')return cleanup.deletePreview(input);
+    if(route==='/files/delete')return cleanup.remove(input);
     if(['/files/mkdir','/files/rename','/files/move','/files/write'].includes(route))return changes.invoke(route.slice(7),input);
     if(route==='/files/to-trash')return trashService.move(input);
     if(route==='/files/trash/restore')return trashService.restore(input);
@@ -169,5 +184,5 @@ export function createFilesService({ home=os.homedir(), workspace='/workspace', 
       throw new FilesError('no-access','You can’t open '+policy.display(value)+'. '+(owner?'It belongs to '+owner+'. ':'')+'This console runs as t3, like agents’ terminals.',{path:value,owner});
     }throw error;
   }};
-  return {handle:guardedHandle,places,details,tree,trash,listing,policy,sizes,git,rebuildable,activity,threads,capabilities,changes,trashService,uploads,jobs,guard,stop:()=>{clearInterval(maintenanceTimer);for(const job of jobs.list())if(['queued','running'].includes(job.state)){try{jobs.cancel(job.id);}catch{/* Finishing jobs keep their journal for restart verification. */}}}};
+  return {handle:guardedHandle,places,details,tree,trash,listing,policy,sizes,git,rebuildable,activity,threads,capabilities,changes,trashService,uploads,jobs,guard,reviews,archives,cleanup,stop:()=>{clearInterval(maintenanceTimer);for(const job of jobs.list())if(['queued','running'].includes(job.state)){try{jobs.cancel(job.id);}catch{/* Finishing jobs keep their journal for restart verification. */}}}};
 }

@@ -10,7 +10,7 @@ import { createLimiter } from './io.mjs';
  * Callers operate on pinned parent descriptors, never a user-supplied alias. */
 export function createMutationGuard({policy,activity,mounts=createMountService(),withStopped,changed=()=>{},recordEvent=()=>{}}) {
   const serial=createLimiter(1,128);
-  const run=(input,requests,work)=>serial(async()=>{
+  const run=(input,requests,work,{notify=true}={})=>serial(async()=>{
     const perform=async()=>{
       await policy.refresh(true);const pins=[],facts=[];
       try{
@@ -42,9 +42,10 @@ export function createMutationGuard({policy,activity,mounts=createMountService()
             if(current.path!==row.path||current.managed?.root!==row.managed?.root||current.ancestor?.root!==row.ancestor?.root||identity(await fs.lstat(row.pin.parent,{bigint:true}))!==identity(row.pin.stat)||!same(row.stat,await maybeStat(row.pin.pinned)))fail('changed','The selection changed. Refresh and review it again.');
           }
         };
-        await verify();const result=await work(facts,verify);
-        for(const row of facts)if(row.mode!=='read'){await changed(row.path);if(row.managed)recordEvent('files.managed','Changed a managed file',{detail:policy.display(row.path)});}
-        return result;
+        await verify();
+        let succeeded=false;
+        try{const result=await work(facts,verify);succeeded=true;return result;}
+        finally{for(const row of facts)if(notify&&row.mode!=='read'){await changed(row.path);if(succeeded&&row.managed)recordEvent('files.managed','Changed a managed file',{detail:policy.display(row.path)});}}
       }finally{await Promise.allSettled(pins.map(pin=>pin.close()));}
     };
     if(input.stopT3===true){if(!withStopped)throw new FilesError('in-use','This T3 Code command is not supervised, so Files cannot stop and restart it.');return withStopped(perform);}
