@@ -316,14 +316,15 @@ const Kit = (() => {
   // ---------------------------------------------------------------- menus --
   const menuItems = (items) => items.map((item, i) => item.sep
     ? html`<hr class="tc-menu-sep">`
-    : html`<button class="${cx('tc-menu-item', item.danger && 'tc-menu-item--danger')}" role="${item.radio ? 'menuitemradio' : item.checkbox ? 'menuitemcheckbox' : 'menuitem'}"${item.radio || item.checkbox ? html` aria-checked="${String(Boolean(item.checked))}"` : ''} type="button" data-menu-index="${i}"${item.disabled ? raw(' disabled') : ''}>${item.radio || item.checkbox ? icon('check', 'tc-menu-check') : icon(item.icon)}<span class="tc-menu-item-text">${item.description ? html`<strong>${item.label}</strong><span class="tc-menu-item-description">${item.description}</span>` : item.label}</span>${item.shortcut ? html`<span class="tc-menu-item-shortcut">${item.shortcut}</span>` : ''}</button>`);
+    : html`<button class="${cx('tc-menu-item', item.danger && 'tc-menu-item--danger')}" role="${item.radio ? 'menuitemradio' : item.checkbox ? 'menuitemcheckbox' : 'menuitem'}"${item.radio || item.checkbox ? html` aria-checked="${String(Boolean(item.checked))}"` : ''} type="button" data-menu-index="${i}"${item.disabled ? raw(' disabled aria-disabled="true"') : ''}>${item.radio || item.checkbox ? icon('check', 'tc-menu-check') : icon(item.icon)}<span class="tc-menu-item-text">${item.description ? html`<strong>${item.label}</strong><span class="tc-menu-item-description">${item.description}</span>` : item.label}</span>${item.shortcut ? html`<span class="tc-menu-item-shortcut">${item.shortcut}</span>` : ''}</button>`);
 
   const wireMenu = (layer, items) => {
-    const buttons = () => [...layer.panel.querySelectorAll('.tc-menu-item:not([disabled])')];
+    const buttons = () => [...layer.panel.querySelectorAll('.tc-menu-item:not([disabled]):not([aria-disabled="true"])')];
     layer.panel.addEventListener('click', (e) => {
       const button = e.target.closest('[data-menu-index]');
       if (button) {
         const item = items[Number(button.getAttribute('data-menu-index'))];
+        if (button.disabled || button.getAttribute('aria-disabled') === 'true' || item?.disabled) return;
         layer.close('select');
         if (item && item.run) item.run();
         return;
@@ -358,16 +359,17 @@ const Kit = (() => {
       const titleId = 'menu-title-' + Math.random().toString(36).slice(2, 8);
       const layer = open({
         kind: 'bottom',
-        panel: { tag: 'aside', class: 'tc-sheet tc-sheet--bottom', role: 'menu', 'aria-labelledby': titleId },
+        panel: { tag: 'aside', class: 'tc-sheet tc-sheet--bottom tc-sheet--menu', role: 'menu', 'aria-labelledby': titleId },
         returnTo: trigger,
         render: () => html`
           <div class="tc-sheet-head tc-menu-head">${head && head.tile ? head.tile : ''}<div class="tc-menu-head-text"><h2 class="tc-sheet-title" id="${titleId}">${(head && head.title) || label}</h2>${head && head.sub ? html`<span class="tc-small tc-muted">${head.sub}</span>` : ''}</div></div>
-          <div class="tc-sheet-actions">${status || ''}${menuItems(items)}${footer ? html`<div class="tc-menu-foot">${footer}</div>` : ''}</div>
+          <div class="tc-sheet-actions">${status || ''}${menuItems(items)}</div>
+          ${footer ? html`<div class="tc-menu-foot">${footer}</div>` : ''}
           <div class="tc-sheet-cancel"><button class="tc-btn tc-btn--block tc-btn--lg" type="button" data-menu-cancel>Cancel</button></div>`,
         backdrop: 'close',
       });
       wireMenu(layer, items);
-      const first = layer.panel.querySelector('.tc-menu-item');
+      const first = layer.panel.querySelector('.tc-menu-item:not([disabled]):not([aria-disabled="true"])');
       if (first) first.focus({ preventScroll: true });
       return layer;
     }
@@ -397,7 +399,7 @@ const Kit = (() => {
     layer.panel.style.left = left + 'px';
     layer.panel.style.top = topPx + 'px';
     wireMenu(layer, items);
-    const first = layer.panel.querySelector('.tc-menu-item');
+    const first = layer.panel.querySelector('.tc-menu-item:not([disabled]):not([aria-disabled="true"])');
     if (first) first.focus({ preventScroll: true });
     return layer;
   };
