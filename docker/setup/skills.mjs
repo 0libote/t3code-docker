@@ -298,17 +298,19 @@ export function createSkillsService({ home, env = process.env, io = fs, nativeCo
     if (updateChecks.has(key)) return updateChecks.get(key);
     if (updateChecks.size >= 3) throw problem("conflict", "Other repository checks are still running. Try again when they finish.");
     const pending = (async () => {
-      let update;
+      let update, sourceInfo = null;
       try {
         if (!sources.has(row.origin.source)) sources.set(row.origin.source, Promise.resolve().then(async () => {
           const snapshot = await (resolveSource || resolveSkillSource)(row.origin.source, { home, env, metadata: skillMetadata });
-          // Keep fingerprints for this batch, rather than every downloaded file.
-          return new Map((snapshot.skills || []).map(skill => [skill.name, skillFingerprint(skill)]));
+          // Retain small check metadata, not the downloaded source buffers.
+          return { fingerprints: new Map((snapshot.skills || []).map(skill => [skill.name, skillFingerprint(skill)])), sourceInfo: snapshot.sourceInfo };
         }));
-        const fingerprints = await sources.get(row.origin.source), fingerprint = fingerprints.get(row.origin.name);
+        const snapshot = await sources.get(row.origin.source);
+        sourceInfo = snapshot.sourceInfo;
+        const fingerprint = snapshot.fingerprints.get(row.origin.name);
         if (!fingerprint) throw new Error("The installed skill was not found in this source. It may have been renamed or removed.");
-        update = { ...row.origin, status: fingerprint === row.origin.fingerprint ? "current" : "available", checkedAt: Date.now() };
-      } catch (error) { update = { ...row.origin, status: "error", error: summaryError(error), checkedAt: Date.now() }; }
+        update = { ...row.origin, status: fingerprint === row.origin.fingerprint ? "current" : "available", checkedAt: Date.now(), ref: sourceInfo?.ref ?? null, commit: sourceInfo?.commit ?? null };
+      } catch (error) { update = { ...row.origin, status: "error", error: summaryError(error), checkedAt: Date.now(), ref: sourceInfo?.ref ?? null, commit: sourceInfo?.commit ?? null }; }
       // A replaced or removed installation must not inherit a stale check result.
       const current = await readSkillOrigin(io, row, home);
       if (!current || current.source !== row.origin.source || current.fingerprint !== row.origin.fingerprint) throw problem("conflict", "The installation changed while checking. Refresh and check again.");

@@ -11,6 +11,12 @@ const fail = (code, message) => Object.assign(new Error(message), { code });
 const inside = (root, file) => { const relative = path.relative(root, file); return relative && !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + path.sep); };
 const originKey = origin => JSON.stringify([origin?.source, origin?.name, origin?.fingerprint]);
 const stamp = stat => [stat.dev, stat.ino, stat.size, stat.mode, stat.mtimeMs, stat.ctimeMs].join(":");
+const PREVIEW_BYTES = 1024 * 1024;
+const utf8 = data => {
+  if (data.includes(0)) return null;
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(data); }
+  catch { return null; }
+};
 
 export function createSkillUpdateReview({ home, io, policyFor, readInstalled, readersFor, managedRoots }) {
   const inspect = async binding => {
@@ -38,11 +44,30 @@ export function createSkillUpdateReview({ home, io, policyFor, readInstalled, re
     return { binding, entry: await inspect(binding), content: row.content };
   };
   const review = async (entry, incoming) => {
-    const source = new Map(incoming.files.map(file => [file.name, { bytes: file.data.length, executable: Boolean(file.mode & 0o100), hash: createHash("sha256").update(file.data).digest("hex") }]));
+    const source = new Map(incoming.files.map(file => [file.name, { bytes: file.data.length, executable: Boolean(file.mode & 0o100), hash: createHash("sha256").update(file.data).digest("hex"), data: file.data }]));
     const installed = new Map(), fingerprints = [];
     let bytesRead = 0, completeFingerprint = true;
-    for (const file of entry.fileList.filter(file => file.name !== ORIGIN_FILE)) {
-      let hash = null;
+    // Reserve room for the compatible markdown.before/after fields too. Text
+    // retention is independent of hashing: exhausting the preview budget must
+    // never change fingerprints, conflict detection or replacement contents.
+    let previewBytes = (entry.fileList.find(file => file.name === "SKILL.md")?.bytes || 0) + (source.get("SKILL.md")?.bytes || 0);
+    const textPreview = (before, after, data) => {
+      const omitted = textOmitted => ({ text: null, textOmitted });
+      if (before?.linked) return omitted("linked");
+      if ([before, after].some(file => file && file.bytes > SOURCE_LIMITS.markdownBytes)) return omitted("large");
+      const incomingText = after ? utf8(after.data) : null;
+      if (after && incomingText === null) return omitted("binary");
+      const bytes = (before?.bytes || 0) + (after?.bytes || 0);
+      if ((before && !data) || previewBytes + bytes > PREVIEW_BYTES) return omitted("budget");
+      const installedText = before ? utf8(data) : null;
+      if (before && installedText === null) return omitted("binary");
+      previewBytes += bytes;
+      return { text: { before: installedText, after: incomingText } };
+    };
+    const files = entry.fileList.filter(file => file.name !== ORIGIN_FILE).sort((a, b) =>
+      Number(b.name === "SKILL.md") - Number(a.name === "SKILL.md") || a.name.localeCompare(b.name));
+    for (const file of files) {
+      let hash = null, data = null;
       if (!file.linked && file.bytes <= SOURCE_LIMITS.fileBytes && bytesRead + file.bytes <= SOURCE_LIMITS.bytes) {
         const filePath = path.join(entry.directory, file.name);
         if (await io.realpath(filePath) !== filePath) throw fail("conflict", "A supporting file link changed. Review the update again.");
@@ -51,6 +76,9 @@ export function createSkillUpdateReview({ home, io, policyFor, readInstalled, re
           const before = await handle.stat();
           if (!before.isFile()) throw fail("unsupported", "This skill contains a special file. Manage that file directly before updating through Setup.");
           if (before.size !== file.bytes) throw fail("conflict", "A skill file changed while preparing the review. Review again.");
+          const incoming = source.get(file.name);
+          if (file.bytes <= SOURCE_LIMITS.markdownBytes && (!incoming || incoming.bytes <= SOURCE_LIMITS.markdownBytes)
+            && previewBytes + file.bytes + (incoming?.bytes || 0) <= PREVIEW_BYTES) data = Buffer.alloc(file.bytes);
           const digest = createHash("sha256"), buffer = Buffer.alloc(64 * 1024); let size = 0;
           while (true) {
             const read = await handle.read(buffer, 0, Math.min(buffer.length, file.bytes + 1 - size), size);
@@ -58,19 +86,24 @@ export function createSkillUpdateReview({ home, io, policyFor, readInstalled, re
             size += read.bytesRead;
             if (size > file.bytes) throw fail("conflict", "A skill file grew while preparing the review. Review again.");
             digest.update(buffer.subarray(0, read.bytesRead));
+            if (data) buffer.copy(data, size - read.bytesRead, 0, read.bytesRead);
           }
           if (size !== before.size || stamp(before) !== stamp(await handle.stat()) || stamp(before) !== stamp(await io.stat(filePath)) || await io.realpath(filePath) !== filePath) throw fail("conflict", "A skill file changed while preparing the review. Review again.");
           hash = digest.digest("hex"); bytesRead += size;
           fingerprints.push([file.name, Boolean(before.mode & 0o100), hash]);
         } finally { await handle.close(); }
       } else completeFingerprint = false;
-      installed.set(file.name, { bytes: file.bytes, executable: file.executable, linked: file.linked, hash });
+      const before = { bytes: file.bytes, executable: file.executable, linked: file.linked, hash }, after = source.get(file.name);
+      const unchanged = after && !before.linked && hash === after.hash && before.executable === after.executable;
+      before.preview = unchanged ? { text: null, textOmitted: "unchanged" } : textPreview(before, after, data);
+      installed.set(file.name, before);
     }
     const changes = [...new Set([...installed.keys(), ...source.keys()])].sort().map(name => {
       const before = installed.get(name), after = source.get(name);
       const status = !before ? "added" : !after ? "removed" : !before.linked && before.hash === after.hash && before.executable === after.executable ? "unchanged" : "modified";
       return { name, status, before: before ? { bytes: before.bytes, executable: before.executable, linked: before.linked } : null,
-        after: after ? { bytes: after.bytes, executable: after.executable } : null };
+        after: after ? { bytes: after.bytes, executable: after.executable } : null,
+        ...(before ? before.preview : textPreview(null, after, null)) };
     });
     const summary = Object.fromEntries(["added", "modified", "removed", "unchanged"].map(status => [status, changes.filter(file => file.status === status).length]));
     return { changes, summary, localChanges: !completeFingerprint || fingerprintEntries(fingerprints) !== entry.installation.origin.fingerprint };

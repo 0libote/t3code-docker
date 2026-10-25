@@ -656,6 +656,7 @@ skills_editor_works() {
   docker cp scripts/lib/console-fixtures.cjs "$NAME:/tmp/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/chip-focus.cjs "$NAME:/tmp/lib/chip-focus.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/lib/skills-fixtures.cjs "$NAME:/tmp/lib/skills-fixtures.cjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/lib/skill-audit.cjs "$NAME:/tmp/lib/skill-audit.cjs" >/dev/null 2>&1 || return 1
   docker cp scripts/fixtures/console "$NAME:/tmp/fixtures/" >/dev/null 2>&1 || return 1
   docker exec -e CHROME_PATH=/usr/bin/chromium \
     -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules \

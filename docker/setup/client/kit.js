@@ -303,7 +303,7 @@ const Kit = (() => {
   // ---------------------------------------------------------------- menus --
   const menuItems = (items) => items.map((item, i) => item.sep
     ? html`<hr class="tc-menu-sep">`
-    : html`<button class="${cx('tc-menu-item', item.danger && 'tc-menu-item--danger')}" role="${item.radio ? 'menuitemradio' : 'menuitem'}"${item.radio ? html` aria-checked="${String(Boolean(item.checked))}"` : ''} type="button" data-menu-index="${i}"${item.disabled ? raw(' disabled') : ''}>${item.radio ? icon('check', 'tc-menu-check') : icon(item.icon)}<span class="tc-menu-item-text">${item.description ? html`<strong>${item.label}</strong><span class="tc-menu-item-description">${item.description}</span>` : item.label}</span>${item.shortcut ? html`<span class="tc-menu-item-shortcut">${item.shortcut}</span>` : ''}</button>`);
+    : html`<button class="${cx('tc-menu-item', item.danger && 'tc-menu-item--danger')}" role="${item.radio ? 'menuitemradio' : item.checkbox ? 'menuitemcheckbox' : 'menuitem'}"${item.radio || item.checkbox ? html` aria-checked="${String(Boolean(item.checked))}"` : ''} type="button" data-menu-index="${i}"${item.disabled ? raw(' disabled') : ''}>${item.radio || item.checkbox ? icon('check', 'tc-menu-check') : icon(item.icon)}<span class="tc-menu-item-text">${item.description ? html`<strong>${item.label}</strong><span class="tc-menu-item-description">${item.description}</span>` : item.label}</span>${item.shortcut ? html`<span class="tc-menu-item-shortcut">${item.shortcut}</span>` : ''}</button>`);
 
   const wireMenu = (layer, items) => {
     const buttons = () => [...layer.panel.querySelectorAll('.tc-menu-item:not([disabled])')];
@@ -335,7 +335,7 @@ const Kit = (() => {
    * with a title row and a full-width Cancel on a phone.
    *
    *   head   {title, sub, tile: markup}  (the sheet's title row; the popover's label)
-   *   items  [{label, icon, danger, run, radio?, checked?, description?} | {sep: true}]
+   *   items  [{label, icon, danger, run, radio?, checkbox?, checked?, description?} | {sep: true}]
    *   footer escaped Kit markup for settings paths or other contextual help
    */
   const menu = (trigger, { label, head, items, footer, status }) => {

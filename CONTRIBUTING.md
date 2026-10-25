@@ -102,10 +102,17 @@ and embedded sizes. It uses response fixtures, with screenshots under
 `/tmp/t3-mcp-ui-audit`. The standard screenshot matrix includes `mcp`.
 
 For repository skill updates, `node scripts/skills-update-ui-audit.js
-http://127.0.0.1:23785/__setup/ dev` covers update review, instruction comparison,
-replacement consent, pending-save guards, conflicts, expiry and lost-response
-recovery. All writes are intercepted. Screenshots go to
-`/tmp/t3-skill-update-ui` (`T3_SKILL_UPDATE_UI_OUTPUT` overrides it).
+http://127.0.0.1:23785/__setup/ dev` covers the Updates view, review queue, supporting-file diffs and folds,
+replacement consent, pinned phone actions, pending-save guards, conflicts, expiry
+and lost-response recovery. `node scripts/skills-hooks-ui-audit.js` checks the
+shared discovery cache, exact-command trust, native revision refresh, disabled
+and managed hooks, conflicts, long commands, and filtered plugin views. Both run
+light/dark desktop, 1024px, 390px, 360px and embedded layouts. All writes are intercepted. Screenshots go to
+`/tmp/t3-skills-updates-ui` and `/tmp/t3-skills-hooks-ui`
+(`T3_SKILL_UPDATE_UI_OUTPUT` and `T3_HOOKS_UI_OUTPUT` override them).
+The corresponding `_THEMES` and `_WIDTHS` variables narrow an iteration. All
+three Skills audits keep drafts and source text in memory; never point their
+write fixtures at an un-intercepted production API.
 
 For OpenCode credential changes, run
 `node scripts/opencode-auth-smoke.mjs /absolute/path/to/opencode` against both
