@@ -122,6 +122,15 @@ done
 printf '\nServer\n'
 version="$(curl -fsS --noproxy '*' "$health_url" | jq -r .serverVersion)"
 [ -n "$version" ] && ok "health endpoint (serverVersion=$version)" || no "health endpoint"
+workspace_folder_default() {
+  docker exec -u t3 "$NAME" /usr/local/bin/node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import path from "node:path";
+    const settings = JSON.parse(readFileSync(path.join(process.env.T3CODE_HOME, "userdata/settings.json"), "utf8"));
+    if (settings.addProjectBaseDirectory !== path.resolve(process.env.T3_WORKSPACE)) process.exit(1);
+  '
+}
+check "native project browsing and clone preference uses T3_WORKSPACE" workspace_folder_default
 # The healthcheck has a start period, so the first probe lands after the
 # server is already answering. Give it room rather than racing it.
 health_status=""

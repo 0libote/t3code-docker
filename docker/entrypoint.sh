@@ -373,6 +373,13 @@ report_persistence() {
 persist_agent_credentials
 report_persistence
 
+# Set the native browse/clone preference before anything can write settings.
+if [ -r /opt/t3-runtime/project-defaults.mjs ]; then
+  if ! "$T3_INFRA_NODE" /opt/t3-runtime/project-defaults.mjs; then
+    log "WARNING: could not finish applying the workspace folder default"
+  fi
+fi
+
 # Hand T3 the harness manager's choice of executable. T3 watches its settings
 # file and re-reads it live, so a managed Install/Update/Uninstall reaches the
 # running server through the same write the setup console triggers. A missing

@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createRouter } from "../docker/router/router.mjs";
+import { seedProjectDefaults } from "../docker/runtime/project-defaults.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const arg = (name, fallback) => {
@@ -84,6 +85,7 @@ const T3_ENV = { T3CODE_HOME: join(HOME, "home/.t3"), T3CODE_PORT: String(T3_POR
   T3_RUN_DIR: join(HOME, "run"), T3_INFRA_BINARY: T3_BINARY,
   T3_RUNTIME_MODULE: join(ROOT, "docker/runtime/manager.mjs"), T3_RUNTIME_RESOLVER: join(ROOT, "docker/runtime/resolve.mjs"),
   T3_INFRA_LAUNCHER: join(ROOT, "docker/bin/t3-admin"), T3_SETUP_BRIDGE: BRIDGE };
+await seedProjectDefaults(T3_ENV);
 start("t3", process.execPath, [join(ROOT, "docker/runtime/supervisor.mjs"), "serve", "--host", "127.0.0.1", "--port", String(T3_PORT), "--no-browser", join(HOME, "workspace")], T3_ENV);
 
 let console_ = null;
