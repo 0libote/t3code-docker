@@ -3073,7 +3073,7 @@
       return html`<span class="tc-hint">${current
         ? html`On <span class="tc-mono">${current}</span>. T3 Code switches to the release you pick once it is installed and runs; ${current} keeps working until then.`
         : html`T3 Code is pointed at the release you pick once it is installed and runs.`}${kept.length ? html` Also on the volume: <span class="tc-mono">${kept.join(', ')}</span>.` : ''}</span>
-        ${t.id === 'opencode' ? html`<span class="tc-hint">OpenCode 1 is the default. Choose a 2.x release to use OpenCode 2 with T3 Code Nightly. Updates stay on the selected major version.</span>` : ''}`;
+        ${t.id === 'opencode' ? html`<span class="tc-hint">OpenCode 1 is the default. OpenCode 2 requires T3 Code 0.1.2 or newer, including Stable. Updates stay on the selected major version.</span>` : ''}`;
     }
     const info = toolSheet.info;
     const bins = (info && info.bins && info.bins.length ? info.bins : t.bins) || [];
@@ -3105,6 +3105,7 @@
     else if (r.waiting) tags.push(r.releasedAt ? 'out ' + M.relTime(r.releasedAt, now()) : 'new');
     else if (r.prerelease) tags.push('preview');
     if (r.requiresNightly) tags.push('requires Nightly');
+    if (r.minimumT3Version) tags.push('T3 Code ' + r.minimumT3Version + '+');
     if (r.version === toolSheet.offered) tags.push('newest');
     if (r.version === current) tags.push('installed');
     else if ((facts.managedVersions || []).includes(r.version)) tags.push('on the volume');
@@ -3282,7 +3283,7 @@
         const confirmed = await Kit.confirm({
           title: toV2 ? 'Install OpenCode 2?' : 'Switch back to OpenCode 1?',
           body: toV2
-            ? 'Use T3 Code Nightly and stop running OpenCode sessions before switching. OpenCode 2 converts its shared database on first use.'
+            ? 'Requires T3 Code 0.1.2 or newer. Stop running OpenCode sessions before switching. OpenCode 2 converts its shared database on first use.'
             : 'Stop running OpenCode sessions before switching. Installing OpenCode 1 does not restore a database or configuration converted by OpenCode 2.',
           consequences: [
             { icon: 'shield-check', text: 'Keep a backup of your OpenCode data before switching' },

@@ -269,9 +269,9 @@ test("Muse offers opt-in install, sign-in and updates without claiming saved cre
 
 test("OpenCode v2 releases can be found by major prefix, preserving release-age and minimum-version markers", () => {
   const releases = [
-    { version: "2.0.28", waiting: true, supported: true, requiresNightly: true },
-    { version: "2.0.27", supported: true, requiresNightly: true },
-    { version: "2.0.17", supported: false, requiresNightly: true },
+    { version: "2.0.28", waiting: true, supported: true, minimumT3Version: "0.1.2" },
+    { version: "2.0.27", supported: true, minimumT3Version: "0.1.2" },
+    { version: "2.0.17", supported: false, minimumT3Version: "0.1.2" },
     { version: "1.19.0", supported: true },
   ];
   assert.deepEqual(plain(M.matchReleases(releases, "2")).map(r => r.version), ["2.0.28", "2.0.27", "2.0.17"]);

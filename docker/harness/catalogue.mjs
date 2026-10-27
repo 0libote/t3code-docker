@@ -87,7 +87,8 @@ export const CATALOGUE = Object.freeze([
       executable: "node_modules/.bin/opencode",
       bin: "opencode",
       minimumVersion: MINIMUM_OPENCODE2_VERSION,
-      requiresNightly: true,
+      // OpenCode v2 support shipped in T3 Code Stable 0.1.2.
+      minimumT3Version: "0.1.2",
     }],
     architectures: ["x64", "arm64"],
     credentials: {

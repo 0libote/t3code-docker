@@ -690,7 +690,7 @@ test("OpenCode v1 remains installable and discoverable when the short-name feed 
   const choices = await manager.versions("opencode");
   assert.equal(choices.latest, "1.18.32");
   assert.ok(choices.releases.some(release => release.version === "1.18.32" && !release.requiresNightly));
-  assert.ok(choices.releases.some(release => release.version === "2.0.27" && release.requiresNightly));
+  assert.ok(choices.releases.some(release => release.version === "2.0.27" && !release.requiresNightly && release.minimumT3Version === "0.1.2"));
 });
 
 test("an explicit switch back to OpenCode v1 verifies that distribution even when v2 shadows its command", async () => {
@@ -2166,7 +2166,8 @@ test("an agent's releases list newest first, marking the ones mise still holds b
   const opencode = await manager.versions("opencode");
   assert.deepEqual(opencode.releases.map((r) => [r.version, r.supported]), [["2.0.27", true], ["2.0.20", true], ["2.0.19", true], ["2.0.18", true], ["2.0.17", false], ["1.18.31", true], ["1.14.0", false]]);
   assert.equal(opencode.latest, "1.18.31", "the default stays on v1");
-  assert.equal(opencode.releases[0].requiresNightly, true);
+  assert.ok(opencode.releases.filter(r => r.version.startsWith("2.")).every(r => !r.requiresNightly && r.minimumT3Version === "0.1.2"), "OpenCode v2 is supported on Stable 0.1.2 and newer");
+  assert.ok(opencode.releases.filter(r => r.version.startsWith("1.")).every(r => !r.requiresNightly && r.minimumT3Version === undefined), "the v2 runtime minimum does not apply to v1");
   await assert.rejects(manager.versions("nope"), /unknown harness/);
 });
 
