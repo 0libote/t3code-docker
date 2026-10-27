@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { antigravityFacts, createAntigravity } from "../docker/setup/antigravity.mjs";
-import { createT3Api, failureOf } from "../docker/setup/t3-api.mjs";
+import { createT3Api, failureOf, T3ApiError } from "../docker/setup/t3-api.mjs";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const settle = async (n = 6) => { for (let i = 0; i < n; i += 1) await tick(); };
@@ -334,13 +334,14 @@ test("a server restart replaces the console credential before reconnecting", asy
 test("an in-flight credential from the previous release is discarded on restart", async () => {
   const t3 = fakeT3();
   let issue;
-  const { api } = apiFor(t3, { options: { issueSession: () => new Promise((resolve) => { issue = resolve; }) } });
+  const { api, revoked } = apiFor(t3, { options: { issueSession: () => new Promise((resolve) => { issue = resolve; }) } });
   const pending = api.call("server.getConfig", {});
   api.reset();
   issue({ token: "good", sessionId: "old", expiresAt: "2099-01-01T00:00:00Z" });
-  await assert.rejects(pending, /restarted while/);
+  await assert.rejects(pending, error => error instanceof T3ApiError && /^T3 Code restarted\b/.test(error.message));
   assert.equal(api.sessionId(), null);
   assert.equal(t3.sockets.length, 0);
+  assert.deepEqual(revoked, ["old"], "the discarded RPC credential is retired");
   api.close();
 });
 
