@@ -163,8 +163,7 @@ both count, as they do for T3 Code:
 
 Codex 0.164.0 changed API-key status from "Logged in using an API key" to
 "API key configured". Setup recognizes both formats so a saved key updates
-the Agents row and completes an active sign-in. This compatibility fix was
-needed after the newer CLI broke both sign-in smoke checks in PR #56.
+the Agents row and completes an active sign-in.
 A configured key confirms local storage; Codex checks whether the key works
 when you send a request.
 

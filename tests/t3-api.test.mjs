@@ -47,6 +47,109 @@ test("native HTTP errors stay errors without exposing upstream response bodies",
   assert.equal(calls, 1, "permission errors must not replay a mutation");
 });
 
+test("HTTP renewal preserves the session of an active agent stream", async (t) => {
+  let clock = Date.now();
+  const t3 = fakeT3();
+  const { api, issued, revoked } = apiFor(t3, {
+    get expiresAt() { return new Date(clock + 4 * 60 * 60_000).toISOString(); },
+    options: { now: () => clock, fetchImpl: async () => Response.json({ linked: true }), idleMs: 60_000 },
+  });
+  t.after(() => api.close());
+  const sub = await api.subscribe("provider.auth.subscribe", { instanceId: "antigravity" }, () => {});
+  t.after(() => sub.close());
+  await settle();
+  assert.equal(api.sessionId(), "s1");
+  await api.http("/api/connect/link-state");
+  assert.equal(issued.length, 2, "HTTP uses its own cached credential");
+  assert.deepEqual(revoked, []);
+  clock += 3.5 * 60 * 60_000;
+  await api.http("/api/connect/link-state");
+  assert.equal(issued.length, 3);
+  assert.deepEqual(revoked, ["s2"], "only the old HTTP credential is retired");
+  assert.equal(api.sessionId(), "s1", "the stream keeps its original session");
+  t3.setAuth({ phase: "awaiting_browser" });
+  await settle();
+  assert.equal(t3.sockets[0].closed, false);
+  sub.close(); api.close();
+  await api.call("server.getConfig", {});
+  assert.equal(api.sessionId(), "s4", "RPC renews after the original socket closes");
+  assert.deepEqual(revoked, ["s2", "s1"]);
+});
+
+test("concurrent HTTP requests share one credential issuance", async (t) => {
+  let release, issued = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  const api = createT3Api({ url: "ws://127.0.0.1/ws",
+    issueSession: async () => { const id = ++issued; await gate; return { token: `token-${id}`, sessionId: `s${id}`, expiresAt: new Date(Date.now() + 4 * 60 * 60_000).toISOString() }; },
+    fetchImpl: async () => Response.json({ linked: true }),
+  });
+  t.after(() => { release(); api.close(); });
+  const requests = [api.http("/api/connect/link-state"), api.http("/api/connect/link-state")];
+  await settle();
+  release();
+  await Promise.all(requests);
+  assert.equal(issued, 1);
+});
+
+test("a late HTTP authorization failure reuses an already refreshed credential", async (t) => {
+  let issued = 0, refuse = false, oldReads = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const revoked = [];
+  const api = createT3Api({ url: "ws://127.0.0.1/ws",
+    issueSession: async () => { const id = ++issued; return { token: `token-${id}`, sessionId: `s${id}`, expiresAt: new Date(Date.now() + 4 * 60 * 60_000).toISOString() }; },
+    revokeSession: async id => { revoked.push(id); },
+    fetchImpl: async (_url, options) => {
+      if (refuse && options.headers.authorization === "Bearer token-1") {
+        if (++oldReads === 2) await gate;
+        return new Response(null, { status: 401 });
+      }
+      return Response.json({ linked: true });
+    },
+  });
+  t.after(() => { release(); api.close(); });
+  await api.http("/api/connect/link-state");
+  refuse = true;
+  const first = api.http("/api/connect/link-state"), second = api.http("/api/connect/link-state");
+  await first;
+  release(); await second;
+  assert.equal(oldReads, 2, "both requests initially used the refused credential");
+  assert.equal(issued, 2, "a stale 401 must not rotate a second time");
+  assert.deepEqual(revoked, ["s1"]);
+});
+
+test("restart discards and revokes an in-flight HTTP credential without clearing its replacement", async (t) => {
+  let issued = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const revoked = [];
+  const api = createT3Api({ url: "ws://127.0.0.1/ws",
+    issueSession: async () => { const id = ++issued; if (id === 1) await gate; return { token: `token-${id}`, sessionId: `s${id}`, expiresAt: new Date(Date.now() + 4 * 60 * 60_000).toISOString() }; },
+    revokeSession: async id => { revoked.push(id); },
+    fetchImpl: async () => Response.json({ linked: true }),
+  });
+  t.after(() => { release(); api.close(); });
+  const stale = assert.rejects(api.http("/api/connect/link-state"), /restarted/);
+  await settle();
+  api.reset();
+  await api.http("/api/connect/link-state");
+  release(); await stale;
+  await api.http("/api/connect/link-state");
+  assert.equal(issued, 2, "the replacement remains cached");
+  assert.deepEqual(revoked, ["s1"], "the discarded credential must not linger for four hours");
+});
+
+test("an HTTP mutation whose response arrives after restart is not confirmed or replayed", async (t) => {
+  let release, requests = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  const api = createT3Api({ url: "ws://127.0.0.1/ws",
+    issueSession: async () => ({ token: "fixture", sessionId: "fixture" }),
+    fetchImpl: async () => { requests++; await gate; return Response.json({ publishAgentActivity: true }); },
+  });
+  t.after(() => { release(); api.close(); });
+  const pending = assert.rejects(api.http("/api/connect/preferences", { publishAgentActivity: true }), /restarted/);
+  await settle(); api.reset(); release(); await pending;
+  assert.equal(requests, 1, "an old mutation must not retry against the restarted server");
+});
+
 /** A T3 with one Antigravity provider, an installer and a Google sign-in. */
 function fakeT3({ tokens = new Set(["good"]), protocolVersion = 1, settingsFormat = "legacy" } = {}) {
   const t3 = {

@@ -119,28 +119,53 @@ const geometry = () => {
       const device=t.locator('[data-key="dev-phone"]'), other=t.locator('[data-key="dev-other"]');
       await device.waitFor().catch(async error => { console.error(await t.locator('body').innerText()); throw error; });
       const check=async state=>assert.deepEqual(await t.evaluate(geometry),[],`${tag}: ${state}`);
-      const screenshot=async name=>{await check(name);await page.screenshot({path:path.join(output,`${tag}-${name}.png`)});};
+      const screenshot = async name => {
+        if (['connection-saving', 'connection-saving-webhooks', 'connection-failed', 'connection-enabled', 'connection-unavailable'].includes(name)) {
+          await t.locator('[data-key="connect"]').evaluate(row => {
+            row.closest('.tc-group').scrollIntoView({ block: 'end', behavior: 'instant' });
+            window.scrollBy({ top: (document.querySelector('.tc-tabbar')?.getBoundingClientRect().height || 0) + 16, behavior: 'instant' });
+          });
+          assert.equal(await t.locator('[data-key="connect-holdWebhooksWhileOffline"]').evaluate(row => {
+            const bar = document.querySelector('.tc-tabbar')?.getBoundingClientRect();
+            return row.getBoundingClientRect().bottom <= (bar?.height ? bar.top : innerHeight) - 4;
+          }), true, `${tag}: the connection setting and its error stay above navigation`);
+        }
+        await check(name);
+        await page.screenshot({ path: path.join(output, `${tag}-${name}.png`) });
+      };
       const rename=async()=>{await t.locator('[data-cmd="device.menu"][data-id="phone"]').click();await t.getByRole('menuitem',{name:'Rename…',exact:true}).click();await t.locator('#device-label').waitFor();};
       const revoke=async(kind,id)=>{await t.locator(`[data-cmd="${kind==='session'?'device':'link'}.menu"][data-id="${id}"]`).click();await t.getByRole('menuitem',{name:kind==='session'?'Revoke…':'Revoke link…',exact:true}).click();await t.getByRole('alertdialog').getByRole('button',{name:kind==='session'?'Revoke':'Revoke link',exact:true}).click();};
 
       const publish = t.getByRole('switch', { name: 'Publish agent activity', exact: true });
       const hold = t.getByRole('switch', { name: 'Hold webhooks while offline', exact: true });
+      const publishRow = t.locator('[data-key="connect-publishAgentActivity"]');
+      const holdRow = t.locator('[data-key="connect-holdWebhooksWhileOffline"]');
       preferenceGate = gate();
       await publish.click();
       assert.equal(await publish.isDisabled(), true);
       assert.equal(await hold.isDisabled(), true);
+      assert.equal(await publishRow.getAttribute('aria-busy'), 'true');
+      await publishRow.getByRole('status').filter({ hasText: 'Saving…' }).waitFor();
+      assert.equal(await holdRow.getByRole('status').count(), 0, 'only the changed setting shows progress');
       await publish.evaluate(button => button.click());
       assert.equal(requests.filter(row => row.action === 'preference').length, 1);
       await screenshot('connection-saving');
       preferenceGate.resolve(); preferenceGate = null;
       await t.locator('#connect-toggle-publishAgentActivity[aria-checked=true]:enabled').waitFor();
       assert.equal(await hold.getAttribute('aria-checked'), 'false');
-      preferenceFail = true; await hold.click();
-      await t.getByRole('alert').filter({ hasText: 'Could not save connection settings. Try again.' }).waitFor();
+      preferenceFail = true; preferenceGate = gate(); await hold.click();
+      await holdRow.getByRole('status').filter({ hasText: 'Saving…' }).waitFor();
+      assert.equal(await publishRow.getByRole('status').count(), 0);
+      await screenshot('connection-saving-webhooks');
+      preferenceGate.resolve(); preferenceGate = null;
+      await holdRow.getByRole('alert').filter({ hasText: 'Could not save connection settings. Try again.' }).waitFor();
+      assert.equal(await publishRow.getByRole('alert').count(), 0, 'save errors stay beside the setting that failed');
+      assert.equal(await hold.evaluate(button => button === document.activeElement), true, 'focus returns to the failed setting');
       assert.equal(await hold.getAttribute('aria-checked'), 'false');
       await screenshot('connection-failed');
       preferenceFail = false; await hold.click();
       await t.locator('#connect-toggle-holdWebhooksWhileOffline[aria-checked=true]:enabled').waitFor();
+      assert.equal(await holdRow.getByRole('alert').count(), 0, 'a successful retry clears the error');
       assert.equal(await publish.getAttribute('aria-checked'), 'true');
       await screenshot('connection-enabled');
       status.connect.preferences.managedTunnelActive = false;

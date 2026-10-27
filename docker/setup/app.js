@@ -1106,7 +1106,7 @@
     </div>`;
   };
 
-  let connectSaving = false;
+  let connectSaving = null;
   let connectPreferenceError = null;
   const connectPreferenceRows = (s) => {
     const prefs = s.connect?.preferences;
@@ -1118,28 +1118,34 @@
       ['publishAgentActivity', 'Publish agent activity', 'smartphone', 'Send agent activity to mobile notifications and Live Activities. Sign in to the same T3 account in the mobile app and allow notifications.'],
       ['holdWebhooksWhileOffline', 'Hold webhooks while offline', 'clock', 'T3 Connect stores webhook requests for up to 24 hours while this server is offline, then delivers them. Turning this off still delivers requests already held.'],
     ].map(([key, label, glyph, help]) => {
+      const saving = connectSaving === key;
+      const error = connectPreferenceError?.key === key ? connectPreferenceError.message : null;
       const unavailable = reason || (key === 'holdWebhooksWhileOffline'
         ? prefs.holdWebhooksWhileOffline === null ? 'Update T3 Code to manage offline webhook holding.'
           : !prefs.managedTunnelActive ? 'Requires an active T3 Connect tunnel.' : null : null);
-      return html`<div class="tc-row tc-row--compact" data-key="connect-${key}">
+      return html`<div class="tc-row tc-row--compact" data-key="connect-${key}"${saving ? raw(' aria-busy="true"') : ''}>
         <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon(glyph)}</span>
-        <div class="tc-row-main"><span class="tc-row-name" id="connect-${key}-name">${label}</span><span class="tc-status tc-status--prose" id="connect-${key}-desc">${unavailable || help}</span></div>
-        <div class="tc-row-actions"><label class="tc-switch-hit" for="connect-toggle-${key}"><button class="tc-switch" id="connect-toggle-${key}" type="button" role="switch" aria-checked="${String(prefs?.[key] === true)}" aria-labelledby="connect-${key}-name" aria-describedby="connect-${key}-desc" data-cmd="connect.preference" data-id="${key}" data-key="connect-toggle-${key}"${unavailable || connectSaving ? raw(' disabled') : ''}${connectSaving ? raw(' aria-busy="true"') : ''}></button></label></div>
+        <div class="tc-row-main">
+          <div class="tc-row-title"><span class="tc-row-name" id="connect-${key}-name">${label}</span>${saving ? html`<span class="tc-status tc-access-pending" role="status"><span class="tc-spinner" aria-hidden="true"></span>Saving…</span>` : ''}</div>
+          <span class="tc-status tc-status--prose" id="connect-${key}-desc">${unavailable || help}</span>
+          ${error ? html`<span class="tc-status tc-status--prose tc-danger" role="alert" id="connect-${key}-error">${error}</span>` : ''}
+        </div>
+        <div class="tc-row-actions"><label class="tc-switch-hit" for="connect-toggle-${key}"><button class="tc-switch" id="connect-toggle-${key}" type="button" role="switch" aria-checked="${String(prefs?.[key] === true)}" aria-labelledby="connect-${key}-name" aria-describedby="connect-${key}-desc${error ? ' connect-' + key + '-error' : ''}" data-cmd="connect.preference" data-id="${key}" data-key="connect-toggle-${key}"${unavailable || connectSaving ? raw(' disabled') : ''}${saving ? raw(' aria-busy="true"') : ''}></button></label></div>
       </div>`;
-    })}${connectPreferenceError ? html`<div class="tc-row tc-row--compact" role="alert"><span class="tc-status tc-danger">${connectPreferenceError}</span></div>` : ''}`;
+    })}`;
   };
 
   const saveConnectPreference = async (key) => {
     const prefs = state.status?.connect?.preferences;
     if (connectSaving || !prefs || !['publishAgentActivity', 'holdWebhooksWhileOffline'].includes(key)) return;
     const enabled = !prefs[key];
-    connectSaving = true;
+    connectSaving = key;
     connectPreferenceError = null;
     render();
     const res = await api('/connect/preferences', { body: { [key]: enabled } });
     await loadStatus();
-    connectSaving = false;
-    if (!res.ok) connectPreferenceError = res.error || 'Could not save the setting. Try again.';
+    connectSaving = null;
+    if (!res.ok) connectPreferenceError = { key, message: res.error || 'Could not save the setting. Try again.' };
     else {
       if (state.status?.connect) state.status.connect.preferences = res.data.preferences;
       Kit.announce((key === 'publishAgentActivity' ? 'Agent activity publishing' : 'Offline webhook holding') + (enabled ? ' on' : ' off'));
