@@ -1080,10 +1080,13 @@ const T3Model = (() => {
     const restartable = Boolean(s && s.t3 && s.t3.pid);
     if (!c) return { state: 'unknown', badge: null, text: 'Couldn’t read its state just now.', action: null };
     if (c.state === 'on') {
+      const publishOnly = c.preferences ? c.preferences.managedTunnelActive === false : c.linkMode === 'publish_only';
       return {
         state: 'on',
         badge: { tone: 'ok', text: 'On' },
-        text: 'Devices signed in to your T3 account reach this server through ' + (c.relayHost || 'T3’s relay') + '.',
+        text: publishOnly
+          ? 'Linked to your T3 account for agent activity. Devices reach this server through your own address.'
+          : 'Devices signed in to your T3 account reach this server through ' + (c.relayHost || 'T3’s relay') + '.',
         action: null,
         // Turning it off cuts devices off: a menu item and a confirmation away.
         menu: [{ cmd: 'connect.off', label: 'Turn off T3 Connect…', icon: 'log-out', danger: true }],
@@ -1110,9 +1113,9 @@ const T3Model = (() => {
     if (c.state === 'signin') {
       return {
         state: 'signin',
-        badge: { tone: 'warn', text: 'Signed out' },
-        text: 'Its sign-in is gone, so the link cannot be made until you sign in again.',
-        action: { cmd: 'connect.setup', label: 'Sign in', icon: 'log-in' },
+        badge: { tone: 'warn', text: c.revoked ? 'Removed' : 'Signed out' },
+        text: c.revoked ? 'This server was removed from your T3 account. Set it up again to restore the link.' : 'Its sign-in is gone, so the link cannot be made until you sign in again.',
+        action: { cmd: 'connect.setup', label: c.revoked ? 'Set up again' : 'Sign in', icon: 'log-in' },
       };
     }
     return {

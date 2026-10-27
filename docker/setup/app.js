@@ -1055,6 +1055,7 @@
         <div class="tc-row-actions tc-row-actions--wrap">${action}${!url && here && !here.local ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for the public URL" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-url'))}" data-cmd="url.menu" data-key="menu-url">${icon('ellipsis')}</button>` : ''}</div>
       </div>
       ${connectRow(s)}
+      ${connectPreferenceRows(s)}
     </div></div>`;
   };
 
@@ -1103,6 +1104,54 @@
       <div class="tc-row-main"><div class="tc-row-title"><span class="tc-row-name">T3 Connect</span>${badge(view.badge)}</div><span class="tc-status tc-status--prose">${view.text}</span></div>
       <div class="tc-row-actions tc-row-actions--wrap">${view.action ? html`<button class="tc-btn tc-btn--sm" type="button" data-cmd="${view.action.cmd}">${view.action.icon ? icon(view.action.icon) : ''}${view.action.label}</button>` : ''}${menu.length ? html`<button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" aria-label="More for T3 Connect" aria-haspopup="menu" aria-expanded="${String(Kit.menuOpenFor('menu-connect'))}" data-cmd="connect.menu" data-key="menu-connect">${icon('ellipsis')}</button>` : ''}</div>
     </div>`;
+  };
+
+  let connectSaving = null;
+  let connectPreferenceError = null;
+  const connectPreferenceRows = (s) => {
+    const prefs = s.connect?.preferences;
+    const reason = !s.connect ? 'Connection settings are unavailable. Try again after T3 Code is ready.'
+      : s.connect.revoked ? 'This server was removed from your T3 account. Set up T3 Connect again above.'
+      : !s.connect.linked ? 'Set up T3 Connect above to link this server to your T3 account.'
+        : !prefs ? 'Could not read connection settings. Check that T3 Code is running and up to date.' : null;
+    return html`${[
+      ['publishAgentActivity', 'Publish agent activity', 'smartphone', 'Send agent activity to mobile notifications and Live Activities. Sign in to the same T3 account in the mobile app and allow notifications.'],
+      ['holdWebhooksWhileOffline', 'Hold webhooks while offline', 'clock', 'T3 Connect stores webhook requests for up to 24 hours while this server is offline, then delivers them. Turning this off still delivers requests already held.'],
+    ].map(([key, label, glyph, help]) => {
+      const saving = connectSaving === key;
+      const error = connectPreferenceError?.key === key ? connectPreferenceError.message : null;
+      const unavailable = reason || (key === 'holdWebhooksWhileOffline'
+        ? prefs.holdWebhooksWhileOffline === null ? 'Update T3 Code to manage offline webhook holding.'
+          : !prefs.managedTunnelActive ? 'Requires an active T3 Connect tunnel.' : null : null);
+      return html`<div class="tc-row tc-row--compact" data-key="connect-${key}"${saving ? raw(' aria-busy="true"') : ''}>
+        <span class="tc-tile tc-tile--icon" aria-hidden="true">${icon(glyph)}</span>
+        <div class="tc-row-main">
+          <div class="tc-row-title"><span class="tc-row-name" id="connect-${key}-name">${label}</span>${saving ? html`<span class="tc-status tc-access-pending" role="status"><span class="tc-spinner" aria-hidden="true"></span>Saving…</span>` : ''}</div>
+          <span class="tc-status tc-status--prose" id="connect-${key}-desc">${unavailable || help}</span>
+          ${error ? html`<span class="tc-status tc-status--prose tc-danger" role="alert" id="connect-${key}-error">${error}</span>` : ''}
+        </div>
+        <div class="tc-row-actions"><label class="tc-switch-hit" for="connect-toggle-${key}"><button class="tc-switch" id="connect-toggle-${key}" type="button" role="switch" aria-checked="${String(prefs?.[key] === true)}" aria-labelledby="connect-${key}-name" aria-describedby="connect-${key}-desc${error ? ' connect-' + key + '-error' : ''}" data-cmd="connect.preference" data-id="${key}" data-key="connect-toggle-${key}"${unavailable || connectSaving ? raw(' disabled') : ''}${saving ? raw(' aria-busy="true"') : ''}></button></label></div>
+      </div>`;
+    })}`;
+  };
+
+  const saveConnectPreference = async (key) => {
+    const prefs = state.status?.connect?.preferences;
+    if (connectSaving || !prefs || !['publishAgentActivity', 'holdWebhooksWhileOffline'].includes(key)) return;
+    const enabled = !prefs[key];
+    connectSaving = key;
+    connectPreferenceError = null;
+    render();
+    const res = await api('/connect/preferences', { body: { [key]: enabled } });
+    await loadStatus();
+    connectSaving = null;
+    if (!res.ok) connectPreferenceError = { key, message: res.error || 'Could not save the setting. Try again.' };
+    else {
+      if (state.status?.connect) state.status.connect.preferences = res.data.preferences;
+      Kit.announce((key === 'publishAgentActivity' ? 'Agent activity publishing' : 'Offline webhook holding') + (enabled ? ' on' : ' off'));
+    }
+    render();
+    document.querySelector('[data-key="connect-toggle-' + key + '"]')?.focus({ preventScroll: true });
   };
 
   // --------------------------------------------------------------- agents --
@@ -2687,7 +2736,7 @@
   // own `t3 connect link --headless`, which the setup service runs), restart
   // T3 Code so it makes the link, and wait for it to come on. Opened again
   // later, it starts wherever the server says things are.
-  const conn = { layer: null, phase: 'idle', session: null, error: null, identity: null, attempt: 0, poll: null, oldPid: null, since: 0 };
+  const conn = { layer: null, phase: 'idle', mode: 'managed', session: null, error: null, identity: null, attempt: 0, poll: null, oldPid: null, since: 0 };
 
   const connectSheetBody = () => {
     const st = conn.session || {};
@@ -2695,7 +2744,14 @@
     const restartable = Boolean(s.t3 && s.t3.pid);
     const signedIn = sheetStep(1, 'Sign in to T3' + (conn.identity ? ' as ' + conn.identity : ''), 'done', '');
     let body;
-    if (conn.phase === 'failed') {
+    if (conn.phase === 'choose') {
+      body = html`<div class="tc-form"><p class="tc-hint">Choose how this server uses your T3 account. Both options need a sign-in and a T3 Code restart.</p><div class="tc-opts" role="group" aria-label="T3 Connect setup">
+        ${[
+          ['managed', 'T3 Connect tunnel', 'Reach this server through T3’s relay without a public address of your own. Activity publishing can be turned on afterwards.'],
+          ['publish_only', 'Notifications only', 'Publish agent activity for mobile notifications and Live Activities. Keep connecting through your own address, such as Tailscale or a reverse proxy.'],
+        ].map(([mode, label, help]) => html`<label class="tc-opt"><input class="tc-radio" type="radio" name="connect-mode" value="${mode}"${conn.mode === mode ? raw(' checked') : ''}><span><strong>${label}</strong><small>${help}</small></span></label>`)}
+        </div></div>`;
+    } else if (conn.phase === 'failed') {
       body = html`${notice('danger', 'circle-alert', 'T3 Connect did not finish', conn.error || 'The sign-in stopped before it finished.')}${st.tail ? html`<pre class="tc-log-tail">${st.tail}</pre>` : ''}`;
     } else if (conn.phase === 'signin') {
       body = st.url
@@ -2710,10 +2766,12 @@
     } else if (conn.phase === 'linking') {
       body = html`${signedIn}${sheetStep(2, 'Turn it on', 'active', html`${sheetWaiting('T3 Code is making the link…')}${now() - conn.since > 120_000 ? html`<span class="tc-hint">This is taking longer than usual. You can close this: Access shows when it is on.</span>` : ''}`)}`;
     } else if (conn.phase === 'on') {
-      body = notice('ok', 'circle-check', 'T3 Connect is on', 'Devices signed in to your T3 account reach this server through ' + ((s.connect && s.connect.relayHost) || 'T3’s relay') + '.');
+      body = notice('ok', 'circle-check', 'T3 Connect is on', M.connectView(s).text);
     }
     const close = (label, variant) => html`<button class="${cx('tc-btn', variant || 'tc-btn--ghost')}" type="button" data-sheet="close">${label}</button>`;
-    const foot = conn.phase === 'failed'
+    const foot = conn.phase === 'choose'
+      ? html`${close('Cancel')}<button class="tc-btn tc-btn--primary" type="button" data-sheet="continue">Continue</button>`
+      : conn.phase === 'failed'
       ? html`${close('Close')}<button class="tc-btn tc-btn--primary" type="button" data-sheet="retry">${icon('refresh-cw')}Try again</button>`
       : conn.phase === 'authorized'
         ? html`${close('Later')}${restartable ? html`<button class="tc-btn tc-btn--primary" type="button" data-sheet="restart">${icon('refresh-cw')}Restart T3 Code</button>` : ''}`
@@ -2721,7 +2779,7 @@
           : conn.phase === 'signin' ? html`<span class="tc-sheet-foot-note tc-desk-only"><span class="tc-kbd">Esc</span> cancels</span>${close('Cancel')}`
             : close('Close');
     return html`
-      <div class="tc-sheet-head"><span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('globe')}</span><div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="connect-title">T3 Connect</h2><span class="tc-small tc-muted">Runs <code>t3 connect link</code> for you</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
+      <div class="tc-sheet-head"><span class="tc-tile tc-tile--icon tc-tile--lg" aria-hidden="true">${icon('globe')}</span><div class="tc-sheet-head-text"><h2 class="tc-sheet-title" id="connect-title">T3 Connect</h2><span class="tc-small tc-muted">${conn.phase === 'choose' ? 'Link this server to your T3 account' : conn.mode === 'publish_only' ? 'Notifications through your own server address' : 'Reach this server through T3’s relay'}</span></div><span class="tc-spacer"></span><button class="tc-btn tc-btn--ghost tc-btn--icon tc-btn--sm" type="button" data-sheet="close" aria-label="Close">${icon('x')}</button></div>
       <div class="tc-sheet-body" aria-live="polite">${body}</div>
       <div class="tc-sheet-foot">${foot}</div>`;
   };
@@ -2750,10 +2808,11 @@
   };
 
   const connBeginSignin = async () => {
+    if (conn.phase === 'signin') return;
     const attempt = connNext();
     Object.assign(conn, { phase: 'signin', session: null, error: null });
     connRender();
-    const res = await api('/auth/signin', { body: { agent: 'connect' } });
+    const res = await api('/auth/signin', { body: { agent: 'connect', mode: conn.mode } });
     if (!conn.layer || conn.attempt !== attempt) {
       if (res.ok && res.data.id) api('/auth/cancel', { body: { id: res.data.id } });
       return;
@@ -2798,8 +2857,8 @@
   const openConnect = (trigger, { restart } = {}) => {
     if (conn.layer) return;
     const view = M.connectView(state.status);
-    const phase = { on: 'on', linking: 'linking', restart: 'authorized' }[view.state] || 'signin';
-    Object.assign(conn, { phase, session: null, error: null, identity: null, since: now() });
+    const phase = { on: 'on', linking: 'linking', restart: 'authorized' }[view.state] || 'choose';
+    Object.assign(conn, { phase, mode: state.status?.connect?.linkMode || 'managed', session: null, error: null, identity: null, since: now() });
     conn.layer = Kit.open({
       kind: 'sheet',
       panel: { tag: 'aside', class: 'tc-sheet ' + (Kit.isPhone() ? 'tc-sheet--bottom' : 'tc-sheet--inset'), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'connect-title' },
@@ -2819,11 +2878,13 @@
       if (!action) return;
       const what = action.getAttribute('data-sheet');
       if (what === 'close') conn.layer.close('close');
-      else if (what === 'retry') connBeginSignin();
+      else if (what === 'retry' || what === 'continue') connBeginSignin();
       else if (what === 'restart') connRestart();
     });
-    if (phase === 'signin') connBeginSignin();
-    else if (phase === 'linking') { const attempt = connNext(); conn.poll = setTimeout(() => connWatch(attempt), 1500); }
+    conn.layer.panel.addEventListener('change', (e) => {
+      if (e.target.name === 'connect-mode' && conn.phase === 'choose') conn.mode = e.target.value;
+    });
+    if (phase === 'linking') { const attempt = connNext(); conn.poll = setTimeout(() => connWatch(attempt), 1500); }
     else if (phase === 'authorized' && restart) connRestart();
   };
 
@@ -3012,7 +3073,7 @@
       return html`<span class="tc-hint">${current
         ? html`On <span class="tc-mono">${current}</span>. T3 Code switches to the release you pick once it is installed and runs; ${current} keeps working until then.`
         : html`T3 Code is pointed at the release you pick once it is installed and runs.`}${kept.length ? html` Also on the volume: <span class="tc-mono">${kept.join(', ')}</span>.` : ''}</span>
-        ${t.id === 'opencode' ? html`<span class="tc-hint">OpenCode 1 is the default. Choose a 2.x release to use OpenCode 2 with T3 Code Nightly. Updates stay on the selected major version.</span>` : ''}`;
+        ${t.id === 'opencode' ? html`<span class="tc-hint">OpenCode 1 is the default. OpenCode 2 requires T3 Code 0.1.2 or newer, including Stable. Updates stay on the selected major version.</span>` : ''}`;
     }
     const info = toolSheet.info;
     const bins = (info && info.bins && info.bins.length ? info.bins : t.bins) || [];
@@ -3044,6 +3105,7 @@
     else if (r.waiting) tags.push(r.releasedAt ? 'out ' + M.relTime(r.releasedAt, now()) : 'new');
     else if (r.prerelease) tags.push('preview');
     if (r.requiresNightly) tags.push('requires Nightly');
+    if (r.minimumT3Version) tags.push('T3 Code ' + r.minimumT3Version + '+');
     if (r.version === toolSheet.offered) tags.push('newest');
     if (r.version === current) tags.push('installed');
     else if ((facts.managedVersions || []).includes(r.version)) tags.push('on the volume');
@@ -3221,7 +3283,7 @@
         const confirmed = await Kit.confirm({
           title: toV2 ? 'Install OpenCode 2?' : 'Switch back to OpenCode 1?',
           body: toV2
-            ? 'Use T3 Code Nightly and stop running OpenCode sessions before switching. OpenCode 2 converts its shared database on first use.'
+            ? 'Requires T3 Code 0.1.2 or newer. Stop running OpenCode sessions before switching. OpenCode 2 converts its shared database on first use.'
             : 'Stop running OpenCode sessions before switching. Installing OpenCode 1 does not restore a database or configuration converted by OpenCode 2.',
           consequences: [
             { icon: 'shield-check', text: 'Keep a backup of your OpenCode data before switching' },
@@ -3682,6 +3744,7 @@
     'url.edit': (a, el) => openUrlSheet(el),
 
     'connect.setup': (a, el) => openConnect(el),
+    'connect.preference': (a) => saveConnectPreference(a.id),
     'connect.restart': (a, el) => openConnect(el, { restart: true }),
     'connect.off': async () => {
       const ok = await Kit.confirm({

@@ -38,7 +38,7 @@ import { createSkillsService } from "./skills.mjs";
 import { createMcpService } from "./mcp.mjs";
 import { clientAddress } from "./client-address.mjs";
 import { newKey, readKeyFile, writeKeyFile } from "./setup-key.mjs";
-import { connectState, jsonFrom, parseLinkOutput } from "./connect.mjs";
+import { connectState, createConnectPreferences, jsonFrom, parseLinkOutput } from "./connect.mjs";
 import {
   checkReaches, clearSaved, parsePublicUrl, platformUrl, readSaved, resolvePublicUrl, writeSaved,
 } from "./public-url.mjs";
@@ -174,6 +174,7 @@ const t3Api = createT3Api({
   revokeSession: (sessionId) => t3(["auth", "session", "revoke", String(sessionId)]),
 });
 const antigravity = createAntigravity({ api: t3Api });
+const connectPreferences = createConnectPreferences({ request: (path, body) => t3Api.http(path, body) });
 const T3_AGENT_IDS = new Set(["antigravity"]);
 const isConsoleSession = (session) => session?.subject === CONSOLE_SUBJECT;
 const deviceLabels = createDeviceLabels({
@@ -1085,24 +1086,35 @@ const filesHold=createHoldControl({runDir:RUN_DIR,runtimeBusy:()=>runtimeModule.
 // the page sees it come on). Anything this page does to Connect drops it.
 const CONNECT_FRESH_MS = { idle: 5 * 60_000, pending: 10_000 };
 let connectCache = { at: 0, value: null, refreshing: null };
+let connectRevision = 0;
 // When this service saw a sign-in finish. A link saved after T3 Code's last
 // start still needs one; one saved before it is being made, and another
 // restart would only interrupt that. Unknown (0) after this service restarts.
 let connectLinkedAt = 0;
 
 const refreshConnect = () => {
+  const revision = connectRevision;
   connectCache.refreshing ??= t3(["connect", "status", "--json"])
-    .then(({ stdout }) => {
-      connectCache = { at: Date.now(), value: connectState(jsonFrom(stdout)), refreshing: null };
+    .then(async ({ stdout }) => {
+      const value = connectState(jsonFrom(stdout));
+      if (value) value.preferences = value.linked ? await connectPreferences.read().catch(() => null) : null;
+      if (value?.preferences?.revoked) Object.assign(value, { linked: false, revoked: true, state: "signin" });
+      if (revision !== connectRevision) return;
+      connectCache = { at: Date.now(), value, refreshing: null };
     })
     .catch(() => {
+      if (revision !== connectRevision) return;
       connectCache = { ...connectCache, at: Date.now(), refreshing: null };
-    });
+    }).finally(() => { connectCache.refreshing = null; });
   return connectCache.refreshing;
 };
 
-const forgetConnect = () => {
-  connectCache = { ...connectCache, at: 0 };
+const forgetConnect = (preferences) => {
+  connectRevision += 1; // A read started before a settings save must not replace its result.
+  const value = preferences && connectCache.value
+    ? { ...connectCache.value, preferences, publishAgentActivity: preferences.publishAgentActivity }
+    : connectCache.value;
+  connectCache = { ...connectCache, value, at: 0 };
 };
 
 /**
@@ -1214,8 +1226,9 @@ const sourceControlSignIn = async (input, out = false) => {
  * The link it saves is made on T3 Code's next start; the page offers that
  * restart once this is done.
  */
-const startConnectLink = () => {
-  const child = spawn(T3_LAUNCHER, ["connect", "link", "--headless"], {
+const startConnectLink = (mode = "managed") => {
+  if (!["managed", "publish_only"].includes(mode)) throw new Error("Choose a T3 Connect tunnel or notifications only.");
+  const child = spawn(T3_LAUNCHER, ["connect", "link", "--headless", ...(mode === "publish_only" ? ["--publish-only"] : [])], {
     env: { ...process.env, NO_COLOR: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -2165,7 +2178,7 @@ const cancelLifecycle = (target, rawId) => {
 
 const ROUTES = [...FILES_ROUTES, "/login", "/logout", "/hello", "/status", "/pair", "/revoke", "/devices/rename", "/ports",
   "/storage/versions/prune", "/storage/versions", "/storage/refresh", "/storage/clean/preview", "/storage/clean", "/storage/policy", "/storage",
-  "/public-url/clear", "/public-url", "/setup-key/reveal", "/setup-key/replace", "/connect/unlink", "/t3/restart",
+  "/public-url/clear", "/public-url", "/setup-key/reveal", "/setup-key/replace", "/connect/unlink", "/connect/preferences", "/t3/restart",
   "/t3/updates/check", "/t3/update", "/ports/expose", "/ports/unexpose",
   "/auto-update", "/auto-update/policy",
   "/harnesses/install", "/harnesses/update", "/harnesses/uninstall", "/harnesses/cancel", "/harnesses/versions", "/harnesses/enable", "/harnesses",
@@ -2888,7 +2901,7 @@ const server = createServer(async (req, res) => {
       try {
         const input = JSON.parse((await readBody(req)) || "{}");
         if (input.agent === "antigravity") return sendJson(res, 200, publicSession(await startAntigravitySignin()));
-        if (input.agent === "connect") return sendJson(res, 200, publicSession(startConnectLink()));
+        if (input.agent === "connect") return sendJson(res, 200, publicSession(startConnectLink(input.mode)));
         // gh and az: a source control CLI's device code, from the harness's catalogue.
         await loadHarness();
         if (harnessModule.getSourceControl(input.agent)) return sendJson(res, 200, publicSession(await startScmDeviceSignin(input.agent)));
@@ -3012,6 +3025,15 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "POST" && route === "/connect/unlink") {
       const answer = await unlinkConnect();
+      return sendJson(res, answer.http, answer.body);
+    }
+
+    if (req.method === "POST" && route === "/connect/preferences") {
+      let input;
+      try { input = JSON.parse((await readBody(req)) || "{}"); }
+      catch { return sendJson(res, 400, { ok: false, error: "Expected a connection setting." }); }
+      const answer = await connectPreferences.save(input);
+      forgetConnect(answer.body.preferences);
       return sendJson(res, answer.http, answer.body);
     }
 

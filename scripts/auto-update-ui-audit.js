@@ -71,6 +71,7 @@ const geometry = () => {
       let holdStatus = null;
       let rustReply = 'fail', rustRequests = 0, rustStarted, finishRust;
       let runtimeReply = 'fail', runtimeRequests = 0, runtimeStarted, finishRuntime;
+      let opencodeInstalls = 0;
       const runtime = { ...fixture.t3?.runtime, channel: 'stable', version: '0.1.0',
         expectedPatchRevision: null, patchRevision: null,
         releases: { stable: { version: '0.1.0' }, nightly: { version: '0.1.1-nightly.20261017.1' } }, checkedAt: 1, checking: false,
@@ -79,6 +80,18 @@ const geometry = () => {
       let requestedChannel;
       await host.route('**/*', async (route) => {
         const url = new URL(route.request().url()), method = route.request().method();
+        if (url.pathname.endsWith('/harnesses/versions') && url.searchParams.get('id') === 'opencode') {
+          return route.fulfill({ json: { latest: '1.18.31', releases: [
+            { version: '2.0.27', supported: true, minimumT3Version: '0.1.2' },
+            { version: '2.0.18', supported: true, minimumT3Version: '0.1.2' },
+            { version: '2.0.17', supported: false, minimumT3Version: '0.1.2' },
+            { version: '1.18.31', supported: true },
+          ] } });
+        }
+        if (method === 'POST' && url.pathname.endsWith('/harnesses/install')) {
+          opencodeInstalls++;
+          return route.fulfill({ status: 202, json: { ok: true } });
+        }
         if (url.pathname.endsWith('/status')) {
           const snapshot = structuredClone({ ...fixture, updates, t3: { ...fixture.t3, runtime }, autoUpdate: { policy, state: {}, lastActivityAt: Date.now(), busy: null } });
           if (holdStatus) { const gate = holdStatus; holdStatus = null; gate.started(); await gate.wait; }
@@ -179,6 +192,34 @@ const geometry = () => {
       await host.keyboard.press('Escape');
       await errorDialog.waitFor({ state: 'hidden' });
       assert.equal(await page.evaluate(() => document.activeElement.dataset.cmd), 'row.error', 'Escape returns focus to Details');
+
+      // OpenCode v2 works on Stable 0.1.2 too. Keep the version requirement
+      // distinct from the shared-database migration consent.
+      await failedRow.getByRole('button', { name: 'More for OpenCode', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Install a specific version…', exact: true }).click();
+      const versions = page.getByRole('dialog', { name: 'Install a specific version of OpenCode', exact: true });
+      await versions.getByRole('option').first().waitFor();
+      await versions.getByLabel('Version', { exact: true }).fill('2');
+      assert.equal(await versions.getByRole('option').count(), 3, 'the major prefix includes both supported and unsupported v2 releases');
+      assert.equal(await versions.locator('[data-version="2.0.17"]').getAttribute('aria-disabled'), 'true', 'the v2 minimum remains enforced');
+      assert.ok((await versions.locator('[data-version="2.0.27"]').textContent()).includes('T3 Code 0.1.2+'), 'the picker reports the runtime minimum');
+      assert.ok(!(await versions.textContent()).includes('Nightly'), 'Stable users are not told to switch channels');
+      await check('OpenCode v2 picker');
+      await host.screenshot({ path: path.join(output, `${tag}-opencode-v2-picker.png`) });
+      await versions.locator('[data-version="2.0.27"]').click();
+      await versions.getByRole('button', { name: 'Install OpenCode 2.0.27', exact: true }).click();
+      const migration = page.getByRole('alertdialog', { name: 'Install OpenCode 2?', exact: true });
+      await migration.waitFor();
+      const consent = await migration.textContent();
+      assert.ok(consent.includes('T3 Code 0.1.2 or newer') && consent.includes('shared database'), 'the switch explains runtime support and data conversion');
+      assert.ok(!consent.includes('Nightly'), 'the migration consent does not require Nightly');
+      await check('OpenCode v2 migration');
+      await host.screenshot({ path: path.join(output, `${tag}-opencode-v2-migration.png`) });
+      await migration.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await migration.waitFor({ state: 'hidden' });
+      assert.equal(opencodeInstalls, 0, 'cancelling migration never installs or changes the selected major');
+      await versions.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await versions.waitFor({ state: 'hidden' });
 
       // Automatic updates: a switch per category on the Updates page, each
       // saved as it is pressed and independent of the others.
