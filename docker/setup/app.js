@@ -1593,8 +1593,9 @@
     const checking = check.checking || ui.runtimeChecking;
     const failures = !checking ? check.failures : [];
     const lastChecked = s.updates && s.updates.checkedAt ? M.relTime(s.updates.checkedAt, n) : null;
+    const idleCheckLabel = html`${icon('refresh-cw')}Check for updates`;
     const headActions = html`
-      <button class="tc-btn tc-btn--sm tc-update-check tc-update-check--label" type="button" data-cmd="updates.check" data-key="updates-check" aria-label="${checking ? 'Checking for updates' : 'Check for updates'}"${check.checking && !check.manual ? raw(' title="Checking in the background. Press to check again now."') : ''} aria-disabled="${String(Boolean(check.manual || ui.runtimeChecking))}">${checking ? html`<span class="tc-spinner" aria-hidden="true"></span>Checking…` : html`${icon('refresh-cw')}Check for updates`}</button>
+      <button class="tc-btn tc-btn--sm tc-update-check tc-update-check--label" type="button" data-cmd="updates.check" data-key="updates-check" aria-label="${checking ? 'Checking for updates' : 'Check for updates'}"${check.checking && !check.manual ? raw(' title="Checking in the background. Press to check again now."') : ''} aria-disabled="${String(Boolean(check.manual || ui.runtimeChecking))}"><span class="tc-update-check-size" aria-hidden="true">${idleCheckLabel}</span><span class="tc-update-check-content" aria-hidden="true">${checking ? html`<span class="tc-spinner"></span>Checking…` : idleCheckLabel}</span></button>
       ${view.due.length ? html`<button class="tc-btn tc-btn--primary tc-btn--sm" type="button" data-cmd="updates.all" data-key="updates-all">${icon('circle-arrow-up')}Update all · ${view.due.length}</button>` : ''}`;
     return html`
       ${pageHead('updates', { actions: headActions })}
@@ -1902,6 +1903,16 @@
     const s = state.status;
     const n = now();
     document.body.dataset.consoleRoute = state.route;
+    const pageInfo = T3Routes.page(state.route);
+    const title = pageInfo?.title || titleOf(state.route);
+    if ($('current-page').textContent !== title) $('current-page').textContent = title;
+    const guide = $('page-guide');
+    guide.hidden = !pageInfo?.doc;
+    if (pageInfo?.doc) {
+      const href = T3Routes.docUrl(pageInfo.doc, s?.image?.version);
+      if (guide.getAttribute('href') !== href) guide.setAttribute('href', href);
+      guide.setAttribute('aria-label', pageInfo.title + ' guide');
+    }
     if (s) renderShell(s, n);
     const route = state.route;
     const el = $('page-' + route);
@@ -4053,7 +4064,10 @@
     window.addEventListener('message', (e) => {
       const m = e.data;
       if (e.source !== window.parent || e.origin !== location.origin || !m || m.source !== 't3-code') return;
-      if (m.type === 'theme' && (m.theme === 'light' || m.theme === 'dark') && m.theme !== themeMode()) setTheme(m.theme);
+      if (m.type === 'theme' && (m.theme === 'light' || m.theme === 'dark')) {
+        if (m.theme !== themeMode()) setTheme(m.theme);
+        if (!T3Appearance.apply(document.documentElement, m.appearance)) T3Appearance.clear(document.documentElement);
+      }
     });
     // Escape closes the dialog once nothing on this page wants it: an open
     // menu, sheet or palette takes it first (Kit stops it there).
