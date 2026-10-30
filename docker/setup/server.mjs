@@ -2440,6 +2440,8 @@ const server = createServer(async (req, res) => {
   const authed = Boolean(viewer);
   // Opened inside T3 Code's settings rather than on its own.
   const embed = raw.searchParams.get("embed") === "t3";
+  const host = embed && raw.searchParams.get("host") === "tab" ? "tab" : undefined;
+  const layout = raw.searchParams.get("layout") === "wide" ? "wide" : "compact";
 
   try {
     // Don't answer asset probes with the page.
@@ -2470,15 +2472,24 @@ const server = createServer(async (req, res) => {
     // page's own script asks for JSON instead, so it can say so in place.
     if (req.method === "POST" && route === "/login") {
       const body = new URLSearchParams(await readBody(req));
+      const params = new URLSearchParams();
+      if (body.get("embed") === "t3") {
+        params.set("embed", "t3");
+        if (body.get("host") === "tab") {
+          params.set("host", "tab");
+          params.set("layout", body.get("layout") === "wide" ? "wide" : "compact");
+        }
+      }
       if (!keyMatches(body.get("key"))) {
         await throttle(ip);
         if (wantsJson(req)) return sendJson(res, 401, { ok: false, error: "That key was not accepted." });
-        return send(res, 303, "", { location: `${mount}/?${body.get("embed") === "t3" ? "embed=t3&" : ""}error=1` });
+        params.set("error", "1");
+        return send(res, 303, "", { location: `${mount}/?${params}` });
       }
       failures.delete(ip);
       const setCookie = cookie(req, mount, encodeURIComponent(KEY), 86400);
       if (wantsJson(req)) return sendJson(res, 200, { ok: true }, { "set-cookie": setCookie });
-      return send(res, 303, "", { location: `${mount}/${body.get("embed") === "t3" ? "?embed=t3" : ""}`, "set-cookie": setCookie });
+      return send(res, 303, "", { location: `${mount}/${params.size ? '?' + params : ''}`, "set-cookie": setCookie });
     }
 
     // Lock console: forget this browser. Needs no key - signing out is never
@@ -2489,11 +2500,11 @@ const server = createServer(async (req, res) => {
     }
 
     if (route === "/") {
-      if (authed) return sendPage(req, res, (nonce) => renderConsole({ assets: ASSETS, nonce, mount, embed }));
+      if (authed) return sendPage(req, res, (nonce) => renderConsole({ assets: ASSETS, nonce, mount, embed, host, layout }));
       // The host the browser asked for, for the card's eyebrow; escaped by the template.
-      const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").split(",")[0].trim().slice(0, 200);
+      const hostname = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").split(",")[0].trim().slice(0, 200);
       return sendPage(req, res, (nonce) => renderUnlock({
-        assets: ASSETS, nonce, mount, host, publicUrl: publicUrl().url, error: raw.searchParams.get("error") === "1", embed,
+        assets: ASSETS, nonce, mount, host, hostname, layout, publicUrl: publicUrl().url, error: raw.searchParams.get("error") === "1", embed,
       }));
     }
 

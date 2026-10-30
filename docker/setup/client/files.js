@@ -8,7 +8,7 @@ const T3FilesUI = (() => {
   const bytes=value=>Number.isFinite(value)?M.formatBytes(value):'Not measured';
   const smallIcon=kind=>icon(F.icons[kind]||'file-text','tc-fl-icon');
   const create=({api,base,getStatus,getRoute,render,go})=>{
-    const PHONE=window.matchMedia('(max-width: 639.98px)'),TABLET=window.matchMedia('(max-width: 1023.98px)');
+    const PHONE=window.matchMedia('(max-width: 639.98px)'),TABLET=Kit.COMPACT;
     const folders=new Map();let roots={home:'/home/t3',workspace:'/workspace'},where=null,current=null,key=null;
     const measuring=new Set(),pending=new Map();let unlockedRoot=null,rename=null,dropTarget=null,dragDepth=0,pollingJobs=false;
     let places=null,data=null,error=null,loading=false,started=false,epoch=0,request=null,timer=null,jobsTimer=null,jobs=[],active=true;

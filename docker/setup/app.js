@@ -46,9 +46,11 @@
   // ready, when the person asked to close it and how many things need them;
   // T3 Code passes its theme. Nothing else is accepted from anywhere else.
   const EMBED = document.documentElement.getAttribute('data-embed') === 't3' && window.parent !== window;
+  const TAB = EMBED && document.documentElement.dataset.host === 'tab';
   const toHost = (type, detail) => {
     if (EMBED) window.parent.postMessage(Object.assign({ source: 't3-setup', type }, detail), location.origin);
   };
+  if (TAB) Kit.onModalChange(open => toHost('layer', { open }));
   // An embedded address opened in a tab of its own (copied, say) has nothing
   // to close back to: show the page as itself.
   if (!EMBED && document.documentElement.hasAttribute('data-embed')) {
@@ -254,14 +256,16 @@
   };
 
   const navIcons = M.navIcons(T3C.icons);
-  let navFrame = null, toldNav = null;
-  const tellNav = () => {
+  let navFrame = null, toldNav = null, forceNav = false;
+  const tellNav = (force = false) => {
+    forceNav ||= force;
     if (!EMBED || navFrame !== null) return;
     navFrame = requestAnimationFrame(() => {
       navFrame = null;
       const model = { ...M.navModel(state.status, state.ports, ui, state.route), icons: navIcons };
       const serialized = JSON.stringify(model);
-      if (serialized !== toldNav) { toldNav = serialized; toHost('nav', model); }
+      if (forceNav || serialized !== toldNav) { toldNav = serialized; toHost('nav', model); }
+      forceNav = false;
     });
   };
 
@@ -1249,7 +1253,7 @@
       <div class="tc-group" data-key="agents-list">
         ${rows.length ? html`<div class="tc-list">${rows.map((row) => resourceRow(row))}</div>`
           : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Couldn’t read the agents just now. The console tries again on its own.</span></div>`}
-        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Turn each agent on in T3 Code under Settings → Providers.</span></div>
+        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Turn each agent on in T3 Code under ${TAB ? html`<button class="tc-crumb-link tc-settings-link" type="button" data-cmd="embed.settings" data-path="/settings/providers">Settings → Providers</button>` : 'Settings → Providers'}.</span></div>
       </div>`;
   };
 
@@ -1886,6 +1890,7 @@
   };
 
   const renderShell = (s, n) => {
+    if (TAB) return;
     const badges = M.navBadges(s, state.ports, ui);
     for (const route of ROUTES) {
       const el = $('nav-' + route);
@@ -1922,6 +1927,12 @@
     const pageInfo = T3Routes.page(state.route);
     const title = pageInfo?.title || titleOf(state.route);
     if ($('current-page').textContent !== title) $('current-page').textContent = title;
+    if (TAB) {
+      if ($('current-page-compact').textContent !== title) $('current-page-compact').textContent = title;
+      const attention = M.attentionCount(s, null, ui);
+      $('page-attention').hidden = attention === 0;
+      $('setup-pages').setAttribute('aria-label', 'Setup, ' + title + '. ' + (attention ? attention + (attention === 1 ? ' thing needs you. ' : ' things need you. ') : '') + 'Choose a page');
+    }
     const guide = $('page-guide');
     guide.hidden = !pageInfo?.doc;
     if (pageInfo?.doc) {
@@ -1943,12 +1954,32 @@
   };
 
   // --------------------------------------------------------------- routes --
+  const pageMenu = trigger => {
+    const model = M.navModel(state.status, state.ports, ui, state.route);
+    const info = T3Routes.page(state.route);
+    const badgeMarkup = badge => {
+      if (!badge) return '';
+      const count = badge.kind === 'warn' || badge.kind === 'count';
+      return html`<span class="${count ? 'tc-nav-badge tc-badge tc-badge--' + (badge.kind === 'warn' ? 'warn' : 'info') + ' tc-badge--count' : 'tc-nav-badge tc-nav-mark tc-nav-mark--' + badge.kind}" aria-label="${badge.label}">${count ? badge.count : ''}</span>`;
+    };
+    const rect = trigger.getBoundingClientRect();
+    Kit.menu(trigger, {
+      label: 'Setup pages', className: 'tc-pagemenu', cancel: false, radioIcons: true, swipeDismiss: true,
+      at: { x: rect.left, y: rect.bottom + 4 },
+      header: html`<div class="tc-pagemenu-head" data-menu-drag><span class="tc-pagemenu-tile">${icon('server-cog')}</span><div><strong>Setup</strong><span>${location.host}</span></div></div>`,
+      groups: model.groups.map(group => ({ label: group.label, items: group.pages.map(page => ({
+        label: page.title, icon: page.icon, radio: true, checked: page.route === model.current, current: page.route === model.current,
+        trailing: badgeMarkup(page.badge), run: () => go(page.route),
+      })) })),
+      footer: html`<div class="tc-pagemenu-status">${dot(model.status.ok ? 'ok' : 'danger')}<span>${state.status ? model.status.text : 'Connecting'}${model.status.version ? ' · ' + model.status.version : ''}</span></div><a href="${BASE + '/' + location.hash}" target="_blank" rel="noopener">Open in a new tab ${icon('external-link')}</a>${info?.doc ? html`<a href="${T3Routes.docUrl(info.doc, state.status?.image?.version)}" target="_blank" rel="noopener" aria-label="${info.title + ' guide'}">Guide ${icon('info')}</a>` : ''}`,
+    });
+  };
   // #agents, or an address a page had before it moved (#devices once it is
   // Access), which is rewritten in place so the address bar says where it is.
   const routeFromHash = () => {
     const [name, sub] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
     if (name === 'instructions' && sub === 'mcp') { history.replaceState(null, '', '#mcp'); return 'mcp'; }
-    const route = T3Routes.resolve(name);
+    const route = TAB && name === 'more' ? 'overview' : T3Routes.resolve(name);
     if (route && route !== name) history.replaceState(null, '', '#' + route + (sub ? '/' + sub : ''));
     if (route === 'instructions') state.contextTab = sub === 'skills' ? 'skills' : 'instructions';
     return route && PAGES[route] ? route : 'overview';
@@ -1959,6 +1990,19 @@
   };
   let first = true;
   let shownHash = location.hash, navigationTask = null, navigationVersion = 0;
+  const beforeLeave = async () => {
+    if (contextEditor.layer && !await contextEditor.requestClose()) return false;
+    if (!await skillsUI.beforeNavigate()) return false;
+    if (!await mcpUI.beforeNavigate()) return false;
+    return filesUI.beforeNavigate();
+  };
+  let hostLeaving = false;
+  const leaveHost = async (type, detail) => {
+    if (hostLeaving) return;
+    hostLeaving = true;
+    try { if (!TAB || await beforeLeave()) toHost(type, detail); }
+    finally { hostLeaving = false; }
+  };
   const show = (route, focus) => {
     const changed = route !== state.route || first;
     state.route = route;
@@ -1988,17 +2032,13 @@
     // Back/forward can arrive while a discard confirmation is open. Share the
     // decision, then apply only the latest destination; cancelled navigation
     // keeps the old route, tab and draft together.
-    if (!navigationTask) navigationTask = (async () => {
-      if (contextEditor.layer && !await contextEditor.requestClose()) return false;
-      if (!await skillsUI.beforeNavigate()) return false;
-      if (!await mcpUI.beforeNavigate()) return false;
-      return filesUI.beforeNavigate();
-    })();
+    if (!navigationTask) navigationTask = beforeLeave();
     const allowed = await navigationTask;
     if (version !== navigationVersion) return;
     navigationTask = null;
-    if (!allowed) { history.replaceState(null, '', shownHash || location.pathname + location.search); return; }
+    if (!allowed) { history.replaceState(null, '', shownHash || location.pathname + location.search); tellNav(true); return; }
     show(routeFromHash(), focus);
+    tellNav(true);
   };
   window.addEventListener('hashchange', () => { void navigateFromHash(keyboardNav); });
   let keyboardNav = false;
@@ -3661,7 +3701,10 @@
     palette: () => openPalette(),
     // Inside T3 Code, T3 Code is right behind the dialog.
     'open.t3': () => (EMBED ? toHost('close') : window.open(t3Url(), '_blank', 'noopener')),
-    'embed.close': () => toHost('close'),
+    'embed.close': () => leaveHost('close'),
+    'embed.back': () => leaveHost('back'),
+    'embed.settings': (a) => { if (TAB && /^\/settings\/[a-z0-9-]+$/.test(a.path)) return leaveHost('settings', { path: a.path }); },
+    'embed.pages': (_, el) => { if (TAB) pageMenu(el); },
     lock: async () => {
       await fetch(BASE + '/logout', { method: 'POST', credentials: 'same-origin', redirect: 'manual' }).catch(() => {});
       locked = true;
@@ -4084,18 +4127,34 @@
         if (m.theme !== themeMode()) setTheme(m.theme);
         if (!T3Appearance.apply(document.documentElement, m.appearance)) T3Appearance.clear(document.documentElement);
       }
+      if (TAB && m.type === 'host' && (m.layout === 'wide' || m.layout === 'compact')) {
+        const root = document.documentElement, focused = document.activeElement;
+        if (root.dataset.hostLayout !== m.layout) {
+          const headerFocus = focused?.closest('.tc-console-topbar, .tc-pagebar');
+          const menu = Kit.top();
+          if (menu?.returnTo === $('setup-pages')) menu.close('layout');
+          root.dataset.hostLayout = m.layout;
+          const params = new URLSearchParams(location.search); params.set('layout', m.layout);
+          history.replaceState(null, '', location.pathname + '?' + params + location.hash);
+          if (headerFocus) (m.layout === 'compact' ? $('setup-pages') : document.querySelector('.tc-console-topbar [data-cmd="embed.back"]')).focus({ preventScroll: true });
+        }
+      }
+      if (TAB && m.type === 'navigate' && typeof m.route === 'string' && m.route.length <= 100) {
+        const route = T3Routes.resolve(m.route);
+        if (route && route !== 'more' && PAGES[route]) go(m.route);
+      }
     });
     // Escape closes the dialog once nothing on this page wants it: an open
     // menu, sheet or palette takes it first (Kit stops it there).
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) toHost('close');
+      if (e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) void leaveHost('close');
     });
   }
   show(routeFromHash());
   loadStatus();
   loadPorts();
   if (EMBED) {
-    $('main').focus({ preventScroll: true });
+    (TAB && document.documentElement.dataset.hostLayout === 'compact' ? document.querySelector('.tc-pagebar [data-cmd="embed.back"]') : $('main')).focus({ preventScroll: true });
     toHost('ready', { protocol: 2 });
   }
 })();

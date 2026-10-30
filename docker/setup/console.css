@@ -132,20 +132,20 @@ html.tc-locked { overflow: hidden; }
 
 .tc-tabbar { display: none; }
 
-@media (max-width: 1023.98px) {
-  .tc-app { grid-template-columns: minmax(0, 1fr); }
-  .tc-sidebar, .tc-embed-corner { display: none; }
-  .tc-phonebar { display: flex; }
-  .tc-tabbar { display: grid; position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky); }
-  .tc-page { padding: 0.5rem 1rem calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 1.5rem); gap: var(--space-6); --_gap: var(--space-6); }
-  .tc-page .tc-section-head, .tc-page-head, .tc-page-foot { padding: 0 0.25rem; }
-  .tc-page-title { font-size: 1.25rem; }
-  [data-embed] .tc-page-head { padding-right: 0.25rem; }
-  .tc-desk-only { display: none !important; }
-}
-@media (min-width: 1024px) {
-  .tc-phone-only { display: none !important; }
-}
+
+  :where(:root[data-compact]) .tc-app { grid-template-columns: minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-sidebar, :where(:root[data-compact]) .tc-embed-corner { display: none; }
+  :where(:root[data-compact]) .tc-phonebar { display: flex; }
+  :where(:root[data-compact]) .tc-tabbar { display: grid; position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky); }
+  :where(:root[data-compact]) .tc-page { padding: 0.5rem 1rem calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 1.5rem); gap: var(--space-6); --_gap: var(--space-6); }
+  :where(:root[data-compact]) .tc-page .tc-section-head, :where(:root[data-compact]) .tc-page-head, :where(:root[data-compact]) .tc-page-foot { padding: 0 0.25rem; }
+  :where(:root[data-compact]) .tc-page-title { font-size: 1.25rem; }
+  :where(:root[data-compact])[data-embed] .tc-page-head { padding-right: 0.25rem; }
+  :where(:root[data-compact]) .tc-desk-only { display: none !important; }
+
+
+  :where(:root:not([data-compact])) .tc-phone-only { display: none !important; }
+
 
 /* ------------------------------------------------------------ pages -- */
 /* Rows whose actions may wrap under the main block on a narrow screen instead
@@ -377,9 +377,9 @@ html.tc-locked { overflow: hidden; }
 .tc-ready-cta { margin-top: var(--space-1); display: grid; gap: var(--space-2); }
 /* A checklist step with a second, quieter way to do it beside its button. */
 .tc-check > .tc-check-actions { grid-column: 3; grid-row: 1 / span 2; display: flex; align-items: center; gap: var(--space-2); }
-@media (max-width: 1023.98px) {
-  .tc-check > .tc-check-aside { grid-column: 2 / -1; grid-row: 2; overflow-wrap: anywhere; }
-}
+
+  :where(:root[data-compact]) .tc-check > .tc-check-aside { grid-column: 2 / -1; grid-row: 2; overflow-wrap: anywhere; }
+
 /* On a phone a step's button goes under its words, which keep the width. */
 @media (max-width: 639.98px) {
   .tc-check > .tc-btn, .tc-check > .tc-check-actions { grid-column: 2 / -1; grid-row: 3; justify-self: start; margin-top: var(--space-2); }
@@ -410,16 +410,16 @@ html.tc-locked { overflow: hidden; }
 .tc-pair-done { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.125rem; padding: 1.375rem var(--space-4) 1.125rem; }
 .tc-pair-done .tc-empty-media { margin: 0.625rem 0 2px; }
 .tc-pair-done-title { font-size: 1.5rem; line-height: 2rem; font-weight: 600; letter-spacing: -0.025em; text-wrap: balance; }
-@media (max-width: 1023.98px) {
-  .tc-pair { flex-direction: column; align-items: stretch; }
-  .tc-pair-qr { order: -1; }
-  .tc-pair-qr .tc-qr svg { width: 12.5rem; height: 12.5rem; }
-  .tc-pair-form, .tc-pair-form-fields { grid-template-columns: minmax(0, 1fr); }
-  .tc-pair-form .tc-seg { width: 100%; }
-  .tc-pair-form .tc-seg button { flex: 1; justify-content: center; }
-  .tc-pair-done-actions { align-self: stretch; align-items: stretch; }
-  .tc-pair-done-actions .tc-btn { width: 100%; }
-}
+
+  :where(:root[data-compact]) .tc-pair { flex-direction: column; align-items: stretch; }
+  :where(:root[data-compact]) .tc-pair-qr { order: -1; }
+  :where(:root[data-compact]) .tc-pair-qr .tc-qr svg { width: 12.5rem; height: 12.5rem; }
+  :where(:root[data-compact]) .tc-pair-form, :where(:root[data-compact]) .tc-pair-form-fields { grid-template-columns: minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-pair-form .tc-seg { width: 100%; }
+  :where(:root[data-compact]) .tc-pair-form .tc-seg button { flex: 1; justify-content: center; }
+  :where(:root[data-compact]) .tc-pair-done-actions { align-self: stretch; align-items: stretch; }
+  :where(:root[data-compact]) .tc-pair-done-actions .tc-btn { width: 100%; }
+
 @media (max-width: 639.98px) {
   .tc-steps .tc-step-text-long { display: none; }
 }
@@ -575,21 +575,21 @@ html.tc-locked { overflow: hidden; }
 .tc-menu-head-text { display: flex; flex-direction: column; min-width: 0; }
 .tc-menu-head-title { font-size: 1.0625rem; line-height: 1.5rem; font-weight: 600; }
 /* Under 1024px every sheet, menu and dialog rises from the bottom. */
-@media (max-width: 1023.98px) {
-  .tc-layer--sheet, .tc-layer--center, .tc-layer--bottom { align-items: flex-end; justify-content: stretch; padding: 0; }
-  .tc-layer--sheet > .tc-sheet, .tc-layer > .tc-sheet--bottom { margin: 0; height: auto; max-height: 88%; width: 100%;
+
+  :where(:root[data-compact]) .tc-layer--sheet, :where(:root[data-compact]) .tc-layer--center, :where(:root[data-compact]) .tc-layer--bottom { align-items: flex-end; justify-content: stretch; padding: 0; }
+  :where(:root[data-compact]) .tc-layer--sheet > .tc-sheet, :where(:root[data-compact]) .tc-layer > .tc-sheet--bottom { margin: 0; height: auto; max-height: 88%; width: 100%;
     border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; animation: tc-rise-sheet 300ms cubic-bezier(0.32, 0.72, 0, 1); }
-  .tc-layer--center > .tc-dialog { width: 100%; max-width: none; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; max-height: 88%;
+  :where(:root[data-compact]) .tc-layer--center > .tc-dialog { width: 100%; max-width: none; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; max-height: 88%;
     animation: tc-rise-sheet 300ms cubic-bezier(0.32, 0.72, 0, 1); padding-bottom: env(safe-area-inset-bottom, 0px); }
-  .tc-layer--center > .tc-dialog .tc-dialog-foot { flex-direction: column-reverse; }
+  :where(:root[data-compact]) .tc-layer--center > .tc-dialog .tc-dialog-foot { flex-direction: column-reverse; }
   /* Every dialog rising from the bottom carries a sheet's handle. */
-  .tc-layer--center > .tc-dialog::before { content: ""; display: block; width: 2.25rem; height: 0.25rem; margin: 0.5rem auto 0; border-radius: 2px; background: var(--border-strong); }
+  :where(:root[data-compact]) .tc-layer--center > .tc-dialog::before { content: ""; display: block; width: 2.25rem; height: 0.25rem; margin: 0.5rem auto 0; border-radius: 2px; background: var(--border-strong); }
   /* No keyboard here to name keys for. */
-  .tc-root[data-density="touch"] .tc-palette-foot { display: none; }
-  .tc-layer--center > .tc-dialog .tc-dialog-foot .tc-btn { width: 100%; }
-  .tc-layer--palette { padding: 0.5rem; }
-  .tc-layer--palette > .tc-palette { width: 100%; }
-}
+  :where(:root[data-compact]) .tc-root[data-density="touch"] .tc-palette-foot { display: none; }
+  :where(:root[data-compact]) .tc-layer--center > .tc-dialog .tc-dialog-foot .tc-btn { width: 100%; }
+  :where(:root[data-compact]) .tc-layer--palette { padding: 0.5rem; }
+  :where(:root[data-compact]) .tc-layer--palette > .tc-palette { width: 100%; }
+
 .tc-layer > .tc-sheet--bottom { position: relative; z-index: 1; align-self: flex-end; }
 .tc-sheet--bottom .tc-sheet-body { padding-bottom: 0.5rem; }
 .tc-sheet-actions { display: flex; flex-direction: column; padding: 0 0.75rem 0.25rem; }
@@ -642,18 +642,18 @@ html.tc-locked { overflow: hidden; }
 .tc-device-rename-error > .tc-icon { flex: none; margin-top: 1px; }
 .tc-device-rename-foot { padding-top: 0; }
 .tc-device-rename-foot [data-key="device-save"] { min-width: 7.5rem; }
-@media (max-width: 1023.98px) {
-  .tc-device-rename-body { padding: 1.25rem 1.25rem 1rem; }
-  .tc-root[data-density="touch"] .tc-device-rename .tc-input { height: var(--touch); }
-  .tc-root[data-density="touch"] .tc-device-rename .tc-btn { --_h: var(--touch); }
-  .tc-layer--center > .tc-device-rename .tc-device-rename-foot { flex-direction: row; padding: 0 1.25rem 1.25rem; }
-  .tc-layer--center > .tc-device-rename .tc-device-rename-foot .tc-btn { flex: 1; width: auto; }
-}
-@media (max-width: 1023.98px) {
-  .tc-signin-open > a { flex: 1 1 auto; }
-  .tc-signin-code { flex-direction: column; }
-  .tc-signin-code .tc-btn { width: 100%; }
-}
+
+  :where(:root[data-compact]) .tc-device-rename-body { padding: 1.25rem 1.25rem 1rem; }
+  :where(:root[data-compact]) .tc-root[data-density="touch"] .tc-device-rename .tc-input { height: var(--touch); }
+  :where(:root[data-compact]) .tc-root[data-density="touch"] .tc-device-rename .tc-btn { --_h: var(--touch); }
+  :where(:root[data-compact]) .tc-layer--center > .tc-device-rename .tc-device-rename-foot { flex-direction: row; padding: 0 1.25rem 1.25rem; }
+  :where(:root[data-compact]) .tc-layer--center > .tc-device-rename .tc-device-rename-foot .tc-btn { flex: 1; width: auto; }
+
+
+  :where(:root[data-compact]) .tc-signin-open > a { flex: 1 1 auto; }
+  :where(:root[data-compact]) .tc-signin-code { flex-direction: column; }
+  :where(:root[data-compact]) .tc-signin-code .tc-btn { width: 100%; }
+
 
 /* Added tools: the section's filter beside its button, the empty state's
    suggestions, and the Add a tool sheet. */
@@ -723,9 +723,9 @@ html.tc-locked { overflow: hidden; }
 .tc-toast .tc-btn { margin: -0.375rem -0.25rem -0.375rem 0.25rem; }
 /* A retained error must not cover the actions when its retry opens a modal. */
 .tc-root:has(.tc-layer [role="alertdialog"][aria-modal="true"]) .tc-toaster { display: none; }
-@media (max-width: 1023.98px) {
-  .tc-toaster { left: 1rem; right: 1rem; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 12px); align-items: center; }
-}
+
+  :where(:root[data-compact]) .tc-toaster { left: 1rem; right: 1rem; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 12px); align-items: center; }
+
 
 /* ----------------------------------------------------------- motion -- */
 @keyframes tc-fade { from { opacity: 0; } }
@@ -811,19 +811,19 @@ html.tc-locked { overflow: hidden; }
 .tc-tab-button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 1px; background: var(--fg); }
 .tc-tab-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-sm); }
 .tc-tabpanel { display: flex; flex-direction: column; gap: var(--_gap); min-width: 0; }
-@media (max-width: 1023.98px) {
-  .tc-tabs { padding: 0 0.25rem; }
-}
+
+  :where(:root[data-compact]) .tc-tabs { padding: 0 0.25rem; }
+
 
 /* A select as small as the buttons beside it. On a phone it keeps 16px text,
    which stops iOS zooming in when it opens. */
 .tc-select--sm { height: var(--control-sm); font-size: 0.8125rem; padding-left: 0.5625rem; }
 .tc-root[data-density="touch"] .tc-select--sm { height: 2rem; font-size: 1rem; }
-@media (max-width: 1023.98px) {
-  .tc-layer--center > .tc-context-sheet { width: 100%; max-height: 88dvh; animation: tc-rise-sheet 300ms cubic-bezier(0.32, 0.72, 0, 1); }
-  .tc-context-sheet .tc-input--area { min-height: 32dvh; }
-  .tc-context-sheet .tc-sheet-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
-}
+
+  :where(:root[data-compact]) .tc-layer--center > .tc-context-sheet { width: 100%; max-height: 88dvh; animation: tc-rise-sheet 300ms cubic-bezier(0.32, 0.72, 0, 1); }
+  :where(:root[data-compact]) .tc-context-sheet .tc-input--area { min-height: 32dvh; }
+  :where(:root[data-compact]) .tc-context-sheet .tc-sheet-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+
 
 /* Instructions & skills: token-based page layouts and controls. */
 .tc-tab-count { font: 400 0.75rem/1 var(--font-mono); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
@@ -1168,64 +1168,64 @@ html.tc-locked { overflow: hidden; }
 .tc-ins-session-note { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); }
 .tc-ins-grid .tc-card-foot code { overflow-wrap: anywhere; min-width: 0; }
 .tc-reads-row .tc-seg button { min-width: 0; overflow: hidden; white-space: nowrap; }
-@media (max-width: 1023.98px) {
-  .tc-sk-toolbar { margin: 0; }
-  .tc-sk-search { flex: 1 1 100%; min-width: 0; }
-  .tc-sk-search > .tc-input { min-height: var(--touch); font-size: 1rem; }
-  .tc-sk-search > .tc-kbd, .tc-sk-desktop-filters, .tc-sk-desktop-actions, .tc-sk-table { display: none !important; }
+
+  :where(:root[data-compact]) .tc-sk-toolbar { margin: 0; }
+  :where(:root[data-compact]) .tc-sk-search { flex: 1 1 100%; min-width: 0; }
+  :where(:root[data-compact]) .tc-sk-search > .tc-input { min-height: var(--touch); font-size: 1rem; }
+  :where(:root[data-compact]) .tc-sk-search > .tc-kbd, :where(:root[data-compact]) .tc-sk-desktop-filters, :where(:root[data-compact]) .tc-sk-desktop-actions, :where(:root[data-compact]) .tc-sk-table { display: none !important; }
   /* Keep the scrollport's 4px focus gutter within the library's bounds,
      without moving its content or increasing the row's layout space. */
-  .tc-skills-library { margin-inline: -0.25rem; padding-inline: 0.25rem; }
-  .tc-sk-agent-chips { display: flex; overflow-x: auto; overscroll-behavior-x: contain; gap: var(--space-2); margin: -0.25rem; padding: 0.25rem 0.25rem 0.5rem; scroll-padding-inline: 4px; }
-  .tc-sk-agent-chips .tc-chip-btn { min-height: var(--touch); }
-  .tc-sk-phone-list { display: flex; flex-direction: column; gap: var(--space-4); }
-  .tc-prow { width: 100%; text-align: left; appearance: none; border: 0; background: none; cursor: pointer; font: inherit; }
-  .tc-prow + .tc-prow { border-top: 1px solid var(--hairline); }
-  .tc-prow:hover { background: var(--hover); }
-  .tc-prow-agents > span:last-child { overflow-wrap: anywhere; }
-  .tc-plist-group { flex-wrap: wrap; }
-  .tc-sk-phone-actions { display: flex; align-items: center; gap: var(--space-2); position: fixed; left: 1rem; right: 1rem; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px)); z-index: 2; background: var(--surface-raised); border-top: 1px solid var(--border); padding: var(--space-3) 1rem; margin: 0 -1rem; }
-  .tc-sk-phone-actions .tc-btn { min-height: var(--touch); }
-  .tc-sk-phone-actions .tc-btn--primary { flex: 1; }
-  .tc-sk-phone-actions .tc-btn:not(.tc-btn--primary) { font-size: 0; padding: 0; width: var(--touch); }
-  .tc-sk-phone-actions .tc-btn:not(.tc-btn--primary) .tc-icon { width: 1.25rem; height: 1.25rem; }
-  .tc-sk-notices .tc-notice { flex-wrap: wrap; }
-  .tc-sk-notices .tc-notice-actions { margin-left: 1.5rem; }
-  .tc-sk-library-foot { margin-bottom: var(--space-2); }
-  .tc-layer--sheet > .tc-skill-inspector { width: 100%; max-height: 92dvh; height: auto; margin: 0; }
-  .tc-skill-inspector .tc-insp-body { padding: 1rem; gap: var(--space-5); }
-  .tc-skill-inspector .tc-insp-foot { padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); }
-  .tc-avail-row { grid-template-columns: auto minmax(0, 1fr); padding: 0.75rem 0.875rem; }
-  .tc-avail-row > .tc-select { grid-column: 1 / -1; width: 100%; min-height: var(--touch); font-size: 1rem; }
-  .tc-avail-row > .tc-cell { grid-column: 2; justify-self: start; }
-  .tc-layer--center > .tc-wizard { max-height: 94dvh; height: 94dvh; width: 100%; max-width: none; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; }
-  .tc-wizard-head { flex-wrap: wrap; padding: var(--space-4); gap: var(--space-2); }
-  .tc-wizard-head > .tc-tile { display: none; }
-  .tc-wizard-head > .tc-sheet-head-text { flex: 1; min-width: 0; }
-  .tc-wizard-head > .tc-sheet-head-text .tc-small { font-size: 0.75rem; }
-  .tc-wizard-head .tc-steps { order: 4; width: 100%; margin: 0.25rem 0 0; }
-  .tc-wizard-grid { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
-  .tc-wizard-main { flex: 1 0 auto; overflow: visible; padding: var(--space-4); }
-  .tc-wizard-rail-wrap { flex: none; border-left: 0; border-top: 1px solid var(--border); overflow: visible; }
-  .tc-wizard-rail-toggle { display: block; padding: var(--space-3) var(--space-4); font-size: 0.8125rem; font-weight: 500; cursor: pointer; min-height: var(--touch); }
-  .tc-wizard-rail { min-height: 0; padding: 0 var(--space-4) var(--space-4); }
-  .tc-wizard-foot { padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); }
-  .tc-wizard-foot .tc-btn { min-height: var(--touch); }
-  .tc-wizard-keyboard { display: none !important; }
-  .tc-picklist { flex: none; }
-  .tc-picklist-body { overflow: visible; }
-  .tc-picklist-head { flex-wrap: wrap; }
-  .tc-picklist-head .tc-input { flex: 1 1 100%; min-height: var(--touch); font-size: 1rem; }
-  .tc-pick { grid-template-columns: 1.125rem minmax(0, 1fr); }
-  .tc-pick-side { grid-column: 2; justify-self: start; min-height: 2.25rem; }
-  .tc-source-input > .tc-input { height: var(--touch); font-size: 1rem; }
-  .tc-source-input > .tc-btn { min-height: 2.25rem; }
-  .tc-route-row { min-height: 4rem; }
-  .tc-import-step-head .tc-seg { width: 100%; display: flex; }
-  .tc-import-step-head .tc-seg button { flex: 1; min-height: 2.25rem; }
-  .tc-ins-grid { grid-template-columns: minmax(0, 1fr); }
-  .tc-reads-row .tc-seg button { min-height: 2.25rem; font-size: 0.75rem; padding-inline: 0.25rem; }
-}
+  :where(:root[data-compact]) .tc-skills-library { margin-inline: -0.25rem; padding-inline: 0.25rem; }
+  :where(:root[data-compact]) .tc-sk-agent-chips { display: flex; overflow-x: auto; overscroll-behavior-x: contain; gap: var(--space-2); margin: -0.25rem; padding: 0.25rem 0.25rem 0.5rem; scroll-padding-inline: 4px; }
+  :where(:root[data-compact]) .tc-sk-agent-chips .tc-chip-btn { min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-sk-phone-list { display: flex; flex-direction: column; gap: var(--space-4); }
+  :where(:root[data-compact]) .tc-prow { width: 100%; text-align: left; appearance: none; border: 0; background: none; cursor: pointer; font: inherit; }
+  :where(:root[data-compact]) .tc-prow + .tc-prow { border-top: 1px solid var(--hairline); }
+  :where(:root[data-compact]) .tc-prow:hover { background: var(--hover); }
+  :where(:root[data-compact]) .tc-prow-agents > span:last-child { overflow-wrap: anywhere; }
+  :where(:root[data-compact]) .tc-plist-group { flex-wrap: wrap; }
+  :where(:root[data-compact]) .tc-sk-phone-actions { display: flex; align-items: center; gap: var(--space-2); position: fixed; left: 1rem; right: 1rem; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px)); z-index: 2; background: var(--surface-raised); border-top: 1px solid var(--border); padding: var(--space-3) 1rem; margin: 0 -1rem; }
+  :where(:root[data-compact]) .tc-sk-phone-actions .tc-btn { min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-sk-phone-actions .tc-btn--primary { flex: 1; }
+  :where(:root[data-compact]) .tc-sk-phone-actions .tc-btn:not(.tc-btn--primary) { font-size: 0; padding: 0; width: var(--touch); }
+  :where(:root[data-compact]) .tc-sk-phone-actions .tc-btn:not(.tc-btn--primary) .tc-icon { width: 1.25rem; height: 1.25rem; }
+  :where(:root[data-compact]) .tc-sk-notices .tc-notice { flex-wrap: wrap; }
+  :where(:root[data-compact]) .tc-sk-notices .tc-notice-actions { margin-left: 1.5rem; }
+  :where(:root[data-compact]) .tc-sk-library-foot { margin-bottom: var(--space-2); }
+  :where(:root[data-compact]) .tc-layer--sheet > .tc-skill-inspector { width: 100%; max-height: 92dvh; height: auto; margin: 0; }
+  :where(:root[data-compact]) .tc-skill-inspector .tc-insp-body { padding: 1rem; gap: var(--space-5); }
+  :where(:root[data-compact]) .tc-skill-inspector .tc-insp-foot { padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); }
+  :where(:root[data-compact]) .tc-avail-row { grid-template-columns: auto minmax(0, 1fr); padding: 0.75rem 0.875rem; }
+  :where(:root[data-compact]) .tc-avail-row > .tc-select { grid-column: 1 / -1; width: 100%; min-height: var(--touch); font-size: 1rem; }
+  :where(:root[data-compact]) .tc-avail-row > .tc-cell { grid-column: 2; justify-self: start; }
+  :where(:root[data-compact]) .tc-layer--center > .tc-wizard { max-height: 94dvh; height: 94dvh; width: 100%; max-width: none; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; }
+  :where(:root[data-compact]) .tc-wizard-head { flex-wrap: wrap; padding: var(--space-4); gap: var(--space-2); }
+  :where(:root[data-compact]) .tc-wizard-head > .tc-tile { display: none; }
+  :where(:root[data-compact]) .tc-wizard-head > .tc-sheet-head-text { flex: 1; min-width: 0; }
+  :where(:root[data-compact]) .tc-wizard-head > .tc-sheet-head-text .tc-small { font-size: 0.75rem; }
+  :where(:root[data-compact]) .tc-wizard-head .tc-steps { order: 4; width: 100%; margin: 0.25rem 0 0; }
+  :where(:root[data-compact]) .tc-wizard-grid { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+  :where(:root[data-compact]) .tc-wizard-main { flex: 1 0 auto; overflow: visible; padding: var(--space-4); }
+  :where(:root[data-compact]) .tc-wizard-rail-wrap { flex: none; border-left: 0; border-top: 1px solid var(--border); overflow: visible; }
+  :where(:root[data-compact]) .tc-wizard-rail-toggle { display: block; padding: var(--space-3) var(--space-4); font-size: 0.8125rem; font-weight: 500; cursor: pointer; min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-wizard-rail { min-height: 0; padding: 0 var(--space-4) var(--space-4); }
+  :where(:root[data-compact]) .tc-wizard-foot { padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); }
+  :where(:root[data-compact]) .tc-wizard-foot .tc-btn { min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-wizard-keyboard { display: none !important; }
+  :where(:root[data-compact]) .tc-picklist { flex: none; }
+  :where(:root[data-compact]) .tc-picklist-body { overflow: visible; }
+  :where(:root[data-compact]) .tc-picklist-head { flex-wrap: wrap; }
+  :where(:root[data-compact]) .tc-picklist-head .tc-input { flex: 1 1 100%; min-height: var(--touch); font-size: 1rem; }
+  :where(:root[data-compact]) .tc-pick { grid-template-columns: 1.125rem minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-pick-side { grid-column: 2; justify-self: start; min-height: 2.25rem; }
+  :where(:root[data-compact]) .tc-source-input > .tc-input { height: var(--touch); font-size: 1rem; }
+  :where(:root[data-compact]) .tc-source-input > .tc-btn { min-height: 2.25rem; }
+  :where(:root[data-compact]) .tc-route-row { min-height: 4rem; }
+  :where(:root[data-compact]) .tc-import-step-head .tc-seg { width: 100%; display: flex; }
+  :where(:root[data-compact]) .tc-import-step-head .tc-seg button { flex: 1; min-height: 2.25rem; }
+  :where(:root[data-compact]) .tc-ins-grid { grid-template-columns: minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-reads-row .tc-seg button { min-height: 2.25rem; font-size: 0.75rem; padding-inline: 0.25rem; }
+
 @media (forced-colors: active) {
   .tc-checkbox { appearance: auto; }
   .tc-cell:focus-visible, .tc-skill-name:focus-visible { outline: 2px solid Highlight; }
@@ -1235,83 +1235,83 @@ html.tc-locked { overflow: hidden; }
 .tc-picklist-head > .tc-hint { white-space: nowrap; }
 .tc-picklist-head .tc-input { width: 8.75rem; flex: none; }
 .tc-plan-stat > strong { font: 600 1.375rem/1.75rem var(--font-sans); letter-spacing: -0.02em; }
-@media (min-width: 1024px) {
-  .tc-wizard-rail-wrap > .tc-wizard-rail { display: flex; }
-}
-@media (max-width: 1023.98px) {
-  .tc-picklist-head .tc-input { flex: 1 1 100%; width: 100%; }
-  .tc-import-step-head .tc-seg button, .tc-reads-row .tc-seg button, .tc-pick-side, .tc-source-input > .tc-btn { min-height: var(--touch); }
-  .tc-skills-library { padding-bottom: 4.75rem; }
-  .tc-pick-files-foot { flex-wrap: wrap; }
-}
+
+  :where(:root:not([data-compact])) .tc-wizard-rail-wrap > .tc-wizard-rail { display: flex; }
+
+
+  :where(:root[data-compact]) .tc-picklist-head .tc-input { flex: 1 1 100%; width: 100%; }
+  :where(:root[data-compact]) .tc-import-step-head .tc-seg button, :where(:root[data-compact]) .tc-reads-row .tc-seg button, :where(:root[data-compact]) .tc-pick-side, :where(:root[data-compact]) .tc-source-input > .tc-btn { min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-skills-library { padding-bottom: 4.75rem; }
+  :where(:root[data-compact]) .tc-pick-files-foot { flex-wrap: wrap; }
+
 
 .tc-instructions-phone-head, .tc-sk-phone-notice { display: none; }
-@media (max-width: 1023.98px) {
-  body[data-console-route="instructions"] .tc-phonebar,
-  body[data-console-route="instructions"] .tc-tabbar,
-  #page-instructions > .tc-page-head { display: none; }
-  #page-instructions { padding-top: 0; }
-  .tc-instructions-phone-head { display: grid; grid-template-columns: 4.75rem minmax(0, 1fr) var(--touch); align-items: center; min-height: 3.25rem; margin-inline: -1rem; padding-inline: 0.5rem; }
-  .tc-instructions-phone-head h1 { font-size: 0.9375rem; line-height: 1.375rem; font-weight: 600; text-align: center; margin: 0; }
-  .tc-instructions-phone-head .tc-btn { min-height: var(--touch); padding: 0.5rem; gap: 0.25rem; }
-  .tc-back-icon { transform: rotate(180deg); }
-  .tc-sk-phone-notice { display: flex; align-items: center; gap: 0.625rem; border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); background: var(--warn-soft); color: var(--warn-text); border-radius: var(--radius-xl); padding: 0.75rem 0.875rem; text-align: left; font: inherit; cursor: pointer; }
-  .tc-sk-phone-notice > span { min-width: 0; flex: 1; }
-  .tc-sk-phone-notice strong, .tc-sk-phone-notice > span > span { display: block; }
-  .tc-sk-phone-notice strong { font-size: 0.8125rem; line-height: 1.25rem; font-weight: 500; }
-  .tc-sk-phone-notice > span > span { font-size: 0.75rem; line-height: 1.125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tc-sk-phone-notice > .tc-icon { flex: none; width: 1rem; height: 1rem; }
-  .tc-sk-notices .tc-sk-skill-notice, .tc-sk-notices > button { display: none; }
-  .tc-sk-phone-actions { bottom: env(safe-area-inset-bottom, 0px); }
-}
+
+  :where(:root[data-compact]) body[data-console-route="instructions"] .tc-phonebar,
+  :where(:root[data-compact]) body[data-console-route="instructions"] .tc-tabbar,
+  :where(:root[data-compact]) #page-instructions > .tc-page-head { display: none; }
+  :where(:root[data-compact]) #page-instructions { padding-top: 0; }
+  :where(:root[data-compact]) .tc-instructions-phone-head { display: grid; grid-template-columns: 4.75rem minmax(0, 1fr) var(--touch); align-items: center; min-height: 3.25rem; margin-inline: -1rem; padding-inline: 0.5rem; }
+  :where(:root[data-compact]) .tc-instructions-phone-head h1 { font-size: 0.9375rem; line-height: 1.375rem; font-weight: 600; text-align: center; margin: 0; }
+  :where(:root[data-compact]) .tc-instructions-phone-head .tc-btn { min-height: var(--touch); padding: 0.5rem; gap: 0.25rem; }
+  :where(:root[data-compact]) .tc-back-icon { transform: rotate(180deg); }
+  :where(:root[data-compact]) .tc-sk-phone-notice { display: flex; align-items: center; gap: 0.625rem; border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); background: var(--warn-soft); color: var(--warn-text); border-radius: var(--radius-xl); padding: 0.75rem 0.875rem; text-align: left; font: inherit; cursor: pointer; }
+  :where(:root[data-compact]) .tc-sk-phone-notice > span { min-width: 0; flex: 1; }
+  :where(:root[data-compact]) .tc-sk-phone-notice strong, :where(:root[data-compact]) .tc-sk-phone-notice > span > span { display: block; }
+  :where(:root[data-compact]) .tc-sk-phone-notice strong { font-size: 0.8125rem; line-height: 1.25rem; font-weight: 500; }
+  :where(:root[data-compact]) .tc-sk-phone-notice > span > span { font-size: 0.75rem; line-height: 1.125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  :where(:root[data-compact]) .tc-sk-phone-notice > .tc-icon { flex: none; width: 1rem; height: 1rem; }
+  :where(:root[data-compact]) .tc-sk-notices .tc-sk-skill-notice, :where(:root[data-compact]) .tc-sk-notices > button { display: none; }
+  :where(:root[data-compact]) .tc-sk-phone-actions { bottom: env(safe-area-inset-bottom, 0px); }
+
 /* The installer reports failures inline. Earlier page toasts remain available
    after dismissal but cannot obscure its review/install controls. */
 .tc-root:has(.tc-skill-import) .tc-toaster { visibility: hidden; }
 
 .tc-pick[data-open] .tc-pick-side > .tc-icon { transform: rotate(180deg); }
 
-@media (max-width: 1023.98px) {
-  #page-instructions { gap: 0.75rem; --_gap: 0.75rem; }
-  .tc-skills-library { gap: 0.5rem; }
-  .tc-sk-notices:not(:has(.tc-sk-provider-notice)) { display: none; }
-  .tc-plist-group { padding-block: 0; min-height: var(--touch); }
-  .tc-plist-group .tc-mx-group-toggle { min-height: var(--touch); }
-  .tc-layer--sheet > .tc-skill-inspector { max-height: 80dvh; }
-  .tc-skill-inspector .tc-insp-head > .tc-tile { display: none; }
-  .tc-skill-inspector .tc-insp-head { padding: 1.125rem 1rem 0.75rem; }
-  .tc-skill-inspector .tc-insp-head h2 { font-size: 1rem; line-height: 1.375rem; }
-  .tc-skill-inspector .tc-insp-body { gap: 1.25rem; }
-  .tc-avail-row > [data-inspect-copy-to] { grid-column: 2; justify-self: start; min-height: var(--touch); }
-  .tc-insp-foot > [data-inspect-edit] { flex: 1; }
-  .tc-insp-foot:has([data-inspect-edit]) > .tc-spacer { display: none; }
-}
 
-@media (max-width: 1023.98px) {
-  .tc-avail-row { grid-template-columns: 1.5rem minmax(0, 1fr) auto; }
-  .tc-avail-row > .tc-cell, .tc-avail-row > [data-inspect-copy-to] { grid-column: 3; grid-row: 1; justify-self: end; }
-  .tc-avail-row > [data-inspect-copy-to] { max-width: 8.125rem; white-space: normal; text-align: center; }
-}
+  :where(:root[data-compact]) #page-instructions { gap: 0.75rem; --_gap: 0.75rem; }
+  :where(:root[data-compact]) .tc-skills-library { gap: 0.5rem; }
+  :where(:root[data-compact]) .tc-sk-notices:not(:has(.tc-sk-provider-notice)) { display: none; }
+  :where(:root[data-compact]) .tc-plist-group { padding-block: 0; min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-plist-group .tc-mx-group-toggle { min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-layer--sheet > .tc-skill-inspector { max-height: 80dvh; }
+  :where(:root[data-compact]) .tc-skill-inspector .tc-insp-head > .tc-tile { display: none; }
+  :where(:root[data-compact]) .tc-skill-inspector .tc-insp-head { padding: 1.125rem 1rem 0.75rem; }
+  :where(:root[data-compact]) .tc-skill-inspector .tc-insp-head h2 { font-size: 1rem; line-height: 1.375rem; }
+  :where(:root[data-compact]) .tc-skill-inspector .tc-insp-body { gap: 1.25rem; }
+  :where(:root[data-compact]) .tc-avail-row > [data-inspect-copy-to] { grid-column: 2; justify-self: start; min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-insp-foot > [data-inspect-edit] { flex: 1; }
+  :where(:root[data-compact]) .tc-insp-foot:has([data-inspect-edit]) > .tc-spacer { display: none; }
+
+
+
+  :where(:root[data-compact]) .tc-avail-row { grid-template-columns: 1.5rem minmax(0, 1fr) auto; }
+  :where(:root[data-compact]) .tc-avail-row > .tc-cell, :where(:root[data-compact]) .tc-avail-row > [data-inspect-copy-to] { grid-column: 3; grid-row: 1; justify-self: end; }
+  :where(:root[data-compact]) .tc-avail-row > [data-inspect-copy-to] { max-width: 8.125rem; white-space: normal; text-align: center; }
+
 
 .tc-import-check-all { display: inline-grid; place-items: center; flex: none; cursor: pointer; }
-@media (max-width: 1023.98px) {
-  .tc-import-check-all { min-width: var(--touch); min-height: var(--touch); margin-left: -0.75rem; }
-  .tc-pick-name { min-height: var(--touch); align-content: center; }
-  [data-inspect-close], [data-import-close], .tc-doc-head > button,
-  .tc-reads-path > .tc-btn { min-width: var(--touch); min-height: var(--touch); }
-  .tc-doc-preview .tc-btn, .tc-ins-empty > .tc-btn, .tc-sk-empty-actions > .tc-btn,
-  .tc-skill-inspector .tc-editor-tools > .tc-btn { min-width: var(--touch); min-height: var(--touch); }
-}
+
+  :where(:root[data-compact]) .tc-import-check-all { min-width: var(--touch); min-height: var(--touch); margin-left: -0.75rem; }
+  :where(:root[data-compact]) .tc-pick-name { min-height: var(--touch); align-content: center; }
+  :where(:root[data-compact]) [data-inspect-close], :where(:root[data-compact]) [data-import-close], :where(:root[data-compact]) .tc-doc-head > button,
+  :where(:root[data-compact]) .tc-reads-path > .tc-btn { min-width: var(--touch); min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-doc-preview .tc-btn, :where(:root[data-compact]) .tc-ins-empty > .tc-btn, :where(:root[data-compact]) .tc-sk-empty-actions > .tc-btn,
+  :where(:root[data-compact]) .tc-skill-inspector .tc-editor-tools > .tc-btn { min-width: var(--touch); min-height: var(--touch); }
+
 
 .tc-wizard-rail-wrap { display: flex; flex-direction: column; }
 .tc-wizard-rail { flex: 1; min-height: 0; }
 .tc-wizard-rail > * { flex-shrink: 0; }
 .tc-dest-name { font-weight: 500; }
 .tc-wizard-rail-toggle { border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; }
-@media (max-width: 1023.98px) {
-  .tc-wizard-rail-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; }
-  .tc-wizard-rail-wrap:not([data-open]) > .tc-wizard-rail { display: none; }
-  .tc-wizard-rail-wrap[data-open] .tc-wizard-rail-toggle > .tc-icon { transform: rotate(180deg); }
-}
+
+  :where(:root[data-compact]) .tc-wizard-rail-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+  :where(:root[data-compact]) .tc-wizard-rail-wrap:not([data-open]) > .tc-wizard-rail { display: none; }
+  :where(:root[data-compact]) .tc-wizard-rail-wrap[data-open] .tc-wizard-rail-toggle > .tc-icon { transform: rotate(180deg); }
+
 /* Beat the shell's paragraph margin reset so the rail note stays at its foot. */
 .tc-wizard-rail > .tc-plan-bottom { margin-top: auto; }
 
@@ -1498,86 +1498,86 @@ html.tc-locked { overflow: hidden; }
 .tc-mcp-remove .tc-dialog-desc { margin-top: var(--space-3); }
 .tc-mcp-remove .tc-dialog-list .tc-hint { display: block; margin-top: var(--space-1); }
 .tc-mcp-remove .tc-dialog-foot .tc-btn { white-space: normal; }
-@media (max-width: 1023.98px) {
-  .tc-page[data-route="mcp"] > .tc-page-head { display: none; }
-  .tc-page[data-route="mcp"] { padding-bottom: calc(88px + var(--tabbar-h)); }
-  .tc-mcp-library .tc-sk-desktop-filters { display: none; }
-  .tc-mcp-library .tc-sk-toolbar .tc-spacer { display: none; }
-  .tc-mcp-library .tc-sk-search { width: 100%; }
-        .tc-layer--sheet > .tc-mcp-inspector { width: 100%; max-height: 80dvh; }
-  .tc-mcp-inspector .tc-diff { grid-column: 1 / -1; }
-  .tc-mcp-inspector .tc-diff-row { grid-template-columns: minmax(0, 1fr); }
-  .tc-mcp-inspector .tc-diff-vals { grid-template-columns: minmax(0, 1fr); }
-  .tc-mcp-inspector .tc-diff-foot > .tc-btn { min-height: var(--touch); flex: 1; white-space: normal; }
-  .tc-mcp-inspector .tc-avail-row > .tc-mcp-inspect-actions { grid-column: 1 / -1; justify-content: flex-end; }
-  .tc-mcp-inspector .tc-avail-row > .tc-btn { grid-column: 2; justify-self: start; min-height: var(--touch); }
-  .tc-mcp-inspector .tc-mcp-inspector-remove { display: none; }
-  .tc-mcp-inspector .tc-insp-foot > .tc-btn { min-height: var(--touch); }
-  .tc-mcp-editor .tc-form-row { grid-template-columns: minmax(0, 1fr); }
-  .tc-mcp-editor .tc-input, .tc-mcp-editor .tc-kv-row .tc-input { min-height: var(--touch); height: auto; font-size: 1rem; }
-  .tc-mcp-editor .tc-paste { min-height: 7.5rem; font-size: 0.8125rem; }
-  .tc-mcp-editor .tc-mcp-secret-input { padding-block: 0.75rem; }
-  .tc-mcp-editor .tc-secret > .tc-input { padding-right: 2.75rem; }
-  .tc-mcp-editor .tc-secret > .tc-btn { min-width: 2.5rem; min-height: 2.5rem; }
-  .tc-mcp-editor .tc-kv-row { grid-template-columns: minmax(0, 1fr) var(--touch); gap: var(--space-2); }
-  .tc-mcp-editor .tc-kv-row > .tc-input { grid-column: 1; }
-  .tc-mcp-editor .tc-kv-row > .tc-secret { grid-column: 1; }
-  .tc-mcp-editor .tc-kv-row > .tc-btn { grid-column: 2; grid-row: 1 / 3; min-width: var(--touch); min-height: var(--touch); }
-  .tc-mcp-editor .tc-kv-foot .tc-btn, .tc-mcp-editor .tc-argv .tc-btn, .tc-mcp-editor .tc-seg button { min-height: var(--touch); }
-  .tc-mcp-editor .tc-argv .tc-btn { margin-left: 0; }
-  .tc-mcp-editor .tc-choice { padding: var(--space-4); }
-  .tc-mcp-editor .tc-choice-head { font-size: 0.875rem; }
-  .tc-mcp-editor .tc-agentpick-row { padding: var(--space-3); }
-  .tc-mcp-editor .tc-wizard-foot .tc-btn--primary { white-space: normal; }
-  .tc-mcp-editor .tc-form-field > .tc-label > .tc-spacer { display: none; }
-  .tc-mcp-remove { max-height: 92dvh; overflow-y: auto; }
-}
+
+  :where(:root[data-compact]) .tc-page[data-route="mcp"] > .tc-page-head { display: none; }
+  :where(:root[data-compact]) .tc-page[data-route="mcp"] { padding-bottom: calc(88px + var(--tabbar-h)); }
+  :where(:root[data-compact]) .tc-mcp-library .tc-sk-desktop-filters { display: none; }
+  :where(:root[data-compact]) .tc-mcp-library .tc-sk-toolbar .tc-spacer { display: none; }
+  :where(:root[data-compact]) .tc-mcp-library .tc-sk-search { width: 100%; }
+        :where(:root[data-compact]) .tc-layer--sheet > .tc-mcp-inspector { width: 100%; max-height: 80dvh; }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-diff { grid-column: 1 / -1; }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-diff-row { grid-template-columns: minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-diff-vals { grid-template-columns: minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-diff-foot > .tc-btn { min-height: var(--touch); flex: 1; white-space: normal; }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-avail-row > .tc-mcp-inspect-actions { grid-column: 1 / -1; justify-content: flex-end; }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-avail-row > .tc-btn { grid-column: 2; justify-self: start; min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-mcp-inspector-remove { display: none; }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-insp-foot > .tc-btn { min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-form-row { grid-template-columns: minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-input, :where(:root[data-compact]) .tc-mcp-editor .tc-kv-row .tc-input { min-height: var(--touch); height: auto; font-size: 1rem; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-paste { min-height: 7.5rem; font-size: 0.8125rem; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-mcp-secret-input { padding-block: 0.75rem; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-secret > .tc-input { padding-right: 2.75rem; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-secret > .tc-btn { min-width: 2.5rem; min-height: 2.5rem; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-kv-row { grid-template-columns: minmax(0, 1fr) var(--touch); gap: var(--space-2); }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-kv-row > .tc-input { grid-column: 1; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-kv-row > .tc-secret { grid-column: 1; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-kv-row > .tc-btn { grid-column: 2; grid-row: 1 / 3; min-width: var(--touch); min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-kv-foot .tc-btn, :where(:root[data-compact]) .tc-mcp-editor .tc-argv .tc-btn, :where(:root[data-compact]) .tc-mcp-editor .tc-seg button { min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-argv .tc-btn { margin-left: 0; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-choice { padding: var(--space-4); }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-choice-head { font-size: 0.875rem; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-agentpick-row { padding: var(--space-3); }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-wizard-foot .tc-btn--primary { white-space: normal; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-form-field > .tc-label > .tc-spacer { display: none; }
+  :where(:root[data-compact]) .tc-mcp-remove { max-height: 92dvh; overflow-y: auto; }
+
 .tc-mcp-editor .tc-choice--summary { grid-template-columns: minmax(0, 1fr); cursor: default; }
 .tc-mcp-editor .tc-choice--summary .tc-choice-body { grid-column: 1; }
 .tc-mcp-editor .tc-wizard-head > .tc-tile { width: 2.25rem; height: 2.25rem; flex: none; border: 1px solid var(--border); border-radius: var(--radius-lg); }
-@media (max-width: 1023.98px) {
-  #page-mcp { padding-top: 0; gap: 0.75rem; --_gap: 0.75rem; }
-}
-@media (max-width: 1023.98px) {
-  body[data-console-route="mcp"] .tc-phonebar,
-  body[data-console-route="mcp"] .tc-tabbar { display: none; }
-  .tc-mcp-editor .tc-wizard-head > .tc-spacer { display: none; }
-  .tc-mcp-editor .tc-wizard-head > .tc-sheet-head-text { flex: 1; }
-}
+
+  :where(:root[data-compact]) #page-mcp { padding-top: 0; gap: 0.75rem; --_gap: 0.75rem; }
+
+
+  :where(:root[data-compact]) body[data-console-route="mcp"] .tc-phonebar,
+  :where(:root[data-compact]) body[data-console-route="mcp"] .tc-tabbar { display: none; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-wizard-head > .tc-spacer { display: none; }
+  :where(:root[data-compact]) .tc-mcp-editor .tc-wizard-head > .tc-sheet-head-text { flex: 1; }
+
 .tc-mcp-editor .tc-mcp-secret-input { white-space: pre; scrollbar-width: none; }
 .tc-mcp-editor textarea.tc-mcp-secret-input { height: auto; min-height: 3.5rem; }
 .tc-mcp-table .tc-mx[data-no-agents="true"] { --mx-cols: minmax(0, 1fr); min-width: 0; }
-@media (max-width: 1023.98px) {
-  .tc-mcp-library .tc-sk-agent-chips { scrollbar-width: none; }
-}
+
+  :where(:root[data-compact]) .tc-mcp-library .tc-sk-agent-chips { scrollbar-width: none; }
+
 /* Modal feedback lives in its content, so earlier sticky page notifications
    cannot cover an inspector policy or a dialog’s Save/Cancel controls. */
 .tc-root:has(.tc-mcp-inspector, .tc-mcp-editor, .tc-mcp-remove) .tc-toaster { visibility: hidden; }
 #page-mcp .tc-page-sub { max-width: none; }
 .tc-mcp-table > .tc-sk-library-foot { padding: 0.75rem 1rem; border-top: 1px solid var(--hairline); background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
 .tc-mcp-mobile-footer { display: none; }
-@media (min-width: 1024px) {
-  #page-mcp { gap: 1.25rem; --_gap: 1.25rem; }
-  .tc-layer--sheet:has(> .tc-mcp-inspector) { padding: 0; }
-  .tc-layer--sheet > .tc-mcp-inspector { height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; }
-}
-@media (max-width: 1023.98px) {
-  .tc-mcp-mobile-footer { display: block; }
-}
+
+  :where(:root:not([data-compact])) #page-mcp { gap: 1.25rem; --_gap: 1.25rem; }
+  :where(:root:not([data-compact])) .tc-layer--sheet:has(> .tc-mcp-inspector) { padding: 0; }
+  :where(:root:not([data-compact])) .tc-layer--sheet > .tc-mcp-inspector { height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; }
+
+
+  :where(:root[data-compact]) .tc-mcp-mobile-footer { display: block; }
+
 .tc-mcp-phone-menu { display: none; }
 .tc-mcp-remove .tc-dialog-list li > span { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 0.25rem; min-width: 0; }
 .tc-mcp-remove .tc-dialog-list code { overflow-wrap: anywhere; }
-@media (max-width: 1023.98px) {
-  .tc-mcp-inspector [data-mcp-menu-head] { display: none; }
-  .tc-mcp-inspector .tc-insp-foot > .tc-spacer { display: none; }
-  .tc-mcp-inspector .tc-insp-foot > .tc-mcp-phone-menu { display: inline-flex; min-width: var(--touch); }
-  .tc-mcp-inspector .tc-insp-foot > [data-mcp-inspect="edit"] { flex: 1; }
-}
-@media (min-width: 1024px) { .tc-mcp-editor .tc-paste { min-height: 7rem; } }
-@media (max-width: 1023.98px) {
-  .tc-mcp-library .tc-sk-notices { display: none; }
-  .tc-mcp-library .tc-mcp-phone-attention { display: flex; min-height: 3.75rem; }
-}
+
+  :where(:root[data-compact]) .tc-mcp-inspector [data-mcp-menu-head] { display: none; }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-insp-foot > .tc-spacer { display: none; }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-insp-foot > .tc-mcp-phone-menu { display: inline-flex; min-width: var(--touch); }
+  :where(:root[data-compact]) .tc-mcp-inspector .tc-insp-foot > [data-mcp-inspect="edit"] { flex: 1; }
+
+ :where(:root:not([data-compact])) .tc-mcp-editor .tc-paste { min-height: 7rem; } 
+
+  :where(:root[data-compact]) .tc-mcp-library .tc-sk-notices { display: none; }
+  :where(:root[data-compact]) .tc-mcp-library .tc-mcp-phone-attention { display: flex; min-height: 3.75rem; }
+
 
 /* Skill updates and plugin hooks: additions on top of the Skills library
    styles (console.css). Tokens only, from the console design system. */
@@ -1890,22 +1890,22 @@ html.tc-locked { overflow: hidden; }
 .tc-chip-btn .tc-dot { margin: 0 -1px 0 0; }
 
 /* -------------------------------------------------------- responsive --- */
-@media (max-width: 1023.98px) {
-  .tc-lh { flex-wrap: wrap; padding-block: 0.375rem; }
-  .tc-lh-filters { display: none; }                  /* the phone chip row takes over */
-  .tc-ut-head { display: none; }
-  .tc-ut-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.375rem; }
-  .tc-ut-src, .tc-ut-readers { display: none; }
-  .tc-ut-status { grid-column: 1; }
-  .tc-ut-act { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
-  .tc-ur { width: 100%; height: calc(100dvh - 32px); }
-  .tc-ur-facts { grid-template-columns: minmax(0, 1fr); }
-  .tc-ur-fact + .tc-ur-fact { border-left: 0; border-top: 1px solid var(--hairline); }
-  .tc-ur-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .tc-ur-files { max-height: 13rem; overflow: auto; border-right: 0; border-bottom: 1px solid var(--hairline); }
-  .tc-ur-files-note { display: none; }
-  .tc-layer--sheet > .tc-sheet--hooks { width: min(37.5rem, 100vw); }
-}
+
+  :where(:root[data-compact]) .tc-lh { flex-wrap: wrap; padding-block: 0.375rem; }
+  :where(:root[data-compact]) .tc-lh-filters { display: none; }                  /* the phone chip row takes over */
+  :where(:root[data-compact]) .tc-ut-head { display: none; }
+  :where(:root[data-compact]) .tc-ut-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.375rem; }
+  :where(:root[data-compact]) .tc-ut-src, :where(:root[data-compact]) .tc-ut-readers { display: none; }
+  :where(:root[data-compact]) .tc-ut-status { grid-column: 1; }
+  :where(:root[data-compact]) .tc-ut-act { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  :where(:root[data-compact]) .tc-ur { width: 100%; height: calc(100dvh - 32px); }
+  :where(:root[data-compact]) .tc-ur-facts { grid-template-columns: minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-ur-fact + .tc-ur-fact { border-left: 0; border-top: 1px solid var(--hairline); }
+  :where(:root[data-compact]) .tc-ur-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-ur-files { max-height: 13rem; overflow: auto; border-right: 0; border-bottom: 1px solid var(--hairline); }
+  :where(:root[data-compact]) .tc-ur-files-note { display: none; }
+  :where(:root[data-compact]) .tc-layer--sheet > .tc-sheet--hooks { width: min(37.5rem, 100vw); }
+
 @media (max-width: 639.98px) {
   /* Below 640px the review renders the accordion layout (.tc-pur-*), in a
      bottom sheet that fills the screen. See README, Screen 9. */
@@ -1950,14 +1950,14 @@ button.tc-dv-hunk { width: 100%; border-left: 0; border-right: 0; cursor: pointe
 .tc-state-list li code { min-width: 0; overflow-wrap: anywhere; }
 .tc-ur-mobile-readers { display: inline-flex; align-items: center; gap: var(--space-2); }
 .tc-hk + .tc-hk { border-top: 1px solid var(--hairline); }
-@media (max-width: 1023.98px) {
- .tc-ur-foot { flex-wrap: wrap; }
- .tc-ur-foot > .tc-spacer { display: none; }
- .tc-ur-foot-note { margin-right: auto; }
- .tc-ur-diff-head { flex-wrap: wrap; }
- .tc-ur-diff-head > .tc-spacer { display: none; }
- .tc-ur-diff-head .tc-seg { margin-left: auto; }
-}
+
+ :where(:root[data-compact]) .tc-ur-foot { flex-wrap: wrap; }
+ :where(:root[data-compact]) .tc-ur-foot > .tc-spacer { display: none; }
+ :where(:root[data-compact]) .tc-ur-foot-note { margin-right: auto; }
+ :where(:root[data-compact]) .tc-ur-diff-head { flex-wrap: wrap; }
+ :where(:root[data-compact]) .tc-ur-diff-head > .tc-spacer { display: none; }
+ :where(:root[data-compact]) .tc-ur-diff-head .tc-seg { margin-left: auto; }
+
 @media (max-width: 639.98px) {
  .tc-layer--center:has(> .tc-ur--phone) { padding: 0; }
  .tc-layer--center > .tc-ur--phone.tc-sheet--full { width: 100%; max-width: 100%; height: calc(100dvh - 36px); max-height: calc(100dvh - 36px); border-bottom: 0; }
@@ -2013,31 +2013,31 @@ button.tc-dv-hunk { width: 100%; border-left: 0; border-right: 0; cursor: pointe
 .tc-src-status [data-accent] { color: var(--accent); }
 .tc-layer--sheet:has(> .tc-sheet--hooks) { padding: 0; }
 .tc-layer--sheet > .tc-sheet--hooks { height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; }
-@media (min-width: 1024px) {
- .tc-sk-card .tc-sk-phone-list { display: none; }
-}
-@media (max-width: 1023.98px) {
- .tc-sk-matrix { display: none; }
- .tc-sk-card > .tc-lh .tc-lh-filters, .tc-sk-card > .tc-lh .tc-lh-sep, .tc-sk-card > .tc-lh .tc-lh-view { display: none; }
- .tc-sk-card > .tc-lh { min-height: 0; padding: 0.625rem 0.75rem; flex-wrap: wrap; }
- .tc-sk-card > .tc-lh:has(.tc-lh-filters:only-child) { display: none; }
- .tc-sk-card > .tc-lh .tc-spacer { display: none; }
- .tc-sk-card > .tc-lh .tc-lh-status { margin-right: auto; white-space: normal; }
- .tc-sk-card .tc-sk-library-foot > span:first-child { flex-basis: 100%; }
- .tc-sk-phone-view { display: inline-flex; flex: none; }
- .tc-sk-toolbar > .tc-spacer { display: none; }
- .tc-sk-toolbar .tc-sk-search { flex: 1; min-width: 0; }
- .tc-sk-phone-summary:not(:empty) { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--surface-raised); }
- .tc-sk-card .tc-sk-phone-list { margin: 0; gap: 0; }
- .tc-sk-card .tc-plist { border: 0; border-radius: 0; }
- .tc-sk-card .tc-plist + .tc-plist { border-top: 1px solid var(--border); }
- .tc-mx-hidden { flex-wrap: wrap; padding-block: 0.625rem; }
- .tc-mx-hidden .tc-mono { display: none; }
- .tc-mx-hidden .tc-btn { min-height: var(--touch); }
- .tc-insp-banner { flex-wrap: wrap; }
- .tc-insp-banner > div { flex-basis: calc(100% - 2.5rem); }
- .tc-insp-banner > .tc-btn { margin-left: 1.875rem; }
-}
+
+ :where(:root:not([data-compact])) .tc-sk-card .tc-sk-phone-list { display: none; }
+
+
+ :where(:root[data-compact]) .tc-sk-matrix { display: none; }
+ :where(:root[data-compact]) .tc-sk-card > .tc-lh .tc-lh-filters, :where(:root[data-compact]) .tc-sk-card > .tc-lh .tc-lh-sep, :where(:root[data-compact]) .tc-sk-card > .tc-lh .tc-lh-view { display: none; }
+ :where(:root[data-compact]) .tc-sk-card > .tc-lh { min-height: 0; padding: 0.625rem 0.75rem; flex-wrap: wrap; }
+ :where(:root[data-compact]) .tc-sk-card > .tc-lh:has(.tc-lh-filters:only-child) { display: none; }
+ :where(:root[data-compact]) .tc-sk-card > .tc-lh .tc-spacer { display: none; }
+ :where(:root[data-compact]) .tc-sk-card > .tc-lh .tc-lh-status { margin-right: auto; white-space: normal; }
+ :where(:root[data-compact]) .tc-sk-card .tc-sk-library-foot > span:first-child { flex-basis: 100%; }
+ :where(:root[data-compact]) .tc-sk-phone-view { display: inline-flex; flex: none; }
+ :where(:root[data-compact]) .tc-sk-toolbar > .tc-spacer { display: none; }
+ :where(:root[data-compact]) .tc-sk-toolbar .tc-sk-search { flex: 1; min-width: 0; }
+ :where(:root[data-compact]) .tc-sk-phone-summary:not(:empty) { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--surface-raised); }
+ :where(:root[data-compact]) .tc-sk-card .tc-sk-phone-list { margin: 0; gap: 0; }
+ :where(:root[data-compact]) .tc-sk-card .tc-plist { border: 0; border-radius: 0; }
+ :where(:root[data-compact]) .tc-sk-card .tc-plist + .tc-plist { border-top: 1px solid var(--border); }
+ :where(:root[data-compact]) .tc-mx-hidden { flex-wrap: wrap; padding-block: 0.625rem; }
+ :where(:root[data-compact]) .tc-mx-hidden .tc-mono { display: none; }
+ :where(:root[data-compact]) .tc-mx-hidden .tc-btn { min-height: var(--touch); }
+ :where(:root[data-compact]) .tc-insp-banner { flex-wrap: wrap; }
+ :where(:root[data-compact]) .tc-insp-banner > div { flex-basis: calc(100% - 2.5rem); }
+ :where(:root[data-compact]) .tc-insp-banner > .tc-btn { margin-left: 1.875rem; }
+
 @media (max-width: 639.98px) {
  .tc-layer--sheet > .tc-sheet--hooks { width: 100%; height: calc(100dvh - 36px); max-height: calc(100dvh - 36px); margin-top: 2.25rem; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; }
  .tc-sheet--hooks .tc-hk-body { padding: 1rem; gap: 1.25rem; }
@@ -2100,17 +2100,17 @@ button.tc-dv-hunk { width: 100%; border-left: 0; border-right: 0; cursor: pointe
  .tc-ur-save-inline { padding: 0.25rem 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 }
 
-@media (max-width: 1023.98px) {
- .tc-sk-card:not([data-view="updates"]):not([data-checking]) > .tc-lh { display: none; }
- .tc-sk-card .tc-plist-group { flex-wrap: wrap; }
- .tc-sk-card .tc-plist-group .tc-mx-group-toggle { min-width: 0; max-width: 100%; white-space: normal; text-align: left; }
- .tc-sk-card .tc-plist-group > .tc-hookchip { margin-left: auto; }
-}
+
+ :where(:root[data-compact]) .tc-sk-card:not([data-view="updates"]):not([data-checking]) > .tc-lh { display: none; }
+ :where(:root[data-compact]) .tc-sk-card .tc-plist-group { flex-wrap: wrap; }
+ :where(:root[data-compact]) .tc-sk-card .tc-plist-group .tc-mx-group-toggle { min-width: 0; max-width: 100%; white-space: normal; text-align: left; }
+ :where(:root[data-compact]) .tc-sk-card .tc-plist-group > .tc-hookchip { margin-left: auto; }
+
 
 .tc-skill-inspector [data-inspect-copy-source] { margin-left: auto; flex: none; }
-@media (max-width: 1023.98px) {
- .tc-plist-group .tc-hookchip { min-height: var(--touch); }
-}
+
+ :where(:root[data-compact]) .tc-plist-group .tc-hookchip { min-height: var(--touch); }
+
 
 .tc-pur-diff { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 
@@ -2644,19 +2644,19 @@ button.tc-dv-hunk { width: 100%; border-left: 0; border-right: 0; cursor: pointe
    every Kit layer rises from the bottom. Like MCP and Instructions, Files
    draws its own head there, and its dialogs become bottom sheets. A review
    that needs the whole height adds .tc-fdlg--full. */
-@media (max-width: 1023.98px) {
-  body[data-console-route="files"] .tc-phonebar, body[data-console-route="files"] .tc-tabbar, #page-files > .tc-page-head { display: none; }
-  #page-files { padding-top: 0; }
-  .tc-layer--center > .tc-fdlg { width: 100%; max-width: none; max-height: 88%; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+
+  :where(:root[data-compact]) body[data-console-route="files"] .tc-phonebar, :where(:root[data-compact]) body[data-console-route="files"] .tc-tabbar, :where(:root[data-compact]) #page-files > .tc-page-head { display: none; }
+  :where(:root[data-compact]) #page-files { padding-top: 0; }
+  :where(:root[data-compact]) .tc-layer--center > .tc-fdlg { width: 100%; max-width: none; max-height: 88%; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
     border-bottom: 0; animation: tc-rise-sheet 300ms cubic-bezier(0.32, 0.72, 0, 1); }
-  .tc-layer--center > .tc-fdlg::before { content: ""; display: block; flex: none; width: 2.25rem; height: 0.25rem; margin: 0.5rem auto 0; border-radius: 2px; background: var(--border-strong); }
-  .tc-layer--center > .tc-fdlg.tc-fdlg--full { position: absolute; left: 0; right: 0; bottom: 0; top: 2.75rem; max-height: none; }
-  .tc-fdlg-foot { flex-direction: column-reverse; align-items: stretch; padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
-  .tc-fdlg-foot .tc-btn { width: 100%; min-height: var(--touch); }
-  .tc-fdlg-foot .tc-spacer, .tc-fdlg-foot .tc-hint { display: none; }
-  .tc-fx { grid-template-columns: minmax(0, 1fr); }
-  .tc-fx > .tc-fd { display: none; }
-}
+  :where(:root[data-compact]) .tc-layer--center > .tc-fdlg::before { content: ""; display: block; flex: none; width: 2.25rem; height: 0.25rem; margin: 0.5rem auto 0; border-radius: 2px; background: var(--border-strong); }
+  :where(:root[data-compact]) .tc-layer--center > .tc-fdlg.tc-fdlg--full { position: absolute; left: 0; right: 0; bottom: 0; top: 2.75rem; max-height: none; }
+  :where(:root[data-compact]) .tc-fdlg-foot { flex-direction: column-reverse; align-items: stretch; padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  :where(:root[data-compact]) .tc-fdlg-foot .tc-btn { width: 100%; min-height: var(--touch); }
+  :where(:root[data-compact]) .tc-fdlg-foot .tc-spacer, :where(:root[data-compact]) .tc-fdlg-foot .tc-hint { display: none; }
+  :where(:root[data-compact]) .tc-fx { grid-template-columns: minmax(0, 1fr); }
+  :where(:root[data-compact]) .tc-fx > .tc-fd { display: none; }
+
 
 /* ------------------------------------------------------------ phone ---- */
 /* Below 640px the page renders its phone markup: gate it with
@@ -2749,7 +2749,7 @@ button.tc-dv-hunk { width: 100%; border-left: 0; border-right: 0; cursor: pointe
 @media (max-width:639.98px) { body[data-console-route="files"]:has(.tc-files-phone-selection) .tc-toaster { bottom: calc(132px + env(safe-area-inset-bottom, 0px)); } }
 .tc-files-detail-sheet { max-height: 90dvh; overflow-y: auto; }
 .tc-files-detail-sheet .tc-fd-head { padding-top: 1.5rem; }
-@media (min-width: 640px) and (max-width: 1023.98px) { #files-browser .tc-fsearch { flex-basis: 11.25rem; } #files-browser .tc-fl--projects { --fl-cols: 2rem minmax(0, 1fr) 9.375rem 5rem 4.5rem 2rem; } }
+@media (min-width: 640px) { :where(:root[data-compact]) #files-browser .tc-fsearch { flex-basis: 11.25rem; } :where(:root[data-compact]) #files-browser .tc-fl--projects { --fl-cols: 2rem minmax(0, 1fr) 9.375rem 5rem 4.5rem 2rem; } }
 @media (max-width: 639.98px) {
   #files-browser .tc-psearch .tc-fsearch { flex: 1; min-width: 0; }
   #files-browser .tc-psearch .tc-fsearch > .tc-input { height: 2.5rem; font-size: 1rem; }
@@ -2792,9 +2792,9 @@ button.tc-fd-item:hover { background: var(--hover); }
 .tc-files-filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .tc-files-filter-check { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--fg-muted); cursor: pointer; min-height: 2rem; }
 @media (max-width: 639.98px) { .tc-files-filters > button, .tc-files-filter-check { min-height: var(--touch); } }
-@media (min-width: 640px) and (max-width: 1023.98px) {
-  #files-browser .tc-fl-row .tc-checkbox { opacity: 1; }
-  #files-browser .tc-fl-row { min-height: 3rem; }
+@media (min-width: 640px) {
+  :where(:root[data-compact]) #files-browser .tc-fl-row .tc-checkbox { opacity: 1; }
+  :where(:root[data-compact]) #files-browser .tc-fl-row { min-height: 3rem; }
 }
 #files-browser .tc-tnode { padding-left: min(calc(var(--depth, 0) * 20px), 40%); }
 @media (max-width: 639.98px) {
@@ -2922,8 +2922,8 @@ button.tc-fd-item:hover { background: var(--hover); }
 /* Keep the summary, collapse control and footer reachable while history scrolls. */
 :is(#files-transfers .tc-tray,.tc-files-transfer-sheet) > :is(.tc-tray-head,.tc-tray-foot) { flex: none; }
 .tc-files-transfer-list { min-height: 0; max-height: min(32.5rem,65dvh); overflow-y: auto; }
-@media (min-width: 640px) and (max-width: 1023.98px) {
-  #files-transfers .tc-tray { --_tray-top: var(--phonebar-h); --_tray-bottom: calc(var(--tabbar-h) + 1rem + env(safe-area-inset-bottom,0px)); }
+@media (min-width: 640px) {
+  :where(:root[data-compact]) #files-transfers .tc-tray { --_tray-top: var(--phonebar-h); --_tray-bottom: calc(var(--tabbar-h) + 1rem + env(safe-area-inset-bottom,0px)); }
 }
 .tc-files-transfer-list .tc-tray-item small { white-space: normal; overflow-wrap: anywhere; }
 .tc-files-transfer-list .tc-tray-item b { max-width: 100%; }
@@ -3030,9 +3030,9 @@ button.tc-fd-item:hover { background: var(--hover); }
 .tc-root:has(.tc-files-editor,.tc-files-move,.tc-files-conflicts,.tc-files-in-use,.tc-files-name-dialog,.tc-files-transfer-sheet,.tc-ctx) .tc-toaster { visibility: hidden; }
 @media(max-width:639.98px) { body[data-console-route="files"] .tc-toaster { bottom: calc(86px + env(safe-area-inset-bottom)); } }
 body[data-console-route="files"]:has(.tc-layer) .tc-toaster { visibility: hidden; }
-@media(min-width:1024px) and (max-width:1360px) {
-  #files-browser .tc-fl--projects { --fl-cols: 1.5rem minmax(0,1fr) 7rem 3.625rem 4.5rem 1.75rem; }
-  #files-browser .tc-fl--projects[data-no-threads] { --fl-cols: 1.5rem minmax(0,1fr) 7rem 4.5rem 1.75rem; }
+@media (max-width:1360px) {
+  :where(:root:not([data-compact])) #files-browser .tc-fl--projects { --fl-cols: 1.5rem minmax(0,1fr) 7rem 3.625rem 4.5rem 1.75rem; }
+  :where(:root:not([data-compact])) #files-browser .tc-fl--projects[data-no-threads] { --fl-cols: 1.5rem minmax(0,1fr) 7rem 4.5rem 1.75rem; }
 }
 @media(max-width:639.98px) {
   #files-browser .tc-fbanner { flex-wrap: wrap; align-items: flex-start; }
@@ -3167,4 +3167,131 @@ body[data-console-route="files"]:has(.tc-layer) .tc-toaster { visibility: hidden
 .tc-console-topbar .tc-crumbs > li + li::before { margin-right: var(--space-3); }
 .tc-console-topbar .tc-embed-close { background: transparent; }
 .tc-nav-group > .tc-nav-label { font-size: 0.75rem; font-weight: 500; }
-@media (max-width: 1023.98px) { .tc-console-topbar { display: none; } }
+ :where(:root[data-compact]) .tc-console-topbar { display: none; } 
+
+/* ------------------------------------------------------------- tab mode --
+ * The console as a tab of T3 Code's settings (html[data-host="tab"]).
+ * Append to docker/setup/console.css, after the compact-rule migration
+ * (README, "Density follows the frame"). Every rule is scoped to tab mode, so
+ * the standalone page and today's dialog are unchanged.
+ *
+ * data-host-layout (wide | compact) is the host's call: which header.
+ * data-compact is the frame's width (< 640px in tab mode): row density, sheets.
+ *
+ * Board class → class here:
+ *   .t3-head → .tc-console-topbar (tab, wide)   .su-chead → .tc-pagebar
+ *   .su-switch* → .tc-pageswitch*               .su-menu* → .tc-pagemenu*
+ *   .su-pop → .tc-menu.tc-pagemenu              .su-sheet → .tc-sheet--bottom.tc-pagemenu
+ *   .su-xlink → .tc-settings-link
+ */
+
+/* No sidebar, phone bar, tab bar or More: one column, the header on top. */
+:root[data-host="tab"] .tc-app { display: grid; grid-template-columns: minmax(0, 1fr); }
+:root[data-host="tab"] .tc-sidebar,
+:root[data-host="tab"] .tc-phonebar,
+:root[data-host="tab"] .tc-tabbar,
+:root[data-host="tab"] .tc-instructions-phone-head { display: none !important; }
+
+/* Wide host: T3's settings header. h-12, border-b, ps-5 pe-2 (20px / 8px). */
+:root[data-host="tab"] .tc-console-topbar { display: none; }
+:root[data-host="tab"][data-host-layout="wide"] .tc-console-topbar {
+  display: flex; align-items: center; gap: 0.75rem; position: sticky; top: 0; z-index: var(--z-sticky);
+  height: 3rem; min-height: 3rem; padding: 0 0.5rem 0 1.25rem;
+}
+:root[data-host="tab"] .tc-console-topbar .tc-crumbs { gap: 0.625rem; }
+:root[data-host="tab"] .tc-console-topbar .tc-crumbs > li + li::before { margin-right: 0.625rem; }
+:root[data-host="tab"] .tc-console-topbar .tc-crumbs a { color: var(--fg-muted); text-decoration: none; }
+:root[data-host="tab"] .tc-console-topbar .tc-crumbs a:hover { color: var(--fg); }
+:root[data-host="tab"] .tc-console-topbar .tc-btn + .tc-btn { margin-left: -0.25rem; }
+
+/* Compact host: ‹, the page switcher, ✕. */
+.tc-pagebar { display: none; }
+:root[data-host="tab"][data-host-layout="compact"] .tc-pagebar {
+  display: flex; align-items: center; gap: 2px; position: sticky; top: 0; z-index: var(--z-sticky);
+  height: 3rem; min-height: 3rem; padding: 0 6px; border-bottom: 1px solid var(--border); background: var(--bg);
+  padding-top: env(safe-area-inset-top, 0px); height: calc(3rem + env(safe-area-inset-top, 0px)); box-sizing: border-box;
+}
+.tc-pageswitch {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 2.25rem; padding: 0 0.5rem;
+  border: 0; border-radius: var(--radius-md); background: none; color: var(--fg); font: inherit; font-size: 0.9375rem; cursor: pointer;
+}
+.tc-pageswitch:hover, .tc-pageswitch[aria-expanded="true"] { background: var(--hover); }
+.tc-pageswitch:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.tc-pageswitch-pre { color: var(--fg-muted); }
+.tc-pageswitch-sep { color: var(--fg-muted); opacity: 0.7; }
+.tc-pageswitch-cur { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-pageswitch-chev { width: 14px; height: 14px; flex: none; color: var(--fg-muted); }
+.tc-pageswitch-dot { position: absolute; top: 7px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg); }
+/* data-density lives on <body> (.tc-root), as components.css reads it. */
+.tc-root[data-density="touch"] .tc-pagebar .tc-btn--icon { width: var(--touch); height: var(--touch); }
+
+/* Setup's pages as a menu: Kit.menu's popover (frame >= 640px) or its bottom
+   sheet (below), with labelled groups, a head and a foot. */
+.tc-pagemenu { display: flex; flex-direction: column; min-height: 0; padding: 0; background: var(--surface-raised); color: var(--fg); }
+.tc-menu.tc-pagemenu { width: 18rem; border: 1px solid var(--border); border-radius: var(--radius-xl); overflow: hidden; }
+.tc-pagemenu-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px 10px; border-bottom: 1px solid var(--hairline); }
+.tc-pagemenu-tile { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: var(--radius-md);
+  border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-xs); }
+.tc-pagemenu-tile > .tc-icon { width: 16px; height: 16px; }
+.tc-pagemenu-head > div { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tc-pagemenu-head strong { font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; }
+.tc-pagemenu-head span { font-size: 0.75rem; line-height: 1rem; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-pagemenu .tc-menu-groups { display: flex; flex-direction: column; gap: 10px; padding: 8px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.tc-pagemenu .tc-menu-group { display: flex; flex-direction: column; gap: 2px; }
+.tc-pagemenu .tc-menu-group-label { padding: 4px 8px 2px; font-size: 0.75rem; line-height: 1rem; font-weight: 500; color: color-mix(in srgb, var(--fg-muted) 80%, transparent); }
+.tc-pagemenu .tc-menu-item { align-items: center; height: 2rem; gap: 10px; padding: 0 8px; border-radius: var(--radius-md); }
+.tc-pagemenu .tc-menu-item > .tc-icon { color: var(--fg-muted); opacity: 1; margin: 0; }
+.tc-pagemenu .tc-menu-item[aria-checked="true"] { background: var(--selected); }
+.tc-pagemenu .tc-menu-item[aria-checked="true"] > .tc-icon:first-child { color: var(--fg); }
+.tc-pagemenu .tc-menu-item-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-pagemenu .tc-menu-check--end { width: 15px; height: 15px; flex: none; color: var(--fg); }
+.tc-pagemenu .tc-menu-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px 12px; border-top: 1px solid var(--hairline); font-size: 0.75rem; color: var(--fg-muted); }
+.tc-pagemenu .tc-menu-foot .tc-dot { margin: 0; }
+.tc-pagemenu .tc-menu-foot a { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--fg); text-decoration: none; font-weight: 500; }
+.tc-pagemenu .tc-menu-foot a .tc-icon { width: 13px; height: 13px; }
+
+/* The sheet: full width, a handle, the list scrolls, rows 44px. Scoped and
+   chained to beat the migrated :root[data-compact] .tc-layer > .tc-sheet--bottom
+   { max-height: 88% } (console.css:580). */
+:root[data-host="tab"] .tc-layer > .tc-sheet--bottom.tc-pagemenu { max-height: calc(100% - 24px); border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; border-top: 1px solid var(--border); overflow: hidden; }
+.tc-sheet--bottom.tc-pagemenu::before { content: ""; display: block; flex: none; width: 36px; height: 4px; margin: 8px auto 2px; border-radius: 2px; background: var(--border-strong); }
+.tc-sheet--bottom.tc-pagemenu .tc-menu-groups { flex: 1; gap: 8px; padding: 4px 8px 6px; }
+.tc-sheet--bottom.tc-pagemenu .tc-menu-group-label { padding: 6px 10px 2px; }
+.tc-sheet--bottom.tc-pagemenu .tc-menu-item { height: 2.75rem; gap: 12px; padding: 0 10px; font-size: 1rem; }
+.tc-sheet--bottom.tc-pagemenu .tc-menu-item > .tc-icon { width: 18px; height: 18px; }
+.tc-sheet--bottom.tc-pagemenu .tc-menu-foot { padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
+
+/* Pages: no tab bar under them, so an ordinary bottom inset. --tabbar-h also
+   pads the toaster, the skills phone actions and MCP; zero it too. */
+:root[data-host="tab"] { --tabbar-h: 0px; }
+:root[data-host="tab"] .tc-page { padding-bottom: 2rem; }
+:root[data-host="tab"][data-compact] .tc-page { padding: 1rem 1rem 1.5rem; gap: 1.25rem; --_gap: 1.25rem; }
+:root[data-host="tab"][data-compact] .tc-page-head { padding: 0 0.25rem; }
+
+/* A mention of one of T3's settings pages, as a link to it. */
+:root[data-host="tab"] .tc-settings-link {
+  color: var(--fg); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px;
+}
+:root[data-host="tab"] .tc-settings-link:hover { text-decoration-color: currentColor; }
+/* Outside tab mode the same words render as plain text, not as this link. */
+
+/* Header and menu bounds apply even when host and frame breakpoints differ. */
+:root[data-host="tab"] .tc-console-topbar nav { min-width: 0; overflow: hidden; }
+:root[data-host="tab"] .tc-crumbs { flex-wrap: nowrap; }
+:root[data-host="tab"] .tc-crumbs > li { flex: none; }
+:root[data-host="tab"] .tc-crumbs > li:last-child { display: flex; min-width: 0; flex: 0 1 auto; }
+:root[data-host="tab"] #current-page { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-crumb-link { color: var(--fg-muted); font: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.tc-crumb-link:hover { color: var(--fg); }
+.tc-menu.tc-pagemenu { max-height: calc(100dvh - 4rem); }
+.tc-pagemenu-head, .tc-pagemenu .tc-menu-foot { flex: none; }
+.tc-pagemenu-head[data-menu-drag] { touch-action: pan-x; }
+.tc-pagemenu .tc-menu-foot { flex-wrap: wrap; }
+.tc-pagemenu-status { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 100%; }
+.tc-pagemenu-status span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-pagemenu .tc-menu-foot a { margin-left: 0; }
+.tc-pagemenu .tc-menu-foot a:last-child { margin-left: auto; }
+.tc-pagemenu .tc-nav-badge { margin-left: auto; }
+.tc-pagemenu .tc-menu-check--end { width: 15px; height: 15px; flex: none; }
+:root[data-host="tab"] .tc-standalone { min-height: calc(100dvh - 3rem); }
+.tc-unlock-page-title { font-size: 0.9375rem; padding: 0 8px; }
