@@ -1573,7 +1573,7 @@ html.tc-locked { overflow: hidden; }
   :where(:root[data-compact]) .tc-mcp-inspector .tc-insp-foot > .tc-mcp-phone-menu { display: inline-flex; min-width: var(--touch); }
   :where(:root[data-compact]) .tc-mcp-inspector .tc-insp-foot > [data-mcp-inspect="edit"] { flex: 1; }
 
- :where(:root:not([data-compact])) .tc-mcp-editor .tc-paste { min-height: 7rem; } 
+ :where(:root:not([data-compact])) .tc-mcp-editor .tc-paste { min-height: 7rem; }
 
   :where(:root[data-compact]) .tc-mcp-library .tc-sk-notices { display: none; }
   :where(:root[data-compact]) .tc-mcp-library .tc-mcp-phone-attention { display: flex; min-height: 3.75rem; }
@@ -3167,7 +3167,7 @@ body[data-console-route="files"]:has(.tc-layer) .tc-toaster { visibility: hidden
 .tc-console-topbar .tc-crumbs > li + li::before { margin-right: var(--space-3); }
 .tc-console-topbar .tc-embed-close { background: transparent; }
 .tc-nav-group > .tc-nav-label { font-size: 0.75rem; font-weight: 500; }
- :where(:root[data-compact]) .tc-console-topbar { display: none; } 
+ :where(:root[data-compact]) .tc-console-topbar { display: none; }
 
 /* ------------------------------------------------------------- tab mode --
  * The console as a tab of T3 Code's settings (html[data-host="tab"]).
