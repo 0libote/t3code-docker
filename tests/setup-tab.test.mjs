@@ -45,3 +45,12 @@ test('boot density follows the frame, independently of host layout', () => {
     assert.equal(attrs.has('body:data-density'), attrs.has('data-compact'));
   }
 });
+
+test('every shell icon is present in the source icon library', async () => {
+  const context=vm.createContext({window:{},document:{readyState:'loading',addEventListener(){}},navigator:{}});
+  vm.runInContext(await readFile(new URL('../docker/setup/design/ui.js',import.meta.url),'utf8'),context);
+  for(const embed of [false,true]) for(const host of [undefined,'tab']) for(const render of [renderConsole,renderUnlock]) {
+    const html=render({...options,embed,host,layout:'compact'});
+    for(const [,name]of html.matchAll(/<i data-icon="([^"]+)"/g))assert.ok(context.window.T3C.icons[name],`Missing shell icon: ${name}`);
+  }
+});
