@@ -191,14 +191,19 @@ const t3Sessions = createT3Sessions({ baseUrl: `http://127.0.0.1:${T3_PORT}` });
 
 // The page's own view model, run here once so that the count T3 Code's
 // settings show beside Setup is the one the console's own badges add up to.
-const Model = (() => {
-  const context = vm.createContext({ URL });
-  for (const path of ["client/routes.js", "client/model.js"]) {
+const Presentation = (() => {
+  // ui.js registers DOM behavior only after loading. The server evaluates its
+  // source icon table once, without creating a DOM or running those handlers.
+  const context = vm.createContext({ URL, window: {}, document: { readyState: "loading", addEventListener() {} }, navigator: {} });
+  for (const path of ["client/routes.js", "client/model.js", "design/ui.js"]) {
     const { code } = ASSETS.console.find((script) => script.path === path);
     vm.runInContext(code, context, { filename: path });
   }
-  return vm.runInContext("T3Model", context);
+  return vm.runInContext("({ model: T3Model, routes: T3Routes, icons: window.T3C.icons })", context);
 })();
+const Model = Presentation.model;
+const NAV_ICONS = Model.navIcons(Presentation.icons);
+const PALETTE = Presentation.routes.paletteEntries();
 
 const health = async () => {
   try {
@@ -2373,12 +2378,15 @@ const viewerOf = async (req) => {
 // the T3 Code settings entry. Ports are left out: listing them is the costly
 // part of a poll, and a failed publish is rare. Kept briefly, since T3 asks
 // each time its settings open.
-let attentionCache = { at: 0, count: null };
-const attentionCount = async () => {
-  if (attentionCache.count !== null && Date.now() - attentionCache.at < 10_000) return attentionCache.count;
-  const count = Model.attentionCount(await status(), null, null);
-  attentionCache = { at: Date.now(), count };
-  return count;
+let navigationCache = { at: 0, nav: null }, navigationLoading = null;
+const helloNav = () => {
+  if (navigationCache.nav && Date.now() - navigationCache.at < 10_000) return Promise.resolve(navigationCache.nav);
+  if (!navigationLoading) navigationLoading = (async () => {
+    const nav = Model.navModel(await status(), null, null, null);
+    navigationCache = { at: Date.now(), nav };
+    return nav;
+  })().finally(() => { navigationLoading = null; });
+  return navigationLoading;
 };
 
 /**
@@ -2450,7 +2458,10 @@ const server = createServer(async (req, res) => {
       // A signed-in T3 Code client is someone around: auto-update waits.
       if (authed) noteActivity();
       const body = { service: "t3-setup", signedIn: authed };
-      if (authed) body.attention = await attentionCount().catch(() => null);
+      if (authed) {
+        const nav = await helloNav().catch(() => Model.navModel(null, null, null, null));
+        Object.assign(body, { attention: nav.attention, protocol: 2, nav, icons: NAV_ICONS, palette: PALETTE });
+      }
       return sendJson(res, 200, body);
     }
 
