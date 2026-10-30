@@ -1499,6 +1499,54 @@ const T3Model = (() => {
       .reduce((n, [, b]) => n + (b && b.tone === 'warn' ? b.count : 0), 0);
   };
 
+  /** The shared meaning of a badge, independent of the host's markup. */
+  const navBadgeOf = (badge) => {
+    if (!badge || !Number.isSafeInteger(badge.count) || badge.count <= 0) return null;
+    const kind = badge.tone === 'warn' ? 'warn' : badge.kind;
+    const label = kind === 'warn' ? plural(badge.count, 'thing needs', 'things need') + ' you'
+      : kind === 'running' ? plural(badge.count, 'install') + ' running'
+        : kind === 'live' ? plural(badge.count, 'port') + ' published'
+          : kind === 'count' ? plural(badge.count, 'update') + ' available' : null;
+    return label ? { kind, count: badge.count, label } : null;
+  };
+
+  /** One navigation model for the console, native Settings and compact menu. */
+  const navModel = (status, ports, ui, route) => {
+    const s = status || {}, badges = navBadges(s, ports, ui);
+    const current = T3Routes.resolve(route);
+    return {
+      current: T3Routes.PAGES.some((p) => p.route === current) ? current : null,
+      groups: T3Routes.grouped().filter((group) => group.pages.length).map((group) => ({
+        id: group.id, label: group.label,
+        pages: group.pages.map((p) => ({ route: p.route, title: p.title, icon: p.icon, badge: navBadgeOf(badges[p.route]) })),
+      })),
+      status: { ok: Boolean(s.server?.ok), text: s.server?.ok ? 'Running' : 'Not answering', version: imageLabel(s.image).text },
+      attention: attentionCount(s, null, ui),
+    };
+  };
+
+  // Icons cross the frame boundary as data. No host parses SVG markup from
+  // a message. The receiver applies these same restrictions independently.
+  const ICON_ELEMENTS = new Set(['path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse']);
+  const ICON_ATTRIBUTES = new Set(['d', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'width', 'height', 'points', 'fill']);
+  const iconNodes = (markup) => {
+    if (typeof markup !== 'string' || markup.length > 65536) return [];
+    const nodes = [];
+    for (const match of markup.matchAll(/<([a-z]+)\b([^<>]*?)\/?\s*>/g)) {
+      if (!ICON_ELEMENTS.has(match[1])) continue;
+      const attributes = {};
+      for (const attr of match[2].matchAll(/\s([a-zA-Z][\w:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+        const name = attr[1], value = attr[2] ?? attr[3];
+        if (ICON_ATTRIBUTES.has(name) && /^[-0-9a-zA-Z .,]{1,2000}$/.test(value)
+            && (name !== 'fill' || value === 'currentColor' || value === 'none')) attributes[name] = value;
+      }
+      nodes.push([match[1], attributes]);
+    }
+    return nodes;
+  };
+  const navIcons = (icons) => Object.fromEntries([...new Set(T3Routes.PAGES.map((p) => p.icon))]
+    .map((name) => [name, iconNodes(Object.hasOwn(icons || {}, name) ? icons[name] : null)]));
+
   // -------------------------------------------------------------- summary --
   /**
    * A few words on where each page stands, for the phone's More list:
@@ -1981,7 +2029,7 @@ const T3Model = (() => {
     publicUrlSource, hereOffer, connectView,
     contextView, contextAgentsMdRow, contextProviderRows,
     mcpView,
-    navBadges, serverWarnings, diskWarning, attentionCount, summaries, updatesView, runtimeView, autoUpdateView,
+    navBadges, navBadgeOf, navModel, iconNodes, navIcons, serverWarnings, diskWarning, attentionCount, summaries, updatesView, runtimeView, autoUpdateView,
     paletteItems, searchPalette,
     redactedDiagnostics, storageView,
   };

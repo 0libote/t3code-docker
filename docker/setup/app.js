@@ -253,6 +253,18 @@
     toldAttention = count;
   };
 
+  const navIcons = M.navIcons(T3C.icons);
+  let navFrame = null, toldNav = null;
+  const tellNav = () => {
+    if (!EMBED || navFrame !== null) return;
+    navFrame = requestAnimationFrame(() => {
+      navFrame = null;
+      const model = { ...M.navModel(state.status, state.ports, ui, state.route), icons: navIcons };
+      const serialized = JSON.stringify(model);
+      if (serialized !== toldNav) { toldNav = serialized; toHost('nav', model); }
+    });
+  };
+
   // Polled separately and more often: a tunnel takes a few seconds to be
   // handed a hostname, and a port appearing moments after a dev server starts
   // is the whole point. This is the same /ports API t3-expose calls, so
@@ -1864,13 +1876,14 @@
   const titleOf = (route) => (T3Routes.page(route) || {}).title || route;
 
   /** A sidebar mark: a count of what needs the person, or a quiet sign of work or of something live. */
-  const NAV_MARK = {
-    warn: (b) => ({ cls: 'tc-nav-badge tc-badge tc-badge--warn tc-badge--count', text: String(b.count), title: M.plural(b.count, 'thing needs', 'things need') + ' you' }),
-    running: (b) => ({ cls: 'tc-nav-badge tc-nav-mark tc-nav-mark--running', text: '', title: M.plural(b.count, 'install') + ' running' }),
-    live: (b) => ({ cls: 'tc-nav-badge tc-nav-mark tc-nav-mark--live', text: '', title: M.plural(b.count, 'port') + ' published' }),
-    count: (b) => ({ cls: 'tc-nav-badge tc-badge tc-badge--info tc-badge--count', text: String(b.count), title: M.plural(b.count, 'update') + ' available' }),
+  const navMark = (value) => {
+    const badge = M.navBadgeOf(value);
+    if (!badge) return null;
+    const count = badge.kind === 'warn' || badge.kind === 'count';
+    return { cls: count ? 'tc-nav-badge tc-badge tc-badge--' + (badge.kind === 'warn' ? 'warn' : 'info') + ' tc-badge--count'
+      : 'tc-nav-badge tc-nav-mark tc-nav-mark--' + badge.kind,
+    text: count ? String(badge.count) : '', title: badge.label };
   };
-  const navMark = (b) => (!b ? null : b.tone === 'warn' ? NAV_MARK.warn(b) : NAV_MARK[b.kind] ? NAV_MARK[b.kind](b) : null);
 
   const renderShell = (s, n) => {
     const badges = M.navBadges(s, state.ports, ui);
@@ -1900,6 +1913,9 @@
   };
 
   const render = () => {
+    // Delivery happens after this render, including its early loading/error
+    // returns. A route change never depends on the first /status response.
+    tellNav();
     const s = state.status;
     const n = now();
     document.body.dataset.consoleRoute = state.route;
@@ -4080,6 +4096,6 @@
   loadPorts();
   if (EMBED) {
     $('main').focus({ preventScroll: true });
-    toHost('ready');
+    toHost('ready', { protocol: 2 });
   }
 })();
