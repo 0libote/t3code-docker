@@ -71,4 +71,14 @@ if(action==='list') {
     assert(!('paths' in hello)); assert(!('server' in hello));
   }
   for (const hello of hellos.slice(1)) assert.deepEqual(hello, hellos[0], 'concurrent hosts share one cached navigation snapshot');
+  // A browser without scripts retains only the allowed embedding enums.
+  const login = async values => fetch(`http://127.0.0.1:${port}/login`, {
+    method:'POST', redirect:'manual', body:new URLSearchParams(values),
+  });
+  const good = await login({key:'fixture',embed:'t3',host:'tab',layout:'wide'});
+  assert.equal(good.status,303); assert.equal(good.headers.get('location'),'/?embed=t3&host=tab&layout=wide');
+  const bad = await login({key:'wrong',embed:'t3',host:'tab',layout:'malicious'});
+  assert.equal(bad.status,303); assert.equal(bad.headers.get('location'),'/?embed=t3&host=tab&layout=compact&error=1');
+  const alone = await login({key:'fixture',host:'tab',layout:'wide'});
+  assert.equal(alone.headers.get('location'),'/');
 });
