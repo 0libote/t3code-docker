@@ -1310,7 +1310,7 @@
       <div class="tc-group" data-key="scm-list">
         ${rows.length ? html`<div class="tc-list">${rows.map((row) => resourceRow(row))}</div>`
           : html`<div class="tc-empty tc-empty--compact"><span class="tc-empty-desc">Couldn’t read the source control CLIs just now. The console tries again on its own.</span></div>`}
-        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Bitbucket needs no CLI: add its token in T3 Code under Settings → Source Control.</span></div>
+        <div class="tc-card-foot">${icon('info', 'tc-icon--sm')}<span>Bitbucket needs no CLI: add its token in T3 Code under ${TAB ? html`<button class="tc-crumb-link tc-settings-link" type="button" data-cmd="embed.settings" data-path="/settings/source-control">Settings → Source Control</button>` : 'Settings → Source Control'}.</span></div>
       </div>`;
   };
 

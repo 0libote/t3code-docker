@@ -3295,3 +3295,34 @@ body[data-console-route="files"]:has(.tc-layer) .tc-toaster { visibility: hidden
 .tc-pagemenu .tc-menu-check--end { width: 15px; height: 15px; flex: none; }
 :root[data-host="tab"] .tc-standalone { min-height: calc(100dvh - 3rem); }
 .tc-unlock-page-title { font-size: 0.9375rem; padding: 0 8px; }
+/* The tab can show a desktop list beside Details in a 640px frame. Give
+   names priority in that narrow lane; the byte value remains available. */
+@container files-list (max-width: 400px) {
+  :root[data-host="tab"] .tc-fl--files :is(.tc-fl-head, .tc-fl-row) { grid-template-columns: 1.5rem minmax(0, 1fr) 4.75rem 1.75rem; }
+  :root[data-host="tab"] .tc-fl--files .tc-fsize { grid-template-columns: minmax(0, 1fr); }
+  :root[data-host="tab"] .tc-fl--files .tc-fsize .tc-bar { display: none; }
+  :root[data-host="tab"] .tc-fl--files .tc-fname > span:first-child { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  :root[data-host="tab"] .tc-fl--files .tc-git { justify-self: start; }
+}
+@container files-projects (max-width: 400px) {
+  :root[data-host="tab"] #files-browser .tc-fl--projects :is(.tc-fl-head, .tc-fl-row) { grid-template-columns: 1.5rem minmax(0, 1fr) 3.75rem 1.75rem; }
+  :root[data-host="tab"] .tc-fl--projects .tc-ftile { width: 1.5rem; height: 1.5rem; }
+  :root[data-host="tab"] .tc-fl--projects .tc-fcell { gap: 0.375rem; }
+  :root[data-host="tab"] .tc-fl--projects .tc-fsize { grid-template-columns: minmax(0, 1fr); }
+  :root[data-host="tab"] .tc-fl--projects .tc-fsize .tc-bar { display: none; }
+}
+/* Persistent compact actions occupy the former tab-bar edge. Notifications
+   and the last list item must remain above those actions. */
+:root[data-host="tab"][data-compact] .tc-page:has(.tc-sk-phone-actions) { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
+:root[data-host="tab"][data-compact] body:is([data-console-route="instructions"], [data-console-route="mcp"]) .tc-toaster { bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
+/* A planner needs a wider lane than ordinary desktop controls. Keep its
+   preview collapsible on a narrow tab without changing frame density. */
+@media (max-width: 799.98px) {
+  :root[data-host="tab"] .tc-wizard-grid { display: flex; flex-direction: column; overflow-y: auto; }
+  :root[data-host="tab"] .tc-wizard-main { flex: 1 0 auto; overflow: visible; }
+  :root[data-host="tab"] .tc-wizard-rail-wrap { flex: none; border-left: 0; border-top: 1px solid var(--border); overflow: visible; }
+  :root[data-host="tab"] .tc-wizard-rail-toggle { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; width: 100%; min-height: var(--touch); }
+  :root[data-host="tab"] .tc-wizard-rail { min-height: 0; padding: 0 1rem 1rem; }
+  :root[data-host="tab"] .tc-wizard-rail-wrap:not([data-open]) > .tc-wizard-rail { display: none; }
+  :root[data-host="tab"] .tc-wizard-rail-wrap[data-open] .tc-wizard-rail-toggle > .tc-icon { transform: rotate(180deg); }
+}

@@ -356,7 +356,18 @@ const Kit = (() => {
       else if (e.key === 'ArrowUp') next = list[(at - 1 + list.length) % list.length];
       else if (e.key === 'Home') next = list[0];
       else if (e.key === 'End') next = list[list.length - 1];
-      else if (e.key === 'Tab' && layer.kind === 'menu') { layer.close('tab'); return; }
+      else if (e.key === 'Tab' && layer.kind === 'menu') {
+        const links = [...layer.panel.querySelectorAll('.tc-menu-foot a[href], .tc-menu-foot button:not([disabled])')];
+        const footAt = links.indexOf(document.activeElement);
+        if (links.length && footAt === -1 && !e.shiftKey) {
+          e.preventDefault(); links[0].focus(); return;
+        }
+        if (footAt === 0 && e.shiftKey) {
+          e.preventDefault(); (list.find(button => button.hasAttribute('aria-current')) || list[0])?.focus(); return;
+        }
+        if (footAt >= 0 && (e.shiftKey || footAt < links.length - 1)) return;
+        layer.close('tab'); return;
+      }
       if (next) { e.preventDefault(); next.focus(); }
     });
   };

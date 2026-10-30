@@ -11,7 +11,8 @@ const {statusFor,portsFor,routeConsole,framed,unlock}=require('./lib/console-fix
 const {createFilesFixtures}=require('./lib/files-fixtures.cjs');
 const base=process.argv[2]||'http://127.0.0.1:23830/__setup/',key=process.argv[3]||'dev';
 const out=process.env.T3_FILES_UI_OUTPUT||'/tmp/t3-files-ui-audit';fs.mkdirSync(out,{recursive:true});
-const variants=[['desktop',1440,1000],['laptop',1280,800],['tablet',834,1112],['phone',390,844],['narrow',320,740],['embedded',1198,878],['embedded-modal',1440,900,1100,740],['embedded-compact',1440,900,800,740],['embedded-phone',390,844]];
+const TAB=process.env.T3_UI_AUDIT_TAB==='1';
+const variants=TAB?[480,639,640,704,1040].map(w=>['tab-'+w,w,900]):[['desktop',1440,1000],['laptop',1280,800],['tablet',834,1112],['phone',390,844],['narrow',320,740],['embedded',1198,878],['embedded-modal',1440,900,1100,740],['embedded-compact',1440,900,800,740],['embedded-phone',390,844]];
 const subset=process.env.T3_FILES_UI_VARIANTS?.split(',');
 const deepPath='/home/t3/.t3/agents/.local/share/mise/installs/muse-code/1.4.11-long-fixture-runtime-name';
 const delayGate=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
@@ -20,7 +21,7 @@ const delayGate=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});retu
  try{
   for(const theme of (process.env.T3_FILES_UI_THEMES?.split(',')||['light','dark']))for(const [variant,width,height,frameWidth,frameHeight]of variants){
    if(subset&&!subset.includes(variant))continue;
-   const phone=(frameWidth||width)<640,small=(frameWidth||width)<1024,embedded=variant.startsWith('embedded');
+   const phone=(frameWidth||width)<640,small=(frameWidth||width)<(TAB?640:1024),embedded=TAB||variant.startsWith('embedded');
    const context=await browser.newContext({viewport:{width,height},colorScheme:theme,reducedMotion:'reduce'}),page=await context.newPage(),api=createFilesFixtures();
    const errors=[],requests=[];let gate=null,readError=false;
    page.on('pageerror',error=>{errors.push(error.message);console.error(variant,theme,'PAGE ERROR',error.stack);});
@@ -44,7 +45,7 @@ const delayGate=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});retu
     if(result.body.etag&&request.headers()['if-none-match']===result.body.etag)return route.fulfill({status:304,headers});
     return route.fulfill({status:result.status||200,json:result.body,headers});
    });
-   const target=embedded?await framed(page,base+'?embed=t3&theme='+theme):page;
+   const target=embedded?await framed(page,base+'?embed=t3&theme='+theme+(TAB?'&host=tab&layout='+(width<640?'compact':'wide'):'')):page;
    if(frameWidth)await page.locator('iframe').evaluate((frame,{width,height,theme})=>{
     document.body.style.cssText='display:grid;place-items:center;background:'+(theme==='dark'?'#08090c':'#e9eaed');
     Object.assign(frame.style,{width:width+'px',height:height+'px',maxWidth:'calc(100vw - 40px)',maxHeight:'calc(100vh - 40px)',borderRadius:'16px',boxShadow:'0 16px 64px #0004'});

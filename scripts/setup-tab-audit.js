@@ -33,8 +33,22 @@ const OUT = process.env.T3_TAB_UI_OUTPUT;
       const row=await menu.locator('[role=menuitemradio]').first().boundingBox();assert.equal(row.height,width<640?44:32);
       if(width<640) await page.waitForFunction(()=>messages.some(m=>m.type==='layer'&&m.open)); else assert.equal(await page.evaluate(()=>messages.some(m=>m.type==='layer'&&m.open)),false);
       if (OUT) {fs.mkdirSync(OUT,{recursive:true}); await page.screenshot({path:path.join(OUT,`${width}-${theme}-menu.png`)});}
+      if(width>=640){
+        await page.keyboard.press('Tab');
+        assert.equal(await menu.locator('a').first().evaluate(el=>el===document.activeElement),true,'popover footer links are keyboard reachable');
+        await page.keyboard.press('Shift+Tab');
+        assert.equal(await menu.locator('[aria-current=page]').evaluate(el=>el===document.activeElement),true);
+      }
       await page.keyboard.press('ArrowDown'); await page.keyboard.press('Escape'); await menu.waitFor({state:'detached'});
       assert.equal(await frame.locator('#setup-pages').evaluate(el=>el===document.activeElement),true);
+      if(width===390&&theme==='light'){
+        await frame.locator('#setup-pages').click();
+        await frame.locator('[data-menu-drag]').evaluate(head=>{
+          head.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'touch',pointerId:7,isPrimary:true,clientY:100}));
+          head.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'touch',pointerId:7,isPrimary:true,clientY:180}));
+        });
+        await menu.waitFor({state:'detached'});
+      }
       await page.evaluate(()=>document.querySelector('iframe').contentWindow.postMessage({source:'t3-code',type:'navigate',route:'storage'},location.origin));
       await frame.waitForFunction(()=>document.body.dataset.consoleRoute==='storage');
       await page.evaluate(()=>document.querySelector('iframe').contentWindow.postMessage({source:'t3-code',type:'navigate',route:'invalid'},location.origin));
