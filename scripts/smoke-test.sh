@@ -161,6 +161,13 @@ check "no harness executable is baked, only the root-owned dispatcher" only_the_
 check "mise ships" "docker exec $NAME mise --version"
 check "harness installer ships" "docker exec $NAME t3-harness --help"
 check "storage CLI ships" "docker exec $NAME t3-storage --help"
+check "SSH credential helper ships" "docker exec $NAME t3-ssh --help"
+check "API credential helper ships" "docker exec $NAME t3-api --help"
+credentials_roundtrip() {
+  docker cp "$SCRIPT_DIR/credentials-smoke.mjs" "$NAME:/tmp/t3-credentials-smoke.mjs" >/dev/null
+  docker exec -u t3 "$NAME" node /tmp/t3-credentials-smoke.mjs
+}
+check "saved credentials stay private through the setup API and installed helpers" credentials_roundtrip
 storage_cli_has_disk() {
   local output
   output="$(docker exec "$NAME" t3-storage status --json)" || return 1
@@ -823,6 +830,22 @@ mcp_editor_works() {
     "$NAME" node /tmp/t3-mcp-audit/mcp-ui-audit.js "http://127.0.0.1:3774/" "$SETUP_KEY" >>"$UI_AUDIT_LOG" 2>&1
 }
 check "MCP controls refresh immediately and preserve editor revisions and values" mcp_editor_works
+
+credentials_browser_works() {
+  [ "$HAS_BROWSER" -eq 1 ] || return 0
+  local audit=/tmp/t3-credentials-audit
+  docker exec "$NAME" mkdir -p "$audit/scripts/lib" "$audit/scripts/fixtures" "$audit/tests/fixtures" "$audit/docker" || return 1
+  docker exec "$NAME" ln -sfn /opt/t3-setup "$audit/docker/setup" || return 1
+  docker cp scripts/credentials-ui-audit.mjs "$NAME:$audit/scripts/credentials-ui-audit.mjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/lib/console-fixtures.cjs "$NAME:$audit/scripts/lib/console-fixtures.cjs" >/dev/null 2>&1 || return 1
+  docker cp scripts/fixtures/console "$NAME:$audit/scripts/fixtures/console" >/dev/null 2>&1 || return 1
+  for helper in credentials.mjs credential-keys.mjs; do
+    docker cp "tests/fixtures/$helper" "$NAME:$audit/tests/fixtures/$helper" >/dev/null 2>&1 || return 1
+  done
+  docker exec -e CHROME_PATH=/usr/bin/chromium -e NODE_PATH=/opt/t3-mcp/lib/node_modules/@playwright/mcp/node_modules -e T3_CREDENTIALS_UI_WIDTHS=390,640,1280 \
+    "$NAME" node "$audit/scripts/credentials-ui-audit.mjs" >>"$UI_AUDIT_LOG" 2>&1
+}
+check "Credentials drafts, host trust, conflicts and recovery work on desktop, phone and Settings" credentials_browser_works
 
 files_browser_works() {
   [ "$HAS_BROWSER" -eq 1 ] || return 0

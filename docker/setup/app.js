@@ -154,6 +154,7 @@
   const skillsUI = T3SkillsUI.create({ api, getStatus: () => state.status, render: () => render(),
     readMarkdown: (file) => readMarkdownFile(file, 64 * 1024), downloadMarkdown: (...args) => downloadMarkdown(...args) });
   const mcpUI = T3McpUI.create({ api, getStatus: () => state.status, render: () => render() });
+  const credentialsUI = T3CredentialsUI.create({ api, getStatus: () => state.status, render: () => render(), onChange: () => loadStatus(true) });
   const filesUI = T3FilesUI.create({ api, base: BASE, getStatus: () => state.status, getRoute: () => state.route, render: () => render(), go: route => go(route) });
 
   /** Whether this browser came in on its T3 Code session rather than the key, so Lock would end nothing. */
@@ -214,8 +215,9 @@
     }
   };
 
-  const loadStatus = () => {
-    if (statusLoading) return statusLoading;
+  const loadStatus = (fresh = false) => {
+    // A completed mutation must read after an older poll, not join its snapshot.
+    if (statusLoading) return fresh === true ? statusLoading.then(() => loadStatus()) : statusLoading;
     statusLoading = (async () => {
       const accessRevision = access.revision;
       const res = await api('/status');
@@ -232,6 +234,7 @@
         checkHere();
         if (state.route === 'instructions' && state.contextTab === 'skills') skillsUI.activate();
         if (state.route === 'mcp') mcpUI.activate();
+        if (state.route === 'credentials') credentialsUI.activate();
         if (state.route === 'files') filesUI.activate();
         if (state.route === 'instructions' && state.contextTab === 'instructions') void loadInstructionsPreview();
       } else if (!locked) {
@@ -866,8 +869,8 @@
     </div>`;
 
   /** The page a "Needs you" item lives on, and that page's link when they all share one. */
-  const NEEDS_PAGES = { agents: 'All agents', toolchains: 'All toolchains', sourcecontrol: 'Source control', ports: 'All ports', server: 'Server', storage: 'Storage', updates: 'Updates' };
-  const needsPage = (x) => x.target === 'port' ? 'ports' : x.target === 'harness' ? 'agents'
+  const NEEDS_PAGES = { agents: 'All agents', toolchains: 'All toolchains', sourcecontrol: 'Source control', ports: 'All ports', server: 'Server', storage: 'Storage', updates: 'Updates', credentials: 'Credentials' };
+  const needsPage = (x) => x.target === 'credential' ? 'credentials' : x.target === 'port' ? 'ports' : x.target === 'harness' ? 'agents'
     : x.target === 'server' ? (x.action && x.action.route) || 'server'
       : x.target === 'toolchain' && M.SOURCE_CONTROL[x.id] ? 'sourcecontrol' : 'toolchains';
 
@@ -1876,6 +1879,7 @@
     files: () => html`${filesUI.phoneHead()}${pageHead('files')}${filesUI.content()}`,
     overview: overviewPage, access: accessPage, agents: agentsPage, instructions: instructionsPage,
     mcp: () => html`${mcpUI.phoneHead()}${pageHead('mcp', { sub: 'Servers your agents can start or connect to. Define one once, then add it to the agents you choose.' })}${mcpUI.content()}`,
+    credentials: () => html`${pageHead('credentials')}${credentialsUI.content()}`,
     toolchains: toolchainsPage, sourcecontrol: sourceControlPage, ports: portsPage,
     updates: updatesPage, storage: storagePage, server: serverPage, more: morePage,
   };
@@ -1997,6 +2001,7 @@
     if (contextEditor.layer && !await contextEditor.requestClose()) return false;
     if (!await skillsUI.beforeNavigate()) return false;
     if (!await mcpUI.beforeNavigate()) return false;
+    if (!await credentialsUI.beforeNavigate()) return false;
     return filesUI.beforeNavigate();
   };
   let hostLeaving = false;
@@ -2028,6 +2033,7 @@
     if (route === 'instructions' && state.contextTab === 'skills' && state.status) skillsUI.activate(true);
     if (route === 'instructions' && state.contextTab === 'instructions' && state.status) void loadInstructionsPreview(true);
     if (route === 'mcp' && state.status) mcpUI.activate(true);
+    if (route === 'credentials' && state.status) credentialsUI.activate(true);
     if (route === 'files' && state.status) filesUI.activate();
   };
   const navigateFromHash = async focus => {
@@ -4085,7 +4091,7 @@
   // -------------------------------------------------------------- palette --
   const openPalette = () => {
     const layer = Kit.palette({
-      items: () => [...M.paletteItems(state.status || {}, state.ports, ui, now()), ...skillsUI.paletteItems().map(item => ({ ...item, group: 'Instructions & skills', keywords: item.desc || '' })), ...filesUI.paletteItems()],
+      items: () => [...M.paletteItems(state.status || {}, state.ports, ui, now()), ...skillsUI.paletteItems().map(item => ({ ...item, group: 'Instructions & skills', keywords: item.desc || '' })), ...filesUI.paletteItems(), ...credentialsUI.paletteItems()],
       search: M.searchPalette,
       run: (item) => {
         const { cmd, ...args } = item.cmd;
@@ -4100,7 +4106,7 @@
 
   // ------------------------------------------------------------ shortcuts --
   Kit.bind('mod+k', openPalette);
-  Kit.bind('/', () => state.route === 'files' ? filesUI.focusSearch() : state.route === 'mcp' ? mcpUI.focusSearch() : state.route === 'instructions' && state.contextTab === 'skills' ? skillsUI.focusSearch() : openPalette());
+  Kit.bind('/', () => state.route === 'files' ? filesUI.focusSearch() : state.route === 'mcp' ? mcpUI.focusSearch() : state.route === 'credentials' ? credentialsUI.focusSearch() : state.route === 'instructions' && state.contextTab === 'skills' ? skillsUI.focusSearch() : openPalette());
   for (const page of T3Routes.PAGES) {
     if (page.key) Kit.bind('g ' + page.key, () => { keyboardNav = true; go(page.route); });
   }
