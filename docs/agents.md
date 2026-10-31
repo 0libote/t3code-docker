@@ -53,11 +53,11 @@ in a comma-separated list; `all` and `agents` include it too.
 It uses the official `@earendil-works/pi-coding-agent` npm package through mise,
 with dependency lifecycle scripts disabled by mise's default policy. The image's
 Node.js meets Pi's Node 22.19 minimum; T3 Code requires Pi 0.80.5 or newer.
-Run `docker compose exec t3code t3-login pi`, then `/login` to connect a provider.
-Enable Pi under T3 Code's **Settings → Providers** and refresh it. Setup keeps
-sign-in status unknown because Pi has no bounded login-status command. Its
-credentials and sessions in `~/.pi/agent` survive updates and uninstall.
-Update Pi from Setup so the managed version record stays in sync.
+Run `docker compose exec -it t3code t3-login pi`, then `/login` to connect a provider.
+Enable Pi under T3 Code's **Settings → Providers** and refresh it. Setup does not
+probe Pi's provider-specific authentication, so it leaves sign-in status unknown.
+Its credentials and sessions in `~/.pi/agent` survive updates and uninstall.
+Updates from Setup and T3 Code's provider settings use the same managed updater.
 See [T3 Code's Pi guide](https://github.com/pingdotgg/t3code/blob/main/docs/user/providers-pi.md)
 and [Pi's installation guide](https://pi.dev/docs/latest/quickstart).
 

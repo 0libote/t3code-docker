@@ -1049,6 +1049,21 @@ launcher_runs_the_agent() {
 }
 check "a launcher runs its agent" launcher_runs_the_agent
 
+pi_profile_has_signin_warning() {
+  docker exec -u t3 "$NAME" node --input-type=module -e '
+    import assert from "node:assert/strict";
+    import path from "node:path";
+    import { createPathPolicy } from "/opt/t3-setup/files/paths.mjs";
+    const policy = createPathPolicy();
+    for (const suffix of [".pi", ".pi/agent", ".pi/agent/auth.json"]) {
+      const rule = await policy.classify(path.join(policy.home, suffix));
+      assert.ok(rule.signIns.includes("Pi"), suffix);
+      assert.ok(rule.tags.includes("sign-in"), suffix);
+    }
+  '
+}
+check "Pi profiles carry sign-in warnings through their persisted paths" pi_profile_has_signin_warning
+
 # Cursor's package carries its own node and rg. Installed through mise's
 # registry as-is, they shadowed the image's for every agent and terminal.
 image_node_wins() {
