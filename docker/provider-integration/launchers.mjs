@@ -40,6 +40,7 @@ export const LAUNCHERS = Object.freeze({
   // T3 only offers Muse updates for its official auto-updating launcher.
   // This standalone binary is updated from Setup → Agents instead.
   muse: { path: ["muse", "muse"], update: null },
+  pi: { path: ["pi", "pi"], update: null },
 });
 
 /** The launcher directory: beside the harness manager's own links. */

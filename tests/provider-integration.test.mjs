@@ -81,7 +81,7 @@ const json = (fs, file) => JSON.parse(fs.files.get(file));
 test("provider mapping covers the managed harnesses and their T3 driver kinds", () => {
   assert.deepEqual(
     PROVIDERS.map((provider) => provider.id),
-    ["claude", "codex", "opencode", "grok", "cursor", "muse"],
+    ["claude", "codex", "opencode", "grok", "cursor", "muse", "pi"],
   );
   assert.equal(driverFor("claude"), "claudeAgent");
   assert.equal(driverFor("cursor"), "cursor");
@@ -117,6 +117,28 @@ test("Muse installation configures its launcher, preserves disabled state and re
   await integration.sync();
   assert.equal(json(fs, SETTINGS).providers.muse.binaryPath, undefined);
   assert.equal(fs.files.has(launcher("muse")), false);
+});
+
+test("Pi installation configures its launcher, preserves disabled state and retracts on uninstall", async () => {
+  const fs = memoryFs({ [SETTINGS]: JSON.stringify({
+    providers: { pi: { enabled: false } },
+    providerInstances: { pi: { driver: "pi", enabled: false, config: {} } },
+  }) });
+  let runnable = true;
+  const integration = createProviderIntegration({ fs, home: HOME, baseDir: BASE, harness: {
+    async status() { return { harnesses: [fact("pi", { runnable, executable: runnable ? "/mise/pi/1.4.0/pi" : null })], degraded: [] }; },
+  } });
+  assert.equal((await integration.sync()).ok, true);
+  const settings = json(fs, SETTINGS);
+  assert.equal(settings.providers.pi.binaryPath, launcher("pi"));
+  assert.equal(settings.providers.pi.enabled, false);
+  assert.equal(settings.providerInstances.pi.config.binaryPath, launcher("pi"));
+  assert.equal(settings.providerInstances.pi.enabled, false);
+  assert.match(fs.files.get(launcher("pi")), /exec '\/mise\/pi\/1\.4\.0\/pi'/);
+  runnable = false;
+  await integration.sync();
+  assert.equal(json(fs, SETTINGS).providers.pi.binaryPath, undefined);
+  assert.equal(fs.files.has(launcher("pi")), false);
 });
 
 test("applyManaged preserves unrelated keys in both representations", () => {
@@ -515,6 +537,7 @@ test("launchers keep managed execution and route supported T3 updates to the man
     grok: [() => true, "update"],
     cursor: [() => true, "update"],
     muse: [() => true, null],
+    pi: [() => true, null],
   };
   assert.deepEqual(Object.keys(LAUNCHERS).sort(), PROVIDERS.map((p) => p.id).sort(), "one for every managed agent");
   for (const provider of PROVIDERS) {

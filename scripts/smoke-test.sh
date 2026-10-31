@@ -965,20 +965,20 @@ fi
 # Optional agents wait for someone to ask. Ask the way the Agents page does.
 optional_agents_install() {
   local id code
-  for id in grok cursor muse; do
+  for id in grok cursor muse pi; do
     status_json | jq -e ".harnesses[] | select(.id == \"$id\") | .installed == false" >/dev/null || return 1
     code="$(lifecycle_post install "$id")"
     case "$code" in 200|202) ;; *) return 1 ;; esac
     operation_result "$id" || return 1
   done
 }
-check "Grok, Cursor and Muse are not installed unasked, and install from the page" optional_agents_install
+check "Grok, Cursor, Muse and Pi are not installed unasked, and install from the page" optional_agents_install
 
 agents_runnable() {
   status_json | python3 -c '
 import json, sys
 h = {a["id"]: a for a in json.load(sys.stdin)["harnesses"]}
-sys.exit(0 if all(h[i]["runnable"] and h[i]["version"] for i in ("claude", "codex", "opencode", "grok", "cursor", "muse")) else 1)'
+sys.exit(0 if all(h[i]["runnable"] and h[i]["version"] for i in ("claude", "codex", "opencode", "grok", "cursor", "muse", "pi")) else 1)'
 }
 # Retried: the card's facts refresh on the poll after the last install lands.
 check "every agent is runnable at a recorded version" "retry 10 agents_runnable"
@@ -1037,7 +1037,7 @@ settings = json.load(open("/home/t3/.t3/userdata/settings.json"))
 p = settings.get("providers", {})
 instances = settings.get("providerInstances", {})
 ok = True
-for d in ("claudeAgent", "codex", "opencode", "grok", "cursor"):
+for d in ("claudeAgent", "codex", "opencode", "grok", "cursor", "pi"):
     path = instances.get(d, {}).get("config", {}).get("binaryPath", "") or p.get(d, {}).get("binaryPath", "")
     ok = ok and path.startswith("/home/t3/.local/share/t3-harness/launchers/") \
         and re.search(r"^exec .?/home/t3/\.local/share/mise/installs/", open(path).read(), re.M) is not None
